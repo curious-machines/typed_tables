@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import re
+import uuid as uuid_module
 from dataclasses import dataclass
 from typing import Any, Iterator
 
 from typed_tables.parsing.query_parser import (
     CompoundCondition,
     Condition,
+    CreateInstanceQuery,
+    CreateTypeQuery,
     DescribeQuery,
+    FieldValue,
+    FunctionCall,
     Query,
     SelectField,
     SelectQuery,
     ShowTablesQuery,
+    UseQuery,
 )
 from typed_tables.storage import StorageManager
 from typed_tables.types import (
+    AliasTypeDefinition,
     ArrayTypeDefinition,
     CompositeTypeDefinition,
+    FieldDefinition,
     TypeDefinition,
     TypeRegistry,
 )
@@ -31,6 +39,21 @@ class QueryResult:
     columns: list[str]
     rows: list[dict[str, Any]]
     message: str | None = None
+
+
+@dataclass
+class UseResult(QueryResult):
+    """Result of a USE query - signals REPL to switch databases."""
+
+    path: str = ""
+
+
+@dataclass
+class CreateResult(QueryResult):
+    """Result of a CREATE query."""
+
+    type_name: str = ""
+    index: int | None = None
 
 
 class QueryExecutor:
@@ -48,6 +71,12 @@ class QueryExecutor:
             return self._execute_describe(query)
         elif isinstance(query, SelectQuery):
             return self._execute_select(query)
+        elif isinstance(query, UseQuery):
+            return self._execute_use(query)
+        elif isinstance(query, CreateTypeQuery):
+            return self._execute_create_type(query)
+        elif isinstance(query, CreateInstanceQuery):
+            return self._execute_create_instance(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -126,6 +155,163 @@ class QueryExecutor:
             columns=["property", "type", "size"],
             rows=rows,
         )
+
+    def _execute_use(self, query: UseQuery) -> UseResult:
+        """Execute USE query - returns path for REPL to switch databases."""
+        return UseResult(
+            columns=[],
+            rows=[],
+            path=query.path,
+            message=f"Switching to database: {query.path}",
+        )
+
+    def _execute_create_type(self, query: CreateTypeQuery) -> CreateResult:
+        """Execute CREATE TYPE query."""
+        # Check if type already exists
+        if self.registry.get(query.name) is not None:
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Type '{query.name}' already exists",
+                type_name=query.name,
+            )
+
+        # Build field definitions
+        fields: list[FieldDefinition] = []
+        for field_def in query.fields:
+            # Handle 'string' as alias for 'character[]'
+            type_name = field_def.type_name
+            if type_name == "string":
+                field_type = self.registry.get_array_type("character")
+            else:
+                # Check if it's an array type (ends with [])
+                if type_name.endswith("[]"):
+                    base_name = type_name[:-2]
+                    field_type = self.registry.get_array_type(base_name)
+                else:
+                    field_type = self.registry.get(type_name)
+                    if field_type is None:
+                        return CreateResult(
+                            columns=[],
+                            rows=[],
+                            message=f"Unknown type: {type_name}",
+                            type_name=query.name,
+                        )
+
+            fields.append(FieldDefinition(name=field_def.name, type_def=field_type))
+
+        # Create and register the composite type
+        composite = CompositeTypeDefinition(name=query.name, fields=fields)
+        self.registry.register(composite)
+
+        # Save updated metadata
+        self.storage.save_metadata()
+
+        return CreateResult(
+            columns=["type", "fields"],
+            rows=[{"type": query.name, "fields": len(fields)}],
+            message=f"Created type '{query.name}' with {len(fields)} field(s)",
+            type_name=query.name,
+        )
+
+    def _execute_create_instance(self, query: CreateInstanceQuery) -> CreateResult:
+        """Execute CREATE instance query."""
+        type_def = self.registry.get(query.type_name)
+        if type_def is None:
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Unknown type: {query.type_name}",
+                type_name=query.type_name,
+            )
+
+        base = type_def.resolve_base_type()
+        if not isinstance(base, CompositeTypeDefinition):
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Cannot create instance of non-composite type: {query.type_name}",
+                type_name=query.type_name,
+            )
+
+        # Build values dict from field values
+        values: dict[str, Any] = {}
+        for field_val in query.fields:
+            value = self._resolve_instance_value(field_val.value)
+            values[field_val.name] = value
+
+        # Check all required fields are present
+        for field in base.fields:
+            if field.name not in values:
+                return CreateResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Missing required field: {field.name}",
+                    type_name=query.type_name,
+                )
+
+        # Create the instance using storage manager
+        try:
+            index = self._create_instance(type_def, base, values)
+            return CreateResult(
+                columns=["type", "index"],
+                rows=[{"type": query.type_name, "index": index}],
+                message=f"Created {query.type_name} at index {index}",
+                type_name=query.type_name,
+                index=index,
+            )
+        except Exception as e:
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Failed to create instance: {e}",
+                type_name=query.type_name,
+            )
+
+    def _resolve_instance_value(self, value: Any) -> Any:
+        """Resolve a value from CREATE instance, handling function calls."""
+        if isinstance(value, FunctionCall):
+            if value.name == "uuid":
+                # Generate a random UUID as uint128
+                return uuid_module.uuid4().int
+            else:
+                raise ValueError(f"Unknown function: {value.name}()")
+        return value
+
+    def _create_instance(
+        self,
+        type_def: TypeDefinition,
+        composite_type: CompositeTypeDefinition,
+        values: dict[str, Any],
+    ) -> int:
+        """Create a composite instance and return its index."""
+        field_references: dict[str, Any] = {}
+
+        for field in composite_type.fields:
+            field_value = values[field.name]
+            field_base = field.type_def.resolve_base_type()
+
+            if isinstance(field_base, ArrayTypeDefinition):
+                # Convert string to character list if needed
+                if isinstance(field_value, str):
+                    field_value = list(field_value)
+                # Store array elements
+                array_table = self.storage.get_array_table_for_type(field.type_def)
+                array_index = array_table.insert(field_value)
+                field_references[field.name] = array_table.get_header(array_index)
+            elif isinstance(field_base, CompositeTypeDefinition):
+                # Nested composite - recursive create
+                nested_index = self._create_instance(field.type_def, field_base, field_value)
+                field_references[field.name] = nested_index
+            else:
+                # Primitive value - store in field type's table
+                field_table = self.storage.get_table(field.type_def.name)
+                ref_index = field_table.insert(field_value)
+                field_references[field.name] = ref_index
+
+        # Store the composite record
+        table = self.storage.get_table(type_def.name)
+        return table.insert(field_references)
 
     def _execute_select(self, query: SelectQuery) -> QueryResult:
         """Execute SELECT query."""

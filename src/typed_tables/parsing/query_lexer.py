@@ -31,6 +31,10 @@ class QueryLexer:
         "average": "AVERAGE",
         "sum": "SUM",
         "product": "PRODUCT",
+        "use": "USE",
+        "create": "CREATE",
+        "type": "TYPE",
+        "uuid": "UUID",
     }
 
     # Token list
@@ -40,8 +44,10 @@ class QueryLexer:
         "FLOAT",
         "STRING",
         "REGEX",
+        "PATH",
         "STAR",
         "COMMA",
+        "COLON",
         "LPAREN",
         "RPAREN",
         "EQ",
@@ -50,11 +56,13 @@ class QueryLexer:
         "LTE",
         "GT",
         "GTE",
+        "NEWLINE",
     ] + list(reserved.values())
 
     # Simple tokens
     t_STAR = r"\*"
     t_COMMA = r","
+    t_COLON = r":"
     t_LPAREN = r"\("
     t_RPAREN = r"\)"
     t_EQ = r"="
@@ -64,7 +72,7 @@ class QueryLexer:
     t_GTE = r">="
     t_GT = r">"
 
-    # Ignored characters
+    # Ignored characters (NOT newlines - they're significant for create type)
     t_ignore = " \t"
 
     def __init__(self) -> None:
@@ -86,6 +94,10 @@ class QueryLexer:
         t.value = t.value[1:-1].encode().decode("unicode_escape")
         return t
 
+    def t_PATH(self, t: lex.LexToken) -> lex.LexToken:
+        r"(?:\.\.?)?/[a-zA-Z0-9_./\-]+"
+        return t
+
     def t_REGEX(self, t: lex.LexToken) -> lex.LexToken:
         r"/([^/\\]|\\.)*/"
         # Remove slashes
@@ -98,9 +110,10 @@ class QueryLexer:
         t.type = self.reserved.get(t.value.lower(), "IDENTIFIER")
         return t
 
-    def t_newline(self, t: lex.LexToken) -> None:
+    def t_NEWLINE(self, t: lex.LexToken) -> lex.LexToken:
         r"\n+"
         t.lexer.lineno += len(t.value)
+        return t
 
     def t_COMMENT(self, t: lex.LexToken) -> None:
         r"--[^\n]*"

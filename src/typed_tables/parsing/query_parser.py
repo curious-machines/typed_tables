@@ -64,7 +64,54 @@ class DescribeQuery:
     table: str
 
 
-Query = SelectQuery | ShowTablesQuery | DescribeQuery
+@dataclass
+class UseQuery:
+    """A USE query to select a database directory."""
+
+    path: str
+
+
+@dataclass
+class FieldDef:
+    """A field definition for create type."""
+
+    name: str
+    type_name: str
+
+
+@dataclass
+class CreateTypeQuery:
+    """A CREATE TYPE query."""
+
+    name: str
+    fields: list[FieldDef] = field(default_factory=list)
+
+
+@dataclass
+class FieldValue:
+    """A field value for create instance."""
+
+    name: str
+    value: Any  # Can be literal or FunctionCall
+
+
+@dataclass
+class FunctionCall:
+    """A function call like uuid()."""
+
+    name: str
+    args: list[Any] = field(default_factory=list)
+
+
+@dataclass
+class CreateInstanceQuery:
+    """A CREATE instance query."""
+
+    type_name: str
+    fields: list[FieldValue] = field(default_factory=list)
+
+
+Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInstanceQuery
 
 
 class QueryParser:
@@ -89,12 +136,89 @@ class QueryParser:
         p[0] = p[1]
 
     def p_query_show_tables(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW TABLES"""
+        """query : SHOW TABLES
+                 | SHOW TABLES newlines"""
         p[0] = ShowTablesQuery()
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
-        """query : DESCRIBE IDENTIFIER"""
+        """query : DESCRIBE IDENTIFIER
+                 | DESCRIBE IDENTIFIER newlines"""
         p[0] = DescribeQuery(table=p[2])
+
+    def p_query_use_path(self, p: yacc.YaccProduction) -> None:
+        """query : USE PATH
+                 | USE PATH newlines"""
+        p[0] = UseQuery(path=p[2])
+
+    def p_query_use_identifier(self, p: yacc.YaccProduction) -> None:
+        """query : USE IDENTIFIER
+                 | USE IDENTIFIER newlines"""
+        p[0] = UseQuery(path=p[2])
+
+    def p_query_use_string(self, p: yacc.YaccProduction) -> None:
+        """query : USE STRING
+                 | USE STRING newlines"""
+        p[0] = UseQuery(path=p[2])
+
+    def p_query_create_type(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE TYPE IDENTIFIER newlines type_field_list"""
+        p[0] = CreateTypeQuery(name=p[3], fields=p[5])
+
+    def p_query_create_type_empty(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE TYPE IDENTIFIER
+                 | CREATE TYPE IDENTIFIER newlines"""
+        p[0] = CreateTypeQuery(name=p[3], fields=[])
+
+    def p_query_create_instance(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE IDENTIFIER LPAREN instance_field_list RPAREN
+                 | CREATE IDENTIFIER LPAREN instance_field_list RPAREN newlines"""
+        p[0] = CreateInstanceQuery(type_name=p[2], fields=p[4])
+
+    def p_query_create_instance_empty(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE IDENTIFIER LPAREN RPAREN
+                 | CREATE IDENTIFIER LPAREN RPAREN newlines"""
+        p[0] = CreateInstanceQuery(type_name=p[2], fields=[])
+
+    def p_newlines(self, p: yacc.YaccProduction) -> None:
+        """newlines : NEWLINE
+                    | newlines NEWLINE"""
+        pass
+
+    def p_type_field_list_single(self, p: yacc.YaccProduction) -> None:
+        """type_field_list : type_field_def"""
+        p[0] = [p[1]]
+
+    def p_type_field_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """type_field_list : type_field_list type_field_def"""
+        p[0] = p[1] + [p[2]]
+
+    def p_type_field_def(self, p: yacc.YaccProduction) -> None:
+        """type_field_def : IDENTIFIER COLON IDENTIFIER newlines
+                          | IDENTIFIER COLON IDENTIFIER"""
+        p[0] = FieldDef(name=p[1], type_name=p[3])
+
+    def p_instance_field_list_single(self, p: yacc.YaccProduction) -> None:
+        """instance_field_list : instance_field"""
+        p[0] = [p[1]]
+
+    def p_instance_field_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """instance_field_list : instance_field_list COMMA instance_field"""
+        p[0] = p[1] + [p[3]]
+
+    def p_instance_field(self, p: yacc.YaccProduction) -> None:
+        """instance_field : IDENTIFIER EQ instance_value"""
+        p[0] = FieldValue(name=p[1], value=p[3])
+
+    def p_instance_value_literal(self, p: yacc.YaccProduction) -> None:
+        """instance_value : STRING
+                          | INTEGER
+                          | FLOAT"""
+        p[0] = p[1]
+
+    def p_instance_value_func(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER LPAREN RPAREN
+                          | UUID LPAREN RPAREN"""
+        p[0] = FunctionCall(name=p[1].lower() if isinstance(p[1], str) else "uuid")
 
     def p_select_query(self, p: yacc.YaccProduction) -> None:
         """select_query : from_clause select_clause where_clause group_clause sort_clause offset_clause limit_clause"""

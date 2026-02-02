@@ -50,6 +50,10 @@ class StorageManager:
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
+    def save_metadata(self) -> None:
+        """Public method to save type metadata to disk."""
+        self._save_metadata()
+
     def _serialize_type_registry(self) -> dict[str, Any]:
         """Serialize the type registry to JSON-compatible format."""
         result: dict[str, Any] = {}

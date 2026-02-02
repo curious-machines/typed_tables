@@ -9,9 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
-from typed_tables.parsing.query_parser import QueryParser
-from typed_tables.query_executor import QueryExecutor, QueryResult
+from typed_tables.parsing.query_parser import QueryParser, UseQuery
+from typed_tables.query_executor import CreateResult, QueryExecutor, QueryResult, UseResult
 from typed_tables.storage import StorageManager
+from typed_tables.types import TypeRegistry
 
 
 def format_value(value: Any) -> str:
@@ -45,7 +46,13 @@ def format_value(value: Any) -> str:
 
 def print_result(result: QueryResult, max_width: int = 80) -> None:
     """Print query results in a formatted table."""
-    if result.message:
+    # Special handling for UseResult and CreateResult - show message as success, not error
+    if isinstance(result, (UseResult, CreateResult)):
+        if result.message:
+            print(result.message)
+        if not result.rows:
+            return
+    elif result.message:
         print(f"Error: {result.message}")
         return
 
@@ -86,21 +93,38 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
     print(f"\n({len(result.rows)} row{'s' if len(result.rows) != 1 else ''})")
 
 
-def run_repl(data_dir: Path) -> int:
+def run_repl(data_dir: Path | None) -> int:
     """Run the interactive REPL."""
     print(f"TTQ REPL - Typed Tables Query Language")
-    print(f"Data directory: {data_dir}")
+    if data_dir:
+        print(f"Data directory: {data_dir}")
+    else:
+        print("No data directory loaded. Use 'use <path>' to select a database.")
     print(f"Type 'help' for commands, 'exit' to quit.\n")
 
-    try:
-        registry = load_registry_from_metadata(data_dir)
-        storage = StorageManager(data_dir, registry)
-    except Exception as e:
-        print(f"Error loading data: {e}", file=sys.stderr)
-        return 1
+    registry: TypeRegistry | None = None
+    storage: StorageManager | None = None
+    executor: QueryExecutor | None = None
+
+    def load_database(path: Path) -> tuple[TypeRegistry, StorageManager, QueryExecutor]:
+        """Load a database from the given path."""
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+            reg = TypeRegistry()
+        else:
+            reg = load_registry_from_metadata(path)
+        stor = StorageManager(path, reg)
+        exec = QueryExecutor(stor, reg)
+        return reg, stor, exec
+
+    if data_dir:
+        try:
+            registry, storage, executor = load_database(data_dir)
+        except Exception as e:
+            print(f"Error loading data: {e}", file=sys.stderr)
+            return 1
 
     parser = QueryParser()
-    executor = QueryExecutor(storage, registry)
 
     # Command history
     history_file = Path.home() / ".ttq_history"
@@ -108,6 +132,27 @@ def run_repl(data_dir: Path) -> int:
         readline.read_history_file(history_file)
     except FileNotFoundError:
         pass
+
+    def is_multiline_query(line: str) -> bool:
+        """Check if this query needs multi-line input."""
+        lower = line.lower()
+        # Single-line queries that don't need continuation
+        if lower.startswith("show") or lower.startswith("describe") or lower.startswith("use"):
+            return False
+        # create type needs multi-line for field definitions
+        if lower.startswith("create type"):
+            return True
+        # Regular queries can span multiple lines
+        return True
+
+    def needs_continuation(line: str) -> bool:
+        """Check if we need more input for this query."""
+        lower = line.lower()
+        # create type continues until empty line (field definitions on separate lines)
+        if lower.startswith("create type"):
+            return True
+        # Other queries end with semicolon or empty line for continuation
+        return not line.endswith(";")
 
     try:
         while True:
@@ -132,23 +177,70 @@ def run_repl(data_dir: Path) -> int:
 
             # Parse and execute query
             try:
-                # Handle multi-line queries (ended by semicolon or empty line)
-                while not line.endswith(";") and not line.lower().startswith("show") and not line.lower().startswith("describe"):
-                    try:
-                        continuation = input("...> ").strip()
-                        if not continuation:
+                # Handle multi-line queries
+                if is_multiline_query(line) and needs_continuation(line):
+                    is_create_type = line.lower().startswith("create type")
+                    while True:
+                        try:
+                            continuation = input("...> ")
+                            if is_create_type:
+                                # For create type, preserve newlines (fields on separate lines)
+                                if not continuation.strip():
+                                    break
+                                line += "\n" + continuation
+                            else:
+                                # For other queries, join with space
+                                continuation = continuation.strip()
+                                if not continuation:
+                                    break
+                                line += " " + continuation
+                                if line.endswith(";"):
+                                    break
+                        except EOFError:
                             break
-                        line += " " + continuation
-                    except EOFError:
-                        break
 
                 # Remove trailing semicolon
                 if line.endswith(";"):
                     line = line[:-1]
 
+                # Check if we need a database for this query
+                lower = line.lower()
+                if not lower.startswith("use") and executor is None:
+                    print("No database loaded. Use 'use <path>' to select a database first.")
+                    print()
+                    continue
+
                 query = parser.parse(line)
-                result = executor.execute(query)
-                print_result(result)
+
+                # Handle USE query specially - switch databases
+                if isinstance(query, UseQuery):
+                    new_path = Path(query.path)
+                    try:
+                        if storage:
+                            storage.close()
+                        registry, storage, executor = load_database(new_path)
+                        data_dir = new_path
+                        print(f"Switched to database: {new_path}")
+                    except Exception as e:
+                        print(f"Error loading database: {e}")
+                    print()
+                    continue
+
+                result = executor.execute(query)  # type: ignore
+
+                # Handle UseResult - switch databases
+                if isinstance(result, UseResult):
+                    new_path = Path(result.path)
+                    try:
+                        if storage:
+                            storage.close()
+                        registry, storage, executor = load_database(new_path)
+                        data_dir = new_path
+                        print(f"Switched to database: {new_path}")
+                    except Exception as e:
+                        print(f"Error loading database: {e}")
+                else:
+                    print_result(result)
 
             except SyntaxError as e:
                 print(f"Syntax error: {e}")
@@ -165,7 +257,8 @@ def run_repl(data_dir: Path) -> int:
         except Exception:
             pass
 
-        storage.close()
+        if storage:
+            storage.close()
 
     return 0
 
@@ -175,9 +268,18 @@ def print_help() -> None:
     print("""
 TTQ - Typed Tables Query Language
 
-COMMANDS:
+DATABASE:
+  use <path>               Switch to a database directory
   show tables              List all tables
   describe <table>         Show table structure
+
+CREATE:
+  create type <Name>       Create a new composite type (fields on following lines)
+    field: type              - Each field on its own line
+                             - End with empty line
+  create <Type>(...)       Create an instance of a type
+    field=value, ...         - Field values separated by commas
+    field=uuid()             - Use uuid() to generate a UUID
 
 QUERIES:
   from <table>                        Select all records
@@ -207,7 +309,22 @@ AGGREGATES:
   average(field)           Average of field values
   product(field)           Product of field values
 
+TYPES:
+  string                   Alias for character[]
+  Primitive types: bit, character, uint8, int8, uint16, int16,
+                   uint32, int32, uint64, int64, uint128, int128,
+                   float32, float64
+  Array types: Add [] suffix (e.g., uint8[], character[])
+
 EXAMPLES:
+  use ./my_database
+
+  create type Person
+  name: string
+  age: uint8
+
+  create Person(name="Alice", age=30)
+
   from Person
   from Person select name, age where age >= 18
   from Person where name starts with "A" sort by name
@@ -231,7 +348,9 @@ def main(argv: list[str] | None = None) -> int:
     arg_parser.add_argument(
         "data_dir",
         type=Path,
-        help="Path to the data directory containing table files",
+        nargs="?",
+        default=None,
+        help="Path to the data directory containing table files (optional)",
     )
     arg_parser.add_argument(
         "-c", "--command",
@@ -241,11 +360,13 @@ def main(argv: list[str] | None = None) -> int:
 
     args = arg_parser.parse_args(argv)
 
-    if not args.data_dir.exists():
-        print(f"Error: Data directory not found: {args.data_dir}", file=sys.stderr)
-        return 1
-
     if args.command:
+        if not args.data_dir:
+            print("Error: Data directory required when using -c/--command", file=sys.stderr)
+            return 1
+        if not args.data_dir.exists():
+            print(f"Error: Data directory not found: {args.data_dir}", file=sys.stderr)
+            return 1
         # Execute single command
         try:
             registry = load_registry_from_metadata(args.data_dir)
@@ -262,6 +383,10 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
+
+    if args.data_dir and not args.data_dir.exists():
+        print(f"Error: Data directory not found: {args.data_dir}", file=sys.stderr)
+        return 1
 
     return run_repl(args.data_dir)
 
