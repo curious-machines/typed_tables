@@ -111,7 +111,22 @@ class CreateInstanceQuery:
     fields: list[FieldValue] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInstanceQuery
+@dataclass
+class EvalQuery:
+    """A standalone expression evaluation query (SELECT without FROM)."""
+
+    expressions: list[Any] = field(default_factory=list)  # List of (value/FunctionCall, alias) tuples
+
+
+@dataclass
+class DeleteQuery:
+    """A DELETE query."""
+
+    table: str
+    where: Condition | CompoundCondition | None = None
+
+
+Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInstanceQuery | EvalQuery | DeleteQuery
 
 
 class QueryParser:
@@ -179,6 +194,16 @@ class QueryParser:
                  | CREATE IDENTIFIER LPAREN RPAREN newlines"""
         p[0] = CreateInstanceQuery(type_name=p[2], fields=[])
 
+    def p_query_delete(self, p: yacc.YaccProduction) -> None:
+        """query : DELETE IDENTIFIER WHERE condition
+                 | DELETE IDENTIFIER WHERE condition newlines"""
+        p[0] = DeleteQuery(table=p[2], where=p[4])
+
+    def p_query_delete_all(self, p: yacc.YaccProduction) -> None:
+        """query : DELETE IDENTIFIER
+                 | DELETE IDENTIFIER newlines"""
+        p[0] = DeleteQuery(table=p[2], where=None)
+
     def p_newlines(self, p: yacc.YaccProduction) -> None:
         """newlines : NEWLINE
                     | newlines NEWLINE"""
@@ -218,6 +243,38 @@ class QueryParser:
     def p_instance_value_func(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER LPAREN RPAREN
                           | UUID LPAREN RPAREN"""
+        p[0] = FunctionCall(name=p[1].lower() if isinstance(p[1], str) else "uuid")
+
+    def p_query_eval(self, p: yacc.YaccProduction) -> None:
+        """query : SELECT eval_expr_list
+                 | SELECT eval_expr_list newlines"""
+        p[0] = EvalQuery(expressions=p[2])
+
+    def p_eval_expr_list_single(self, p: yacc.YaccProduction) -> None:
+        """eval_expr_list : eval_expr_with_alias"""
+        p[0] = [p[1]]
+
+    def p_eval_expr_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """eval_expr_list : eval_expr_list COMMA eval_expr_with_alias"""
+        p[0] = p[1] + [p[3]]
+
+    def p_eval_expr_with_alias(self, p: yacc.YaccProduction) -> None:
+        """eval_expr_with_alias : eval_expr AS STRING
+                                | eval_expr"""
+        if len(p) == 4:
+            p[0] = (p[1], p[3])  # (expression, alias)
+        else:
+            p[0] = (p[1], None)  # (expression, no alias)
+
+    def p_eval_expr_literal(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : STRING
+                     | INTEGER
+                     | FLOAT"""
+        p[0] = p[1]
+
+    def p_eval_expr_func(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : IDENTIFIER LPAREN RPAREN
+                     | UUID LPAREN RPAREN"""
         p[0] = FunctionCall(name=p[1].lower() if isinstance(p[1], str) else "uuid")
 
     def p_select_query(self, p: yacc.YaccProduction) -> None:

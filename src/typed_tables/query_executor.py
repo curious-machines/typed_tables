@@ -12,7 +12,9 @@ from typed_tables.parsing.query_parser import (
     Condition,
     CreateInstanceQuery,
     CreateTypeQuery,
+    DeleteQuery,
     DescribeQuery,
+    EvalQuery,
     FieldValue,
     FunctionCall,
     Query,
@@ -56,6 +58,13 @@ class CreateResult(QueryResult):
     index: int | None = None
 
 
+@dataclass
+class DeleteResult(QueryResult):
+    """Result of a DELETE query."""
+
+    deleted_count: int = 0
+
+
 class QueryExecutor:
     """Executes TTQ queries against storage."""
 
@@ -77,6 +86,10 @@ class QueryExecutor:
             return self._execute_create_type(query)
         elif isinstance(query, CreateInstanceQuery):
             return self._execute_create_instance(query)
+        elif isinstance(query, EvalQuery):
+            return self._execute_eval(query)
+        elif isinstance(query, DeleteQuery):
+            return self._execute_delete(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -313,6 +326,91 @@ class QueryExecutor:
         table = self.storage.get_table(type_def.name)
         return table.insert(field_references)
 
+    def _execute_eval(self, query: EvalQuery) -> QueryResult:
+        """Execute SELECT without FROM - evaluate expressions."""
+        columns = []
+        row: dict[str, Any] = {}
+
+        for i, expr_tuple in enumerate(query.expressions):
+            # Expressions are now (expr, alias) tuples
+            expr, alias = expr_tuple
+            value = self._resolve_instance_value(expr)
+
+            # Use alias if provided, otherwise generate column name
+            if alias:
+                base_name = alias
+            elif isinstance(expr, FunctionCall):
+                base_name = f"{expr.name}()"
+            else:
+                base_name = f"expr_{i}"
+
+            # Make column name unique if needed
+            col_name = base_name
+            suffix = 1
+            while col_name in row:
+                suffix += 1
+                col_name = f"{base_name}_{suffix}"
+
+            columns.append(col_name)
+
+            # Format the value for display
+            if isinstance(value, int) and value > 0xFFFFFFFF:
+                # Format large integers as hex (likely UUIDs)
+                row[col_name] = f"0x{value:032x}"
+            else:
+                row[col_name] = value
+
+        return QueryResult(columns=columns, rows=[row])
+
+    def _execute_delete(self, query: DeleteQuery) -> DeleteResult:
+        """Execute DELETE query."""
+        type_def = self.registry.get(query.table)
+        if type_def is None:
+            return DeleteResult(
+                columns=[],
+                rows=[],
+                message=f"Unknown type: {query.table}",
+                deleted_count=0,
+            )
+
+        base = type_def.resolve_base_type()
+        if not isinstance(base, CompositeTypeDefinition):
+            return DeleteResult(
+                columns=[],
+                rows=[],
+                message=f"DELETE only supported for composite types: {query.table}",
+                deleted_count=0,
+            )
+
+        # Get all records and filter by WHERE clause
+        records = list(self._load_all_records(query.table, type_def))
+
+        if query.where:
+            records_to_delete = [r for r in records if self._evaluate_condition(r, query.where)]
+        else:
+            records_to_delete = records
+
+        if not records_to_delete:
+            return DeleteResult(
+                columns=[],
+                rows=[],
+                message="No matching records to delete",
+                deleted_count=0,
+            )
+
+        # Delete the matching records
+        table = self.storage.get_table(query.table)
+        for record in records_to_delete:
+            index = record["_index"]
+            table.delete(index)
+
+        return DeleteResult(
+            columns=["deleted"],
+            rows=[{"deleted": len(records_to_delete)}],
+            message=f"Deleted {len(records_to_delete)} record(s) from {query.table}",
+            deleted_count=len(records_to_delete),
+        )
+
     def _execute_select(self, query: SelectQuery) -> QueryResult:
         """Execute SELECT query."""
         type_def = self.registry.get(query.table)
@@ -366,6 +464,10 @@ class QueryExecutor:
         elif isinstance(base, CompositeTypeDefinition):
             table = self.storage.get_table(type_name)
             for i in range(table.count):
+                # Skip deleted records
+                if table.is_deleted(i):
+                    continue
+
                 record = table.get(i)
                 resolved = {"_index": i}
 

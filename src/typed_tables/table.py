@@ -143,6 +143,31 @@ class Table:
         self._mmap.write(data)  # type: ignore
         self._mmap.flush()  # type: ignore
 
+    def delete(self, index: int) -> None:
+        """Delete a record at the given index by zeroing it out.
+
+        Note: This is a soft delete that zeros the record data but preserves indices.
+        The record count is not decremented to maintain referential integrity.
+        """
+        if index < 0 or index >= self._count:
+            raise IndexError(f"Index {index} out of range [0, {self._count})")
+
+        offset = self._record_offset(index)
+        # Zero out the record
+        self._mmap.seek(offset)  # type: ignore
+        self._mmap.write(b"\x00" * self._record_size)  # type: ignore
+        self._mmap.flush()  # type: ignore
+
+    def is_deleted(self, index: int) -> bool:
+        """Check if a record at the given index has been deleted (zeroed out)."""
+        if index < 0 or index >= self._count:
+            raise IndexError(f"Index {index} out of range [0, {self._count})")
+
+        offset = self._record_offset(index)
+        self._mmap.seek(offset)  # type: ignore
+        data = self._mmap.read(self._record_size)  # type: ignore
+        return data == b"\x00" * self._record_size
+
     def _serialize(self, value: Any) -> bytes:
         """Serialize a value to bytes."""
         if isinstance(self.type_def, PrimitiveTypeDefinition):

@@ -10,7 +10,7 @@ from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import QueryParser, UseQuery
-from typed_tables.query_executor import CreateResult, QueryExecutor, QueryResult, UseResult
+from typed_tables.query_executor import CreateResult, DeleteResult, QueryExecutor, QueryResult, UseResult
 from typed_tables.storage import StorageManager
 from typed_tables.types import TypeRegistry
 
@@ -46,8 +46,8 @@ def format_value(value: Any) -> str:
 
 def print_result(result: QueryResult, max_width: int = 80) -> None:
     """Print query results in a formatted table."""
-    # Special handling for UseResult and CreateResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult)):
+    # Special handling for UseResult, CreateResult, DeleteResult - show message as success, not error
+    if isinstance(result, (UseResult, CreateResult, DeleteResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -281,6 +281,10 @@ CREATE:
     field=value, ...         - Field values separated by commas
     field=uuid()             - Use uuid() to generate a UUID
 
+DELETE:
+  delete <table> where ... Delete matching records (soft delete)
+  delete <table>           Delete all records in table
+
 QUERIES:
   from <table>                        Select all records
   from <table> select *               Same as above
@@ -308,6 +312,12 @@ AGGREGATES:
   sum(field)               Sum of field values
   average(field)           Average of field values
   product(field)           Product of field values
+
+EXPRESSIONS (SELECT without FROM):
+  select uuid()            Generate a random UUID
+  select 1, 2, 3           Evaluate literal values
+  select uuid(), uuid()    Multiple expressions
+  select uuid() as "id"    Name the result column
 
 TYPES:
   string                   Alias for character[]

@@ -35,6 +35,8 @@ class QueryLexer:
         "create": "CREATE",
         "type": "TYPE",
         "uuid": "UUID",
+        "delete": "DELETE",
+        "as": "AS",
     }
 
     # Token list
