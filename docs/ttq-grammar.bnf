@@ -1,0 +1,295 @@
+(*
+ * TTQ (Typed Tables Query) Language Grammar
+ * =========================================
+ *
+ * This grammar defines the syntax for TTQ, the query language used to
+ * interact with Typed Tables databases. TTQ supports selecting, filtering,
+ * aggregating, creating, and deleting data.
+ *
+ * The grammar is implemented using PLY (Python Lex-Yacc).
+ *)
+
+
+(* ========== Top-Level Query Types ========== *)
+
+query           ::= select_query
+                  | eval_query
+                  | show_tables_query
+                  | describe_query
+                  | use_query
+                  | create_type_query
+                  | create_instance_query
+                  | delete_query
+
+
+(* ========== SELECT Query (with FROM) ========== *)
+(*
+ * The main query type for retrieving data from tables.
+ *
+ * Examples:
+ *   from Person
+ *   from Person select name, age
+ *   from Person where age >= 18 sort by name
+ *   from Person select age, count() group by age
+ *)
+
+select_query    ::= from_clause select_clause where_clause group_clause
+                    sort_clause offset_clause limit_clause
+
+from_clause     ::= "from" IDENTIFIER
+
+select_clause   ::= (* empty - defaults to SELECT * *)
+                  | "select" "*"
+                  | "select" field_list
+
+field_list      ::= select_field
+                  | field_list "," select_field
+
+select_field    ::= IDENTIFIER
+                  | "count" "(" ")"
+                  | "average" "(" IDENTIFIER ")"
+                  | "sum" "(" IDENTIFIER ")"
+                  | "product" "(" IDENTIFIER ")"
+
+where_clause    ::= (* empty *)
+                  | "where" condition
+
+group_clause    ::= (* empty *)
+                  | "group" "by" identifier_list
+
+sort_clause     ::= (* empty *)
+                  | "sort" "by" identifier_list
+
+offset_clause   ::= (* empty - defaults to 0 *)
+                  | "offset" INTEGER
+
+limit_clause    ::= (* empty - no limit *)
+                  | "limit" INTEGER
+
+identifier_list ::= IDENTIFIER
+                  | identifier_list "," IDENTIFIER
+
+
+(* ========== WHERE Conditions ========== *)
+(*
+ * Conditions for filtering records.
+ *
+ * Examples:
+ *   age >= 18
+ *   name = "Alice"
+ *   name starts with "A"
+ *   name matches /^[A-Z]/
+ *   age > 18 and age < 65
+ *   not (status = "inactive")
+ *)
+
+condition       ::= IDENTIFIER comparison_op value
+                  | IDENTIFIER "starts" "with" STRING
+                  | IDENTIFIER "matches" REGEX
+                  | "not" condition
+                  | condition "and" condition
+                  | condition "or" condition
+                  | "(" condition ")"
+
+comparison_op   ::= "=" | "!=" | "<" | "<=" | ">" | ">="
+
+value           ::= INTEGER
+                  | FLOAT
+                  | STRING
+
+
+(* ========== Eval Query (SELECT without FROM) ========== *)
+(*
+ * Evaluate expressions without querying a table.
+ *
+ * Examples:
+ *   select uuid()
+ *   select uuid() as "id", 42 as "answer"
+ *   select 1, 2, 3
+ *)
+
+eval_query      ::= "select" eval_expr_list
+
+eval_expr_list  ::= eval_expr_with_alias
+                  | eval_expr_list "," eval_expr_with_alias
+
+eval_expr_with_alias ::= eval_expr "as" STRING
+                       | eval_expr
+
+eval_expr       ::= STRING
+                  | INTEGER
+                  | FLOAT
+                  | IDENTIFIER "(" ")"
+                  | "uuid" "(" ")"
+
+
+(* ========== SHOW TABLES Query ========== *)
+(*
+ * List all tables in the database.
+ *
+ * Example:
+ *   show tables
+ *)
+
+show_tables_query ::= "show" "tables"
+
+
+(* ========== DESCRIBE Query ========== *)
+(*
+ * Show the structure of a type.
+ *
+ * Example:
+ *   describe Person
+ *)
+
+describe_query  ::= "describe" IDENTIFIER
+
+
+(* ========== USE Query ========== *)
+(*
+ * Switch to a different database directory.
+ *
+ * Examples:
+ *   use example_data
+ *   use ./data/production
+ *   use /absolute/path/to/data
+ *   use "path with spaces"
+ *)
+
+use_query       ::= "use" PATH
+                  | "use" IDENTIFIER
+                  | "use" STRING
+
+
+(* ========== CREATE TYPE Query ========== *)
+(*
+ * Create a new composite type. Fields are defined on subsequent lines.
+ *
+ * Example:
+ *   create type Address
+ *   street: string
+ *   city: string
+ *   zipcode: string
+ *
+ * Note: "string" is an alias for "character[]"
+ *)
+
+create_type_query ::= "create" "type" IDENTIFIER NEWLINE type_field_list
+                    | "create" "type" IDENTIFIER
+
+type_field_list ::= type_field_def
+                  | type_field_list type_field_def
+
+type_field_def  ::= IDENTIFIER ":" IDENTIFIER NEWLINE
+                  | IDENTIFIER ":" IDENTIFIER
+
+
+(* ========== CREATE Instance Query ========== *)
+(*
+ * Create a new instance of a type.
+ *
+ * Examples:
+ *   create Person(name="Alice", age=30)
+ *   create Person(id=uuid(), name="Bob", age=25)
+ *)
+
+create_instance_query ::= "create" IDENTIFIER "(" instance_field_list ")"
+                        | "create" IDENTIFIER "(" ")"
+
+instance_field_list ::= instance_field
+                      | instance_field_list "," instance_field
+
+instance_field  ::= IDENTIFIER "=" instance_value
+
+instance_value  ::= STRING
+                  | INTEGER
+                  | FLOAT
+                  | IDENTIFIER "(" ")"
+                  | "uuid" "(" ")"
+
+
+(* ========== DELETE Query ========== *)
+(*
+ * Delete records from a table. Uses soft delete (zeros out records).
+ *
+ * Examples:
+ *   delete Person where name = "Alice"
+ *   delete Person where age < 18
+ *   delete Person                         -- deletes all records
+ *)
+
+delete_query    ::= "delete" IDENTIFIER "where" condition
+                  | "delete" IDENTIFIER
+
+
+(* ========== Lexical Elements ========== *)
+
+IDENTIFIER      ::= [a-zA-Z_][a-zA-Z0-9_]*
+
+INTEGER         ::= -?[0-9]+
+
+FLOAT           ::= -?[0-9]+\.[0-9]+
+
+STRING          ::= "\"" ([^"\\] | \\.)* "\""
+
+REGEX           ::= "/" ([^/\\] | \\.)* "/"
+
+PATH            ::= \.?\.?/[a-zA-Z0-9_./\-]+
+
+NEWLINE         ::= "\n"+
+
+
+(* ========== Reserved Keywords ========== *)
+(*
+ * from, select, where, offset, limit, group, sort, by,
+ * and, or, not, starts, with, matches, show, tables,
+ * describe, count, average, sum, product, use, create,
+ * type, uuid, delete, as
+ *)
+
+
+(* ========== Operator Precedence ========== *)
+(*
+ * From lowest to highest:
+ *   1. OR
+ *   2. AND
+ *   3. NOT (right associative)
+ *)
+
+
+(* ========== Built-in Functions ========== *)
+(*
+ * uuid()    - Generate a random UUID (128-bit)
+ * count()   - Count records (aggregate)
+ * sum(f)    - Sum of field values (aggregate)
+ * average(f) - Average of field values (aggregate)
+ * product(f) - Product of field values (aggregate)
+ *)
+
+
+(* ========== Example Queries ========== *)
+(*
+ * -- Select all people
+ * from Person
+ *
+ * -- Select with specific fields and filtering
+ * from Person select name, age where age >= 21 sort by name
+ *
+ * -- Aggregation with grouping
+ * from Person select age, count() group by age
+ *
+ * -- Generate UUIDs with aliases
+ * select uuid() as "id1", uuid() as "id2"
+ *
+ * -- Create a new type
+ * create type Product
+ * name: string
+ * price: float64
+ * quantity: uint32
+ *
+ * -- Create an instance
+ * create Product(name="Widget", price=9.99, quantity=100)
+ *
+ * -- Delete with condition
+ * delete Product where quantity = 0
+ *)
