@@ -143,30 +143,33 @@ class Table:
         self._mmap.write(data)  # type: ignore
         self._mmap.flush()  # type: ignore
 
-    def delete(self, index: int) -> None:
-        """Delete a record at the given index by zeroing it out.
+    # Deletion marker: all 0xFF bytes (distinguishable from valid data with index 0)
+    DELETED_MARKER = b"\xff"
 
-        Note: This is a soft delete that zeros the record data but preserves indices.
+    def delete(self, index: int) -> None:
+        """Delete a record at the given index by marking it with 0xFF bytes.
+
+        Note: This is a soft delete that marks the record but preserves indices.
         The record count is not decremented to maintain referential integrity.
         """
         if index < 0 or index >= self._count:
             raise IndexError(f"Index {index} out of range [0, {self._count})")
 
         offset = self._record_offset(index)
-        # Zero out the record
+        # Mark record as deleted with 0xFF bytes
         self._mmap.seek(offset)  # type: ignore
-        self._mmap.write(b"\x00" * self._record_size)  # type: ignore
+        self._mmap.write(self.DELETED_MARKER * self._record_size)  # type: ignore
         self._mmap.flush()  # type: ignore
 
     def is_deleted(self, index: int) -> bool:
-        """Check if a record at the given index has been deleted (zeroed out)."""
+        """Check if a record at the given index has been deleted."""
         if index < 0 or index >= self._count:
             raise IndexError(f"Index {index} out of range [0, {self._count})")
 
         offset = self._record_offset(index)
         self._mmap.seek(offset)  # type: ignore
         data = self._mmap.read(self._record_size)  # type: ignore
-        return data == b"\x00" * self._record_size
+        return data == self.DELETED_MARKER * self._record_size
 
     def _serialize(self, value: Any) -> bytes:
         """Serialize a value to bytes."""
@@ -241,15 +244,9 @@ class Table:
         return b"".join(parts)
 
     def _serialize_field_reference(self, value: Any, type_def: TypeDefinition) -> bytes:
-        """Serialize a field reference (index or array header)."""
-        base = type_def.resolve_base_type()
-        if isinstance(base, ArrayTypeDefinition):
-            # For array fields, value is (start_index, length)
-            start_index, length = value
-            return struct.pack("<II", start_index, length)
-        else:
-            # For all other fields, value is an index (uint32)
-            return struct.pack("<I", value)
+        """Serialize a field reference (always an index into the field's table)."""
+        # All fields store an index (uint32) into their type's table
+        return struct.pack("<I", value)
 
     def _deserialize(self, data: bytes) -> Any:
         """Deserialize bytes to a value."""
@@ -297,7 +294,7 @@ class Table:
     ) -> dict[str, Any]:
         """Deserialize a composite record.
 
-        Returns a dict of field references (indices or array headers),
+        Returns a dict of field references (indices into each field's table),
         not the actual field values.
         """
         result: dict[str, Any] = {}
@@ -306,16 +303,8 @@ class Table:
         for field in type_def.fields:
             field_ref_size = field.type_def.reference_size
             field_data = data[offset : offset + field_ref_size]
-            base = field.type_def.resolve_base_type()
-
-            if isinstance(base, ArrayTypeDefinition):
-                # Array reference: (start_index, length)
-                start_index, length = struct.unpack("<II", field_data)
-                result[field.name] = (start_index, length)
-            else:
-                # All other fields: index (uint32)
-                result[field.name] = struct.unpack("<I", field_data)[0]
-
+            # All fields store an index (uint32) into their type's table
+            result[field.name] = struct.unpack("<I", field_data)[0]
             offset += field_ref_size
 
         return result

@@ -141,12 +141,11 @@ class Schema:
             field_base = field.type_def.resolve_base_type()
 
             if isinstance(field_base, ArrayTypeDefinition):
-                # Store array elements and get reference (start_index, length)
+                # Store array elements and get index into the array's header table
                 instance_ref = self._create_array_instance(
                     field.type_def, field_base, field_value
                 )
-                array_table = self.storage.get_array_table_for_type(field.type_def)
-                field_references[field.name] = array_table.get_header(instance_ref.index)
+                field_references[field.name] = instance_ref.index
             elif isinstance(field_base, CompositeTypeDefinition):
                 # Store nested composite and get index reference
                 instance_ref = self._create_composite_instance(

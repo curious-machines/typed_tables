@@ -68,12 +68,12 @@ class InstanceRef:
             field_base = field.type_def.resolve_base_type()
 
             if isinstance(field_base, ArrayTypeDefinition):
-                # Resolve array reference (start_index, length)
-                start_index, length = field_ref
+                # field_ref is an index into the array's header table
+                array_table = self.schema.storage.get_array_table_for_type(field.type_def)
+                start_index, length = array_table.get_header(field_ref)
                 if length == 0:
                     result[field.name] = []
                 else:
-                    array_table = self.schema.storage.get_array_table_for_type(field.type_def)
                     elements = [
                         array_table.element_table.get(start_index + i)
                         for i in range(length)

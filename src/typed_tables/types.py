@@ -154,8 +154,8 @@ class ArrayTypeDefinition(TypeDefinition):
 
     @property
     def reference_size(self) -> int:
-        """Arrays use (start_index, length) as their reference."""
-        return self.HEADER_SIZE
+        """Arrays use an index into the header table as their reference."""
+        return REFERENCE_SIZE
 
     @property
     def is_array(self) -> bool:

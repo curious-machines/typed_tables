@@ -476,11 +476,12 @@ class QueryExecutor:
                     field_base = field.type_def.resolve_base_type()
 
                     if isinstance(field_base, ArrayTypeDefinition):
-                        start_index, length = ref
+                        # ref is an index into the array's header table
+                        arr_table = self.storage.get_array_table_for_type(field.type_def)
+                        start_index, length = arr_table.get_header(ref)
                         if length == 0:
                             resolved[field.name] = []
                         else:
-                            arr_table = self.storage.get_array_table_for_type(field.type_def)
                             elements = [
                                 arr_table.element_table.get(start_index + j)
                                 for j in range(length)

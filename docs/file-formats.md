@@ -87,16 +87,20 @@ Composite types store **references** to values, not the values themselves. Each 
 
 ```
 +------------------------+------------------------+-----+------------------------+
-| Field 0 Reference      | Field 1 Reference      | ... | Field N-1 Reference    |
+| Field 0 Index (uint32) | Field 1 Index (uint32) | ... | Field N-1 Index        |
 +------------------------+------------------------+-----+------------------------+
 ```
 
-### Field Reference Sizes
+### Field Reference Size
 
-| Field Type    | Reference Size | Format                         |
-|---------------|----------------|--------------------------------|
-| Non-array     | 4 bytes        | uint32 (index into field table)|
-| Array         | 8 bytes        | uint32 start_index + uint32 length |
+All fields use 4 bytes (uint32) to store an index into the field's type table:
+
+| Field Type    | Reference Size | Format                              |
+|---------------|----------------|-------------------------------------|
+| Primitive     | 4 bytes        | uint32 index into primitive table   |
+| Alias         | 4 bytes        | uint32 index into alias table       |
+| Array         | 4 bytes        | uint32 index into array header table|
+| Composite     | 4 bytes        | uint32 index into composite table   |
 
 ### Example: Person Type
 
@@ -107,17 +111,22 @@ define age as uint8
 
 Person {
   id: uuid      -- 4 bytes (index into uuid.bin)
-  name          -- 8 bytes (start_index + length for name)
+  name          -- 4 bytes (index into name.bin header table)
   age           -- 4 bytes (index into age.bin)
 }
 ```
 
-Person record size: 4 + 8 + 4 = 16 bytes
+Person record size: 4 + 4 + 4 = 12 bytes
 
 ```
-Byte:   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
-      |<-- id index -->|<-- name start -->|<-- name len -->|<- age idx->|
+Byte:   0   1   2   3   4   5   6   7   8   9  10  11
+      |<-- id index -->|<- name index -->|<- age index ->|
 ```
+
+To resolve the `name` field:
+1. Read the name index from Person.bin (e.g., index 5)
+2. Look up index 5 in name.bin to get (start_index, length)
+3. Read `length` elements starting at `start_index` from name_elements.bin
 
 ## Array Type Storage
 
@@ -163,11 +172,13 @@ Empty arrays are stored with:
 
 ## Soft Delete
 
-Deleted records are "soft deleted" by zeroing out all bytes in the record. The record count is not decremented to maintain referential integrity.
+Deleted records are "soft deleted" by filling them with 0xFF bytes. The record count is not decremented to maintain referential integrity.
 
-A record is considered deleted if all its bytes are zero:
+The 0xFF marker is used instead of 0x00 because a valid record at index 0 might have all field indices as 0, which would be indistinguishable from a zeroed-out deletion marker.
+
+A record is considered deleted if all its bytes are 0xFF:
 ```
-is_deleted(index) = record[index] == b'\x00' × record_size
+is_deleted(index) = record[index] == b'\xff' × record_size
 ```
 
 Deleted records are skipped when iterating through tables.

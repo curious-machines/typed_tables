@@ -47,8 +47,8 @@ Composite types may be nested.
 Each type is stored in its own table. It is a requirement that a table be thought of as an array of fixed type members. In memory we reference a type by its name and index. The name matches the type name, which is used to name the data file on disk. The index points to the entry within that data file.
 
 **Composite types store references, not values.** When a Person is created, the uuid value is stored in the `uuid.bin` table, and the name characters are stored in the `name_elements.bin` table with a header in `name.bin`. The Person record in `Person.bin` stores only indices pointing to those values:
-- Non-array fields: uint32 index (4 bytes)
-- Array fields: (uint32 start_index, uint32 length) (8 bytes)
+- All fields: uint32 index (4 bytes) into the field's type table
+- For array fields, this index points to the array's header table (e.g., `name.bin`), which contains (start_index, length)
 
 Tables for array types work a little differently. Remember, that it is a requirement that all entries in a table must be of a fixed size in order to gain quick access to the member. The array table consists of entries that could be defined like so:
 
