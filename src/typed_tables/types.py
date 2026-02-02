@@ -54,6 +54,10 @@ class PrimitiveType(Enum):
 PRIMITIVE_TYPE_NAMES: dict[str, PrimitiveType] = {pt.value: pt for pt in PrimitiveType}
 
 
+# Size of a reference (index) to an entry in a table
+REFERENCE_SIZE = 4  # uint32 index
+
+
 @dataclass
 class TypeDefinition:
     """Base class for all type definitions."""
@@ -64,6 +68,17 @@ class TypeDefinition:
     def size_bytes(self) -> int:
         """Return the size in bytes for storing a value of this type."""
         raise NotImplementedError
+
+    @property
+    def reference_size(self) -> int:
+        """Return the size in bytes for storing a reference to this type.
+
+        When a composite type has a field of this type, it stores a reference
+        (index) to the value in the field type's table, not the value itself.
+        For arrays, this is (start_index, length) = 8 bytes.
+        For all other types, this is a uint32 index = 4 bytes.
+        """
+        return REFERENCE_SIZE
 
     @property
     def is_array(self) -> bool:
@@ -111,6 +126,10 @@ class AliasTypeDefinition(TypeDefinition):
         return self.base_type.size_bytes
 
     @property
+    def reference_size(self) -> int:
+        return self.base_type.reference_size
+
+    @property
     def is_array(self) -> bool:
         return self.base_type.is_array
 
@@ -134,6 +153,11 @@ class ArrayTypeDefinition(TypeDefinition):
         return self.HEADER_SIZE
 
     @property
+    def reference_size(self) -> int:
+        """Arrays use (start_index, length) as their reference."""
+        return self.HEADER_SIZE
+
+    @property
     def is_array(self) -> bool:
         return True
 
@@ -148,14 +172,23 @@ class FieldDefinition:
 
 @dataclass
 class CompositeTypeDefinition(TypeDefinition):
-    """Type definition for composite types (structs)."""
+    """Type definition for composite types (structs).
+
+    A composite stores references to values in other tables, not the values
+    themselves. Each field's value is stored in its own type's table, and
+    the composite record stores indices (or start_index+length for arrays).
+    """
 
     fields: list[FieldDefinition] = field(default_factory=list)
 
     @property
     def size_bytes(self) -> int:
-        """Return the total size of all fields."""
-        return sum(f.type_def.size_bytes for f in self.fields)
+        """Return the total size of all field references.
+
+        This is the size of a composite record, which stores references
+        to field values, not the actual values.
+        """
+        return sum(f.type_def.reference_size for f in self.fields)
 
     @property
     def is_composite(self) -> bool:
@@ -169,12 +202,12 @@ class CompositeTypeDefinition(TypeDefinition):
         return None
 
     def get_field_offset(self, name: str) -> int:
-        """Get the byte offset of a field within the composite."""
+        """Get the byte offset of a field reference within the composite."""
         offset = 0
         for f in self.fields:
             if f.name == name:
                 return offset
-            offset += f.type_def.size_bytes
+            offset += f.type_def.reference_size
         raise KeyError(f"Field '{name}' not found in type '{self.name}'")
 
 

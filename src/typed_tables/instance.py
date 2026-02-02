@@ -21,12 +21,12 @@ class InstanceRef:
     type_name: str
     index: int
 
-    def load(self, resolve_arrays: bool = True) -> Any:
+    def load(self, resolve_references: bool = True) -> Any:
         """Load and return the value from storage.
 
         Args:
-            resolve_arrays: If True, array references in composites are resolved
-                to their actual values. If False, returns raw (start_index, length) tuples.
+            resolve_references: If True, field references in composites are resolved
+                to their actual values. If False, returns raw indices/headers.
 
         Returns:
             The stored value. For primitives, returns the scalar value.
@@ -45,39 +45,49 @@ class InstanceRef:
             table = self.schema.storage.get_table(self.type_name)
             raw_data = table.get(self.index)
 
-            if resolve_arrays:
-                return self._resolve_composite_arrays(raw_data, base)
+            if resolve_references:
+                return self._resolve_field_references(raw_data, base)
             return raw_data
         else:
             table = self.schema.storage.get_table(self.type_name)
             return table.get(self.index)
 
-    def _resolve_composite_arrays(
+    def _resolve_field_references(
         self, data: dict[str, Any], composite_type: "CompositeTypeDefinition"
     ) -> dict[str, Any]:
-        """Resolve array references in composite data to actual values."""
-        from typed_tables.types import ArrayTypeDefinition
+        """Resolve all field references in composite data to actual values.
+
+        Each field in a composite stores a reference to its value in another table.
+        This method resolves those references to return the actual values.
+        """
+        from typed_tables.types import ArrayTypeDefinition, CompositeTypeDefinition
 
         result = {}
         for field in composite_type.fields:
-            field_value = data[field.name]
+            field_ref = data[field.name]
             field_base = field.type_def.resolve_base_type()
 
             if isinstance(field_base, ArrayTypeDefinition):
-                # Resolve array reference
-                start_index, length = field_value
+                # Resolve array reference (start_index, length)
+                start_index, length = field_ref
                 if length == 0:
                     result[field.name] = []
                 else:
                     array_table = self.schema.storage.get_array_table_for_type(field.type_def)
-                    # We need to get the elements directly from the element table
                     elements = [
                         array_table.element_table.get(start_index + i)
                         for i in range(length)
                     ]
                     result[field.name] = elements
+            elif isinstance(field_base, CompositeTypeDefinition):
+                # Resolve nested composite reference (index)
+                nested_table = self.schema.storage.get_table(field.type_def.name)
+                nested_raw = nested_table.get(field_ref)
+                result[field.name] = self._resolve_field_references(nested_raw, field_base)
             else:
-                result[field.name] = field_value
+                # Resolve primitive/alias reference (index)
+                field_table = self.schema.storage.get_table(field.type_def.name)
+                result[field.name] = field_table.get(field_ref)
 
         return result
 

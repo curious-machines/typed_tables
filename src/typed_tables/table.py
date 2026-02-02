@@ -195,34 +195,36 @@ class Table:
             return struct.pack(format_map[primitive], value)
 
     def _serialize_composite(self, value: Any, type_def: CompositeTypeDefinition) -> bytes:
-        """Serialize a composite value."""
-        # Value should be a dict or tuple with field values
+        """Serialize a composite value.
+
+        Composite records store references to field values, not the values themselves.
+        - For array fields: (start_index, length) tuple (8 bytes)
+        - For all other fields: index into the field type's table (4 bytes)
+        """
         parts = []
 
         if isinstance(value, dict):
             for field in type_def.fields:
                 field_value = value[field.name]
-                parts.append(self._serialize_field(field_value, field.type_def))
+                parts.append(self._serialize_field_reference(field_value, field.type_def))
         elif isinstance(value, (list, tuple)):
             for i, field in enumerate(type_def.fields):
-                parts.append(self._serialize_field(value[i], field.type_def))
+                parts.append(self._serialize_field_reference(value[i], field.type_def))
         else:
             raise TypeError(f"Expected dict or tuple for composite type, got {type(value)}")
 
         return b"".join(parts)
 
-    def _serialize_field(self, value: Any, type_def: TypeDefinition) -> bytes:
-        """Serialize a field value."""
+    def _serialize_field_reference(self, value: Any, type_def: TypeDefinition) -> bytes:
+        """Serialize a field reference (index or array header)."""
         base = type_def.resolve_base_type()
-        if isinstance(base, PrimitiveTypeDefinition):
-            return self._serialize_primitive(value, base.primitive)
-        elif isinstance(base, ArrayTypeDefinition):
+        if isinstance(base, ArrayTypeDefinition):
             # For array fields, value is (start_index, length)
             start_index, length = value
             return struct.pack("<II", start_index, length)
-        elif isinstance(base, CompositeTypeDefinition):
-            return self._serialize_composite(value, base)
-        raise TypeError(f"Cannot serialize field type: {type_def.name}")
+        else:
+            # For all other fields, value is an index (uint32)
+            return struct.pack("<I", value)
 
     def _deserialize(self, data: bytes) -> Any:
         """Deserialize bytes to a value."""
@@ -268,24 +270,28 @@ class Table:
     def _deserialize_composite(
         self, data: bytes, type_def: CompositeTypeDefinition
     ) -> dict[str, Any]:
-        """Deserialize a composite value."""
+        """Deserialize a composite record.
+
+        Returns a dict of field references (indices or array headers),
+        not the actual field values.
+        """
         result: dict[str, Any] = {}
         offset = 0
 
         for field in type_def.fields:
-            field_size = field.type_def.size_bytes
-            field_data = data[offset : offset + field_size]
+            field_ref_size = field.type_def.reference_size
+            field_data = data[offset : offset + field_ref_size]
             base = field.type_def.resolve_base_type()
 
-            if isinstance(base, PrimitiveTypeDefinition):
-                result[field.name] = self._deserialize_primitive(field_data, base.primitive)
-            elif isinstance(base, ArrayTypeDefinition):
+            if isinstance(base, ArrayTypeDefinition):
+                # Array reference: (start_index, length)
                 start_index, length = struct.unpack("<II", field_data)
                 result[field.name] = (start_index, length)
-            elif isinstance(base, CompositeTypeDefinition):
-                result[field.name] = self._deserialize_composite(field_data, base)
+            else:
+                # All other fields: index (uint32)
+                result[field.name] = struct.unpack("<I", field_data)[0]
 
-            offset += field_size
+            offset += field_ref_size
 
         return result
 

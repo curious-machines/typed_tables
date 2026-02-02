@@ -19,6 +19,10 @@ dev = [
     "mypy>=1.0",
 ]
 
+[project.scripts]
+tt-dump = "typed_tables.dump:main"
+ttq = "typed_tables.repl:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

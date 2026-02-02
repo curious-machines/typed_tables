@@ -124,8 +124,8 @@ class Schema:
     ) -> InstanceRef:
         """Create a composite instance.
 
-        Field values that are arrays or nested composites are stored
-        in their respective tables, and the composite stores references.
+        All field values are stored in their respective type tables.
+        The composite record stores only references (indices) to those values.
         """
         # Convert tuple/list to dict
         if isinstance(values, (tuple, list)):
@@ -133,36 +133,34 @@ class Schema:
                 field.name: v for field, v in zip(composite_type.fields, values)
             }
 
-        # Process each field value
-        processed_values: dict[str, Any] = {}
+        # Process each field value - store in field's type table, get reference
+        field_references: dict[str, Any] = {}
 
         for field in composite_type.fields:
             field_value = values[field.name]
             field_base = field.type_def.resolve_base_type()
 
             if isinstance(field_base, ArrayTypeDefinition):
-                # Store array elements and get reference
+                # Store array elements and get reference (start_index, length)
                 instance_ref = self._create_array_instance(
                     field.type_def, field_base, field_value
                 )
-                # Store as (start_index, length) - get from the array table
                 array_table = self.storage.get_array_table_for_type(field.type_def)
-                processed_values[field.name] = array_table.get_header(instance_ref.index)
+                field_references[field.name] = array_table.get_header(instance_ref.index)
             elif isinstance(field_base, CompositeTypeDefinition):
-                # Store nested composite and get reference
+                # Store nested composite and get index reference
                 instance_ref = self._create_composite_instance(
                     field.type_def, field_base, field_value
                 )
-                # For nested composites, store the index as the value
-                # This requires special handling in serialization
-                processed_values[field.name] = field_value
+                field_references[field.name] = instance_ref.index
             else:
-                # Primitive value - store directly
-                processed_values[field.name] = field_value
+                # Store primitive/alias value in its type's table and get index
+                instance_ref = self._create_instance_for_type(field.type_def, field_value)
+                field_references[field.name] = instance_ref.index
 
-        # Store the composite record
+        # Store the composite record (contains only references)
         table = self.storage.get_table(type_def.name)
-        index = table.insert(processed_values)
+        index = table.insert(field_references)
         return InstanceRef(schema=self, type_name=type_def.name, index=index)
 
     def get_instance(self, type_name: str, index: int) -> InstanceRef:

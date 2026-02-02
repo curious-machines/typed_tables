@@ -103,7 +103,9 @@ class TestCompositeTypeDefinition:
         )
 
         assert composite.name == "Point"
-        assert composite.size_bytes == 4 + 4 + 8
+        # Composite stores references (indices), not values
+        # Each reference is 4 bytes (uint32 index)
+        assert composite.size_bytes == 4 + 4 + 4
         assert composite.is_composite is True
         assert len(composite.fields) == 3
 
@@ -134,9 +136,10 @@ class TestCompositeTypeDefinition:
             ],
         )
 
+        # Offsets are based on reference sizes (all 4 bytes)
         assert composite.get_field_offset("x") == 0
         assert composite.get_field_offset("y") == 4
-        assert composite.get_field_offset("z") == 12
+        assert composite.get_field_offset("z") == 8
 
         with pytest.raises(KeyError):
             composite.get_field_offset("nonexistent")
