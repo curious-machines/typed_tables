@@ -82,10 +82,17 @@ state: string
 zipcode: string
 ```
 
-### Create entry
+### Create Entry
 
 ```ttq
 create Person(name="Kevin", id=uuid())
+```
+
+### Delete Entry
+
+```ttq
+delete Person
+where name="Kevin"
 ```
 
 ### Selection
@@ -96,6 +103,12 @@ from Person
 ```
 
 This example will return all Person entries. This is equivalent to `from Person select *`
+
+### Naming Fields
+
+```ttq
+select uuid() as "One", uuid() as "Two"
+```
 
 ### Limiting Selection
 The return selection can be limited using `offset` and `limit` phrases. If `limit` is used without `offset`, then `offset` defaults to 0.
