@@ -37,6 +37,8 @@ class QueryLexer:
         "uuid": "UUID",
         "delete": "DELETE",
         "as": "AS",
+        "alias": "ALIAS",
+        "drop": "DROP",
     }
 
     # Token list
@@ -50,6 +52,7 @@ class QueryLexer:
         "STAR",
         "COMMA",
         "COLON",
+        "DOT",
         "LPAREN",
         "RPAREN",
         "EQ",
@@ -65,6 +68,7 @@ class QueryLexer:
     t_STAR = r"\*"
     t_COMMA = r","
     t_COLON = r":"
+    t_DOT = r"\."
     t_LPAREN = r"\("
     t_RPAREN = r"\)"
     t_EQ = r"="

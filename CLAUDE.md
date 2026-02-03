@@ -67,25 +67,53 @@ Metadata about types is stored in `_metadata.json` in the data directory.
 
 ### Select Database
 
+This will create a new database if one does not exist already
+
 ```ttq
 use example_data
+```
+
+### Delete Database
+
+```ttq
+drop example_data
 ```
 
 ### Create Types
 
 ```ttq
 create type Address
-number: string
-street: string
-city: string
-state: string
-zipcode: string
+  number: string
+  street: string
+  city: string
+  state: string
+  zipcode: string
+```
+
+```ttq
+create type Person
+  id: uuid
+  name: string
+  age: uint8
+  address: Address
+```
+
+```ttq
+create Employee from Person
+  department: string
+  title: string
+```
+
+### Create Aliases
+
+```ttq
+create alias uuid as uint128
 ```
 
 ### Create Entry
 
 ```ttq
-create Person(name="Kevin", id=uuid())
+create Person(name="Kevin", id=uuid(), age=32, address=Address(1))
 ```
 
 ### Delete Entry

@@ -14,8 +14,15 @@ from typed_tables.parsing.query_lexer import QueryLexer
 class SelectField:
     """A field in a SELECT clause."""
 
-    name: str  # Field name or "*"
+    name: str  # Field name or "*" or dotted path like "address.state"
     aggregate: str | None = None  # count, average, sum, product
+
+    @property
+    def path(self) -> list[str]:
+        """Return the field path as a list (e.g., ['address', 'state'])."""
+        if self.name == "*":
+            return ["*"]
+        return self.name.split(".")
 
 
 @dataclass
@@ -85,6 +92,23 @@ class CreateTypeQuery:
 
     name: str
     fields: list[FieldDef] = field(default_factory=list)
+    parent: str | None = None  # For inheritance: create Type from Parent
+
+
+@dataclass
+class CreateAliasQuery:
+    """A CREATE ALIAS query."""
+
+    name: str
+    base_type: str
+
+
+@dataclass
+class CompositeRef:
+    """A reference to an existing composite instance: TypeName(index)."""
+
+    type_name: str
+    index: int
 
 
 @dataclass
@@ -126,7 +150,14 @@ class DeleteQuery:
     where: Condition | CompoundCondition | None = None
 
 
-Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInstanceQuery | EvalQuery | DeleteQuery
+@dataclass
+class DropDatabaseQuery:
+    """A DROP database query."""
+
+    path: str
+
+
+Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | EvalQuery | DeleteQuery | DropDatabaseQuery
 
 
 class QueryParser:
@@ -160,6 +191,11 @@ class QueryParser:
                  | DESCRIBE IDENTIFIER newlines"""
         p[0] = DescribeQuery(table=p[2])
 
+    def p_query_use_none(self, p: yacc.YaccProduction) -> None:
+        """query : USE
+                 | USE newlines"""
+        p[0] = UseQuery(path="")
+
     def p_query_use_path(self, p: yacc.YaccProduction) -> None:
         """query : USE PATH
                  | USE PATH newlines"""
@@ -175,14 +211,41 @@ class QueryParser:
                  | USE STRING newlines"""
         p[0] = UseQuery(path=p[2])
 
+    def p_query_create_alias(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE ALIAS IDENTIFIER AS IDENTIFIER
+                 | CREATE ALIAS IDENTIFIER AS IDENTIFIER newlines"""
+        p[0] = CreateAliasQuery(name=p[3], base_type=p[5])
+
     def p_query_create_type(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER newlines type_field_list"""
-        p[0] = CreateTypeQuery(name=p[3], fields=p[5])
+        """query : CREATE TYPE IDENTIFIER newlines type_field_list
+                 | CREATE TYPE IDENTIFIER type_field_list"""
+        fields = p[5] if len(p) == 6 else p[4]
+        p[0] = CreateTypeQuery(name=p[3], fields=fields)
 
     def p_query_create_type_empty(self, p: yacc.YaccProduction) -> None:
         """query : CREATE TYPE IDENTIFIER
                  | CREATE TYPE IDENTIFIER newlines"""
         p[0] = CreateTypeQuery(name=p[3], fields=[])
+
+    def p_query_create_type_inherit(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER newlines type_field_list
+                 | CREATE TYPE IDENTIFIER FROM IDENTIFIER type_field_list"""
+        fields = p[7] if len(p) == 8 else p[6]
+        p[0] = CreateTypeQuery(name=p[3], fields=fields, parent=p[5])
+
+    def p_query_create_type_inherit_empty(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER
+                 | CREATE TYPE IDENTIFIER FROM IDENTIFIER newlines"""
+        p[0] = CreateTypeQuery(name=p[3], fields=[], parent=p[5])
+
+    def p_query_drop_database(self, p: yacc.YaccProduction) -> None:
+        """query : DROP IDENTIFIER
+                 | DROP IDENTIFIER newlines
+                 | DROP PATH
+                 | DROP PATH newlines
+                 | DROP STRING
+                 | DROP STRING newlines"""
+        p[0] = DropDatabaseQuery(path=p[2])
 
     def p_query_create_instance(self, p: yacc.YaccProduction) -> None:
         """query : CREATE IDENTIFIER LPAREN instance_field_list RPAREN
@@ -244,6 +307,10 @@ class QueryParser:
         """instance_value : IDENTIFIER LPAREN RPAREN
                           | UUID LPAREN RPAREN"""
         p[0] = FunctionCall(name=p[1].lower() if isinstance(p[1], str) else "uuid")
+
+    def p_instance_value_composite_ref(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER LPAREN INTEGER RPAREN"""
+        p[0] = CompositeRef(type_name=p[1], index=p[3])
 
     def p_query_eval(self, p: yacc.YaccProduction) -> None:
         """query : SELECT eval_expr_list
@@ -314,8 +381,16 @@ class QueryParser:
         p[0] = p[1] + [p[3]]
 
     def p_select_field_name(self, p: yacc.YaccProduction) -> None:
-        """select_field : IDENTIFIER"""
+        """select_field : field_path"""
         p[0] = SelectField(name=p[1])
+
+    def p_field_path_single(self, p: yacc.YaccProduction) -> None:
+        """field_path : IDENTIFIER"""
+        p[0] = p[1]
+
+    def p_field_path_dotted(self, p: yacc.YaccProduction) -> None:
+        """field_path : field_path DOT IDENTIFIER"""
+        p[0] = f"{p[1]}.{p[3]}"
 
     def p_select_field_count(self, p: yacc.YaccProduction) -> None:
         """select_field : COUNT LPAREN RPAREN"""

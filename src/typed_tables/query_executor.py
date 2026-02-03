@@ -9,11 +9,14 @@ from typing import Any, Iterator
 
 from typed_tables.parsing.query_parser import (
     CompoundCondition,
+    CompositeRef,
     Condition,
+    CreateAliasQuery,
     CreateInstanceQuery,
     CreateTypeQuery,
     DeleteQuery,
     DescribeQuery,
+    DropDatabaseQuery,
     EvalQuery,
     FieldValue,
     FunctionCall,
@@ -65,6 +68,13 @@ class DeleteResult(QueryResult):
     deleted_count: int = 0
 
 
+@dataclass
+class DropResult(QueryResult):
+    """Result of a DROP database query."""
+
+    path: str = ""
+
+
 class QueryExecutor:
     """Executes TTQ queries against storage."""
 
@@ -84,12 +94,16 @@ class QueryExecutor:
             return self._execute_use(query)
         elif isinstance(query, CreateTypeQuery):
             return self._execute_create_type(query)
+        elif isinstance(query, CreateAliasQuery):
+            return self._execute_create_alias(query)
         elif isinstance(query, CreateInstanceQuery):
             return self._execute_create_instance(query)
         elif isinstance(query, EvalQuery):
             return self._execute_eval(query)
         elif isinstance(query, DeleteQuery):
             return self._execute_delete(query)
+        elif isinstance(query, DropDatabaseQuery):
+            return self._execute_drop_database(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -178,6 +192,50 @@ class QueryExecutor:
             message=f"Switching to database: {query.path}",
         )
 
+    def _execute_drop_database(self, query: DropDatabaseQuery) -> DropResult:
+        """Execute DROP database query - returns path for REPL to delete database."""
+        return DropResult(
+            columns=[],
+            rows=[],
+            path=query.path,
+            message=f"Dropping database: {query.path}",
+        )
+
+    def _execute_create_alias(self, query: CreateAliasQuery) -> CreateResult:
+        """Execute CREATE ALIAS query."""
+        # Check if alias name already exists
+        if self.registry.get(query.name) is not None:
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Type '{query.name}' already exists",
+                type_name=query.name,
+            )
+
+        # Get the base type
+        base_type = self.registry.get(query.base_type)
+        if base_type is None:
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Unknown base type: {query.base_type}",
+                type_name=query.name,
+            )
+
+        # Create and register the alias
+        alias = AliasTypeDefinition(name=query.name, base_type=base_type)
+        self.registry.register(alias)
+
+        # Save updated metadata
+        self.storage.save_metadata()
+
+        return CreateResult(
+            columns=["alias", "base_type"],
+            rows=[{"alias": query.name, "base_type": query.base_type}],
+            message=f"Created alias '{query.name}' as '{query.base_type}'",
+            type_name=query.name,
+        )
+
     def _execute_create_type(self, query: CreateTypeQuery) -> CreateResult:
         """Execute CREATE TYPE query."""
         # Check if type already exists
@@ -189,8 +247,41 @@ class QueryExecutor:
                 type_name=query.name,
             )
 
-        # Build field definitions
-        fields: list[FieldDefinition] = []
+        # Handle inheritance
+        parent_fields: list[FieldDefinition] = []
+        if query.parent:
+            # Check for circular inheritance
+            if query.parent == query.name:
+                return CreateResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Circular inheritance: '{query.name}' cannot inherit from itself",
+                    type_name=query.name,
+                )
+
+            parent_type = self.registry.get(query.parent)
+            if parent_type is None:
+                return CreateResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Unknown parent type: {query.parent}",
+                    type_name=query.name,
+                )
+
+            parent_base = parent_type.resolve_base_type()
+            if not isinstance(parent_base, CompositeTypeDefinition):
+                return CreateResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Cannot inherit from non-composite type: {query.parent}",
+                    type_name=query.name,
+                )
+
+            # Copy parent fields
+            parent_fields = list(parent_base.fields)
+
+        # Build field definitions from query
+        fields: list[FieldDefinition] = parent_fields.copy()
         for field_def in query.fields:
             # Handle 'string' as alias for 'character[]'
             type_name = field_def.type_name
@@ -282,13 +373,16 @@ class QueryExecutor:
             )
 
     def _resolve_instance_value(self, value: Any) -> Any:
-        """Resolve a value from CREATE instance, handling function calls."""
+        """Resolve a value from CREATE instance, handling function calls and composite refs."""
         if isinstance(value, FunctionCall):
             if value.name == "uuid":
                 # Generate a random UUID as uint128
                 return uuid_module.uuid4().int
             else:
                 raise ValueError(f"Unknown function: {value.name}()")
+        elif isinstance(value, CompositeRef):
+            # Return the index directly - the type will be validated during instance creation
+            return value.index
         return value
 
     def _create_instance(
@@ -308,14 +402,19 @@ class QueryExecutor:
                 # Convert string to character list if needed
                 if isinstance(field_value, str):
                     field_value = list(field_value)
-                # Store array elements
+                # Store array elements and get index into header table
                 array_table = self.storage.get_array_table_for_type(field.type_def)
                 array_index = array_table.insert(field_value)
-                field_references[field.name] = array_table.get_header(array_index)
+                field_references[field.name] = array_index
             elif isinstance(field_base, CompositeTypeDefinition):
-                # Nested composite - recursive create
-                nested_index = self._create_instance(field.type_def, field_base, field_value)
-                field_references[field.name] = nested_index
+                # Nested composite - either an index reference or dict for recursive create
+                if isinstance(field_value, int):
+                    # Direct index reference: TypeName(index) syntax
+                    field_references[field.name] = field_value
+                else:
+                    # Dict for recursive create
+                    nested_index = self._create_instance(field.type_def, field_base, field_value)
+                    field_references[field.name] = nested_index
             else:
                 # Primitive value - store in field type's table
                 field_table = self.storage.get_table(field.type_def.name)
@@ -650,10 +749,94 @@ class QueryExecutor:
                 elif field.name == "*":
                     row.update(record)
                 else:
-                    row[field.name] = record.get(field.name)
+                    # Handle dotted paths like "address.state"
+                    row[field.name] = self._resolve_field_path(record, field.path, type_def)
             rows.append(row)
 
         return columns, rows
+
+    def _resolve_field_path(
+        self,
+        record: dict[str, Any],
+        path: list[str],
+        type_def: TypeDefinition,
+    ) -> Any:
+        """Resolve a dotted field path like ['address', 'state']."""
+        if not path:
+            return None
+
+        base = type_def.resolve_base_type()
+        if not isinstance(base, CompositeTypeDefinition):
+            return record.get(path[0]) if len(path) == 1 else None
+
+        first_field = path[0]
+        value = record.get(first_field)
+
+        # If this is the only part of the path, return directly
+        if len(path) == 1:
+            return value
+
+        # Need to resolve nested fields
+        # Find the field definition to get its type
+        field_def = base.get_field(first_field)
+        if field_def is None:
+            return None
+
+        field_base = field_def.type_def.resolve_base_type()
+        if not isinstance(field_base, CompositeTypeDefinition):
+            # Can't traverse into non-composite types
+            return None
+
+        # The value should be a string like "<Address[0]>" or an index
+        # Parse the index from the string representation
+        if isinstance(value, str) and value.startswith("<") and value.endswith(">"):
+            # Parse "<TypeName[index]>" format
+            import re
+            match = re.match(r"<(\w+)\[(\d+)\]>", value)
+            if match:
+                nested_type_name = match.group(1)
+                nested_index = int(match.group(2))
+
+                # Load the nested record
+                nested_type_def = self.registry.get(nested_type_name)
+                if nested_type_def is None:
+                    return None
+
+                nested_table = self.storage.get_table(nested_type_name)
+                raw_record = nested_table.get(nested_index)
+
+                # Resolve the nested record's fields
+                nested_resolved = {"_index": nested_index}
+                nested_base = nested_type_def.resolve_base_type()
+                if isinstance(nested_base, CompositeTypeDefinition):
+                    for field in nested_base.fields:
+                        ref = raw_record[field.name]
+                        field_type_base = field.type_def.resolve_base_type()
+
+                        if isinstance(field_type_base, ArrayTypeDefinition):
+                            arr_table = self.storage.get_array_table_for_type(field.type_def)
+                            start_index, length = arr_table.get_header(ref)
+                            if length == 0:
+                                nested_resolved[field.name] = []
+                            else:
+                                elements = [
+                                    arr_table.element_table.get(start_index + j)
+                                    for j in range(length)
+                                ]
+                                if all(isinstance(e, str) and len(e) == 1 for e in elements):
+                                    nested_resolved[field.name] = "".join(elements)
+                                else:
+                                    nested_resolved[field.name] = elements
+                        elif isinstance(field_type_base, CompositeTypeDefinition):
+                            nested_resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
+                        else:
+                            field_table = self.storage.get_table(field.type_def.name)
+                            nested_resolved[field.name] = field_table.get(ref)
+
+                # Recursively resolve remaining path
+                return self._resolve_field_path(nested_resolved, path[1:], nested_type_def)
+
+        return None
 
     def _compute_global_aggregates(
         self, records: list[dict[str, Any]], fields: list[SelectField]

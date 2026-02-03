@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import argparse
 import readline  # noqa: F401 - enables line editing in input()
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
-from typed_tables.parsing.query_parser import QueryParser, UseQuery
-from typed_tables.query_executor import CreateResult, DeleteResult, QueryExecutor, QueryResult, UseResult
+from typed_tables.parsing.query_parser import DropDatabaseQuery, QueryParser, UseQuery
+from typed_tables.query_executor import CreateResult, DeleteResult, DropResult, QueryExecutor, QueryResult, UseResult
 from typed_tables.storage import StorageManager
 from typed_tables.types import TypeRegistry
 
@@ -46,8 +47,8 @@ def format_value(value: Any) -> str:
 
 def print_result(result: QueryResult, max_width: int = 80) -> None:
     """Print query results in a formatted table."""
-    # Special handling for UseResult, CreateResult, DeleteResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult, DeleteResult)):
+    # Special handling for UseResult, CreateResult, DeleteResult, DropResult - show message as success, not error
+    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -106,20 +107,23 @@ def run_repl(data_dir: Path | None) -> int:
     storage: StorageManager | None = None
     executor: QueryExecutor | None = None
 
-    def load_database(path: Path) -> tuple[TypeRegistry, StorageManager, QueryExecutor]:
-        """Load a database from the given path."""
-        if not path.exists():
+    def load_database(path: Path) -> tuple[TypeRegistry, StorageManager, QueryExecutor, bool]:
+        """Load a database from the given path. Returns (registry, storage, executor, is_new)."""
+        is_new = not path.exists()
+        if is_new:
             path.mkdir(parents=True, exist_ok=True)
             reg = TypeRegistry()
         else:
             reg = load_registry_from_metadata(path)
         stor = StorageManager(path, reg)
         exec = QueryExecutor(stor, reg)
-        return reg, stor, exec
+        return reg, stor, exec, is_new
 
     if data_dir:
         try:
-            registry, storage, executor = load_database(data_dir)
+            registry, storage, executor, is_new = load_database(data_dir)
+            if is_new:
+                print(f"Created new database: {data_dir}")
         except Exception as e:
             print(f"Error loading data: {e}", file=sys.stderr)
             return 1
@@ -204,9 +208,10 @@ def run_repl(data_dir: Path | None) -> int:
                     line = line[:-1]
 
                 # Check if we need a database for this query
-                lower = line.lower()
-                if not lower.startswith("use") and executor is None:
-                    print("No database loaded. Use 'use <path>' to select a database first.")
+                lower = line.lower().strip()
+                needs_db = not (lower.startswith("use") or lower.startswith("drop") or lower.startswith("select "))
+                if needs_db and executor is None:
+                    print("No database selected. Use 'use <path>' to select a database first.")
                     print()
                     continue
 
@@ -214,15 +219,56 @@ def run_repl(data_dir: Path | None) -> int:
 
                 # Handle USE query specially - switch databases
                 if isinstance(query, UseQuery):
-                    new_path = Path(query.path)
-                    try:
+                    if not query.path:
+                        # Empty path - exit current database
                         if storage:
                             storage.close()
-                        registry, storage, executor = load_database(new_path)
-                        data_dir = new_path
-                        print(f"Switched to database: {new_path}")
-                    except Exception as e:
-                        print(f"Error loading database: {e}")
+                        storage = None
+                        registry = None
+                        executor = None
+                        data_dir = None
+                        print("Exited database. No database selected.")
+                    else:
+                        new_path = Path(query.path)
+                        try:
+                            if storage:
+                                storage.close()
+                            registry, storage, executor, is_new = load_database(new_path)
+                            data_dir = new_path
+                            if is_new:
+                                print(f"Created new database: {new_path}")
+                            else:
+                                print(f"Switched to database: {new_path}")
+                        except Exception as e:
+                            print(f"Error loading database: {e}")
+                    print()
+                    continue
+
+                # Handle DROP query specially - doesn't need executor
+                if isinstance(query, DropDatabaseQuery):
+                    drop_path = Path(query.path)
+                    if not drop_path.exists():
+                        print(f"Database does not exist: {drop_path}")
+                    elif drop_path == data_dir:
+                        # Dropping current database - close it first
+                        if storage:
+                            storage.close()
+                        storage = None
+                        registry = None
+                        executor = None
+                        data_dir = None
+                        try:
+                            shutil.rmtree(drop_path)
+                            print(f"Dropped database: {drop_path}")
+                            print("No database selected.")
+                        except Exception as e:
+                            print(f"Error dropping database: {e}")
+                    else:
+                        try:
+                            shutil.rmtree(drop_path)
+                            print(f"Dropped database: {drop_path}")
+                        except Exception as e:
+                            print(f"Error dropping database: {e}")
                     print()
                     continue
 
@@ -230,15 +276,41 @@ def run_repl(data_dir: Path | None) -> int:
 
                 # Handle UseResult - switch databases
                 if isinstance(result, UseResult):
-                    new_path = Path(result.path)
-                    try:
+                    if not result.path:
+                        # Empty path means exit current database
                         if storage:
                             storage.close()
-                        registry, storage, executor = load_database(new_path)
-                        data_dir = new_path
-                        print(f"Switched to database: {new_path}")
-                    except Exception as e:
-                        print(f"Error loading database: {e}")
+                        storage = None
+                        registry = None
+                        executor = None
+                        data_dir = None
+                        print("Exited database. No database selected.")
+                    else:
+                        new_path = Path(result.path)
+                        try:
+                            if storage:
+                                storage.close()
+                            registry, storage, executor, is_new = load_database(new_path)
+                            data_dir = new_path
+                            if is_new:
+                                print(f"Created new database: {new_path}")
+                            else:
+                                print(f"Switched to database: {new_path}")
+                        except Exception as e:
+                            print(f"Error loading database: {e}")
+                # Handle DropResult - delete database
+                elif isinstance(result, DropResult):
+                    drop_path = Path(result.path)
+                    if not drop_path.exists():
+                        print(f"Database does not exist: {drop_path}")
+                    elif drop_path == data_dir:
+                        print("Cannot drop the currently active database. Use 'use' to switch first.")
+                    else:
+                        try:
+                            shutil.rmtree(drop_path)
+                            print(f"Dropped database: {drop_path}")
+                        except Exception as e:
+                            print(f"Error dropping database: {e}")
                 else:
                     print_result(result)
 
@@ -269,7 +341,9 @@ def print_help() -> None:
 TTQ - Typed Tables Query Language
 
 DATABASE:
-  use <path>               Switch to a database directory
+  use <path>               Switch to (or create) a database directory
+  use                      Exit current database (no database selected)
+  drop <path>              Delete a database directory (can drop current db)
   show tables              List all tables
   describe <table>         Show table structure
 
@@ -277,9 +351,14 @@ CREATE:
   create type <Name>       Create a new composite type (fields on following lines)
     field: type              - Each field on its own line
                              - End with empty line
+  create type <Name> from <Parent>
+                           Create a type inheriting from another type
+  create alias <name> as <type>
+                           Create a type alias
   create <Type>(...)       Create an instance of a type
     field=value, ...         - Field values separated by commas
     field=uuid()             - Use uuid() to generate a UUID
+    field=OtherType(index)   - Reference an existing composite instance
 
 DELETE:
   delete <table> where ... Delete matching records (soft delete)
@@ -289,6 +368,7 @@ QUERIES:
   from <table>                        Select all records
   from <table> select *               Same as above
   from <table> select field1, field2  Select specific fields
+  from <table> select field.nested    Select nested composite fields (dot notation)
   from <table> where <condition>      Filter records
   from <table> sort by field1, field2 Sort results
   from <table> offset N limit M       Paginate results
@@ -386,7 +466,21 @@ def main(argv: list[str] | None = None) -> int:
 
             query = parser.parse(args.command)
             result = executor.execute(query)
-            print_result(result)
+
+            # Handle special results
+            if isinstance(result, DropResult):
+                drop_path = Path(result.path)
+                if not drop_path.exists():
+                    print(f"Database does not exist: {drop_path}")
+                elif drop_path == args.data_dir:
+                    print("Cannot drop the currently active database.")
+                else:
+                    shutil.rmtree(drop_path)
+                    print(f"Dropped database: {drop_path}")
+            elif isinstance(result, UseResult):
+                print(f"Use 'ttq {result.path}' to switch databases")
+            else:
+                print_result(result)
 
             storage.close()
             return 0

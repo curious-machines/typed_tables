@@ -45,11 +45,21 @@ select_clause   ::= (* empty - defaults to SELECT * *)
 field_list      ::= select_field
                   | field_list "," select_field
 
-select_field    ::= IDENTIFIER
+select_field    ::= field_path
                   | "count" "(" ")"
                   | "average" "(" IDENTIFIER ")"
                   | "sum" "(" IDENTIFIER ")"
                   | "product" "(" IDENTIFIER ")"
+
+(* Field paths support dot notation for nested composite fields *)
+field_path      ::= IDENTIFIER
+                  | field_path "." IDENTIFIER
+
+(* Examples of field paths:
+ *   name                    -- simple field
+ *   address.city            -- nested composite field
+ *   address.location.lat    -- deeply nested field
+ *)
 
 where_clause    ::= (* empty *)
                   | "where" condition
@@ -147,35 +157,72 @@ describe_query  ::= "describe" IDENTIFIER
 
 (* ========== USE Query ========== *)
 (*
- * Switch to a different database directory.
+ * Switch to a different database directory, or exit the current database.
  *
  * Examples:
- *   use example_data
- *   use ./data/production
- *   use /absolute/path/to/data
- *   use "path with spaces"
+ *   use example_data              -- switch to database
+ *   use ./data/production         -- switch to path
+ *   use /absolute/path/to/data    -- absolute path
+ *   use "path with spaces"        -- quoted path
+ *   use                           -- exit current database (no database selected)
  *)
 
-use_query       ::= "use" PATH
+use_query       ::= "use"
+                  | "use" PATH
                   | "use" IDENTIFIER
                   | "use" STRING
 
 
-(* ========== CREATE TYPE Query ========== *)
+(* ========== CREATE ALIAS Query ========== *)
 (*
- * Create a new composite type. Fields are defined on subsequent lines.
+ * Create a type alias. The new type is stored in its own table
+ * but uses the same format as the base type.
  *
  * Example:
+ *   create alias uuid as uint128
+ *)
+
+create_alias_query ::= "create" "alias" IDENTIFIER "as" IDENTIFIER
+
+
+(* ========== DROP DATABASE Query ========== *)
+(*
+ * Delete a database directory.
+ *
+ * Example:
+ *   drop example_data
+ *)
+
+drop_database_query ::= "drop" IDENTIFIER
+                      | "drop" PATH
+                      | "drop" STRING
+
+
+(* ========== CREATE TYPE Query ========== *)
+(*
+ * Create a new composite type. Fields can be on one line or multiple lines.
+ *
+ * Single-line example:
+ *   create type Point x:float32 y:float32
+ *
+ * Multi-line example:
  *   create type Address
  *   street: string
  *   city: string
  *   zipcode: string
  *
+ * With inheritance:
+ *   create type Employee from Person department:string title:string
+ *
  * Note: "string" is an alias for "character[]"
  *)
 
-create_type_query ::= "create" "type" IDENTIFIER NEWLINE type_field_list
+create_type_query ::= "create" "type" IDENTIFIER type_field_list
+                    | "create" "type" IDENTIFIER NEWLINE type_field_list
                     | "create" "type" IDENTIFIER
+                    | "create" "type" IDENTIFIER "from" IDENTIFIER type_field_list
+                    | "create" "type" IDENTIFIER "from" IDENTIFIER NEWLINE type_field_list
+                    | "create" "type" IDENTIFIER "from" IDENTIFIER
 
 type_field_list ::= type_field_def
                   | type_field_list type_field_def
@@ -191,6 +238,7 @@ type_field_def  ::= IDENTIFIER ":" IDENTIFIER NEWLINE
  * Examples:
  *   create Person(name="Alice", age=30)
  *   create Person(id=uuid(), name="Bob", age=25)
+ *   create Contact(name="John", address=Address(0))  -- reference existing composite
  *)
 
 create_instance_query ::= "create" IDENTIFIER "(" instance_field_list ")"
@@ -206,6 +254,7 @@ instance_value  ::= STRING
                   | FLOAT
                   | IDENTIFIER "(" ")"
                   | "uuid" "(" ")"
+                  | IDENTIFIER "(" INTEGER ")"        (* composite reference: TypeName(index) *)
 
 
 (* ========== DELETE Query ========== *)
