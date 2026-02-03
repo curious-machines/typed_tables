@@ -68,6 +68,27 @@ class TestQueryLexer:
         assert "LBRACKET" in token_types
         assert "RBRACKET" in token_types
 
+    def test_tokenize_semicolon(self):
+        """Test that semicolons are tokenized."""
+        lexer = QueryLexer()
+        lexer.build()
+
+        tokens = lexer.tokenize("from Person;")
+        token_types = [t.type for t in tokens]
+
+        assert token_types == ["FROM", "IDENTIFIER", "SEMICOLON"]
+
+    def test_newlines_ignored(self):
+        """Test that newlines are not returned as tokens."""
+        lexer = QueryLexer()
+        lexer.build()
+
+        tokens = lexer.tokenize("from Person\nselect name")
+        token_types = [t.type for t in tokens]
+
+        assert "NEWLINE" not in token_types
+        assert token_types == ["FROM", "IDENTIFIER", "SELECT", "IDENTIFIER"]
+
 
 class TestQueryParser:
     """Tests for the query parser."""
@@ -457,3 +478,41 @@ class TestQueryParser:
         assert field.array_index.indices[1].start == 2
         assert field.array_index.indices[1].end == 5
         assert field.array_index.indices[2] == 7
+
+    def test_parse_with_semicolon(self):
+        """Test parsing queries terminated with a semicolon."""
+        parser = QueryParser()
+
+        query = parser.parse("from Person;")
+        assert isinstance(query, SelectQuery)
+        assert query.table == "Person"
+
+        query = parser.parse("show tables;")
+        assert isinstance(query, ShowTablesQuery)
+
+        query = parser.parse("describe Person;")
+        assert isinstance(query, DescribeQuery)
+        assert query.table == "Person"
+
+        query = parser.parse("use mydb;")
+        assert isinstance(query, UseQuery)
+        assert query.path == "mydb"
+
+    def test_parse_multiline_no_newline_token(self):
+        """Test that newlines are treated as whitespace (no NEWLINE token)."""
+        parser = QueryParser()
+
+        # Multi-line select query with newlines between clauses
+        query = parser.parse("from Person\nselect name, age\nwhere age >= 18")
+        assert isinstance(query, SelectQuery)
+        assert query.table == "Person"
+        assert len(query.fields) == 2
+        assert query.where is not None
+
+    def test_parse_create_type_freeform(self):
+        """Test that create type works with free-form whitespace."""
+        parser = QueryParser()
+        query = parser.parse("create type Person\n  name: string\n  age: uint8")
+        assert isinstance(query, CreateTypeQuery)
+        assert query.name == "Person"
+        assert len(query.fields) == 2

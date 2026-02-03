@@ -6,11 +6,24 @@
  * interact with Typed Tables databases. TTQ supports selecting, filtering,
  * aggregating, creating, and deleting data.
  *
+ * Newlines are treated as whitespace and are not significant — queries
+ * can be formatted freely across lines. Semicolons separate multiple
+ * queries in scripts and multi-query input. A single query does not
+ * require a trailing semicolon.
+ *
  * The grammar is implemented using PLY (Python Lex-Yacc).
  *)
 
 
-(* ========== Top-Level Query Types ========== *)
+(* ========== Top-Level Statement ========== *)
+(*
+ * A statement is a query optionally followed by a semicolon.
+ * Semicolons are required to separate multiple queries but are
+ * optional for a single query.
+ *)
+
+statement       ::= query ";"
+                  | query
 
 query           ::= select_query
                   | eval_query
@@ -239,17 +252,14 @@ drop_database_query ::= "drop" IDENTIFIER
  *)
 
 create_type_query ::= "create" "type" IDENTIFIER type_field_list
-                    | "create" "type" IDENTIFIER NEWLINE type_field_list
                     | "create" "type" IDENTIFIER
                     | "create" "type" IDENTIFIER "from" IDENTIFIER type_field_list
-                    | "create" "type" IDENTIFIER "from" IDENTIFIER NEWLINE type_field_list
                     | "create" "type" IDENTIFIER "from" IDENTIFIER
 
 type_field_list ::= type_field_def
                   | type_field_list type_field_def
 
-type_field_def  ::= IDENTIFIER ":" type_ref NEWLINE
-                  | IDENTIFIER ":" type_ref
+type_field_def  ::= IDENTIFIER ":" type_ref
 
 type_ref        ::= IDENTIFIER
                   | IDENTIFIER "[" "]"        (* array type, e.g., int8[] *)
@@ -318,7 +328,9 @@ REGEX           ::= "/" ([^/\\] | \\.)* "/"
 
 PATH            ::= \.?\.?/[a-zA-Z0-9_./\-]+
 
-NEWLINE         ::= "\n"+
+(* Newlines are treated as whitespace and ignored by the lexer.
+ * Semicolons separate multiple queries; optional for a single query. *)
+SEMICOLON       ::= ";"
 
 
 (* ========== Reserved Keywords ========== *)
@@ -326,7 +338,7 @@ NEWLINE         ::= "\n"+
  * from, select, where, offset, limit, group, sort, by,
  * and, or, not, starts, with, matches, show, tables,
  * describe, count, average, sum, product, use, create,
- * type, uuid, delete, as
+ * type, uuid, delete, as, alias, drop
  *)
 
 
@@ -351,27 +363,32 @@ NEWLINE         ::= "\n"+
 
 (* ========== Example Queries ========== *)
 (*
- * -- Select all people
+ * -- Single queries (no semicolon needed):
+ *
  * from Person
  *
- * -- Select with specific fields and filtering
  * from Person select name, age where age >= 21 sort by name
  *
- * -- Aggregation with grouping
  * from Person select age, count() group by age
  *
- * -- Generate UUIDs with aliases
  * select uuid() as "id1", uuid() as "id2"
  *
- * -- Create a new type
- * create type Product
- * name: string
- * price: float64
- * quantity: uint32
- *
- * -- Create an instance
- * create Product(name="Widget", price=9.99, quantity=100)
- *
- * -- Delete with condition
  * delete Product where quantity = 0
+ *
+ * -- Create type (fields can be on following lines — newlines are whitespace):
+ *
+ * create type Product
+ *   name: string
+ *   price: float64
+ *   quantity: uint32
+ *
+ * -- Multiple queries in a script (semicolons separate them):
+ *
+ * use example_data;
+ * create type Product
+ *   name: string
+ *   price: float64
+ *   quantity: uint32;
+ * create Product(name="Widget", price=9.99, quantity=100);
+ * from Product
  *)

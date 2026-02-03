@@ -163,21 +163,6 @@ def run_repl(data_dir: Path | None) -> int:
     except FileNotFoundError:
         pass
 
-    def is_multiline_query(line: str) -> bool:
-        """Check if this query needs multi-line input."""
-        lower = line.lower()
-        # Single-line queries that don't need continuation
-        if lower.startswith("show") or lower.startswith("describe") or lower.startswith("use"):
-            return False
-        # create type needs multi-line for field definitions
-        if lower.startswith("create type"):
-            return True
-        # create instance with unclosed parenthesis needs continuation
-        if lower.startswith("create ") and "(" in line:
-            return True
-        # Regular queries can span multiple lines
-        return True
-
     def has_balanced_parens(line: str) -> bool:
         """Check if parentheses are balanced in the line."""
         count = 0
@@ -202,16 +187,21 @@ def run_repl(data_dir: Path | None) -> int:
         return count == 0
 
     def needs_continuation(line: str) -> bool:
-        """Check if we need more input for this query."""
-        lower = line.lower()
-        # create type continues until empty line (field definitions on separate lines)
-        if lower.startswith("create type"):
-            return True
-        # create instance continues until parentheses are balanced
-        if lower.startswith("create ") and "(" in line:
-            return not has_balanced_parens(line)
-        # Other queries end with semicolon or empty line for continuation
-        return not line.endswith(";")
+        """Check if we need more input for this query.
+
+        A query is complete when it ends with a semicolon.
+        For create instance, parentheses must also be balanced before the semicolon.
+        """
+        stripped = line.strip()
+        if not stripped:
+            return False
+        # If it ends with a semicolon, check paren balance for create instance
+        if stripped.endswith(";"):
+            lower = stripped.lower()
+            if lower.startswith("create ") and not lower.startswith("create type") and "(" in stripped:
+                return not has_balanced_parens(stripped)
+            return False
+        return True
 
     try:
         while True:
@@ -267,46 +257,20 @@ def run_repl(data_dir: Path | None) -> int:
 
             # Parse and execute query
             try:
-                # Handle multi-line queries
-                if is_multiline_query(line) and needs_continuation(line):
-                    is_create_type = line.lower().startswith("create type")
-                    is_create_instance = (
-                        line.lower().startswith("create ")
-                        and not is_create_type
-                        and "(" in line
-                    )
+                # Handle multi-line queries (continue until semicolon)
+                if needs_continuation(line):
                     while True:
                         try:
                             continuation = input("...> ")
-                            if is_create_type:
-                                # For create type, preserve newlines (fields on separate lines)
-                                if not continuation.strip():
-                                    break
-                                line += "\n" + continuation
-                            elif is_create_instance:
-                                # For create instance, continue until parens are balanced
-                                continuation = continuation.strip()
-                                if continuation:
-                                    line += " " + continuation
-                                if has_balanced_parens(line):
-                                    break
-                                # Allow empty line to cancel
-                                if not continuation:
-                                    break
-                            else:
-                                # For other queries, join with space
-                                continuation = continuation.strip()
-                                if not continuation:
-                                    break
-                                line += " " + continuation
-                                if line.endswith(";"):
-                                    break
+                            stripped = continuation.strip()
+                            if not stripped:
+                                # Empty line cancels continuation
+                                break
+                            line += " " + stripped
+                            if not needs_continuation(line):
+                                break
                         except EOFError:
                             break
-
-                # Remove trailing semicolon
-                if line.endswith(";"):
-                    line = line[:-1]
 
                 # Check if we need a database for this query
                 lower = line.lower().strip()
@@ -531,39 +495,8 @@ OTHER:
   clear                    Clear the screen
   execute <file>           Execute queries from a file
 
-Queries can span multiple lines. End with semicolon or press Enter twice.
+Queries can span multiple lines. End with semicolon or press Enter on empty line.
 """)
-
-
-def _is_single_line_query(line: str) -> bool:
-    """Check if this line is a complete single-line query."""
-    lower = line.lower().strip()
-    # These queries are complete on a single line
-    if lower.startswith("use"):
-        return True
-    if lower.startswith("show "):
-        return True
-    if lower.startswith("describe "):
-        return True
-    if lower.startswith("drop "):
-        return True
-    if lower.startswith("create alias "):
-        return True
-    if lower.startswith("delete "):
-        return True
-    # Single-line create type (all on one line with field definitions)
-    if lower.startswith("create type ") and ":" in lower:
-        return True
-    # Single-line from query (simple select without multi-line)
-    if lower.startswith("from ") and not lower.endswith(":"):
-        return True
-    # Eval query
-    if lower.startswith("select ") and "from" not in lower:
-        return True
-    # Create instance
-    if lower.startswith("create ") and "(" in lower and lower.endswith(")"):
-        return True
-    return False
 
 
 def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> int:
@@ -586,63 +519,18 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
         print(f"Error reading file: {e}", file=sys.stderr)
         return 1
 
-    # Parse queries from file
-    # Queries are separated by semicolons, blank lines, or when a new single-line query starts
-    # Lines starting with -- are comments
-    queries = []
-    current_query: list[str] = []
-
+    # Strip comments (lines starting with --)
+    lines = []
     for line in content.split("\n"):
         stripped = line.strip()
-
-        # Skip empty lines and comments
-        if not stripped or stripped.startswith("--"):
-            # Blank line ends current query
-            if current_query:
-                queries.append("\n".join(current_query))
-                current_query = []
+        if stripped.startswith("--"):
             continue
+        lines.append(line)
+    content = "\n".join(lines)
 
-        # Check for semicolon-terminated queries
-        if ";" in stripped:
-            parts = stripped.split(";")
-            for i, part in enumerate(parts):
-                part = part.strip()
-                if part:
-                    if current_query:
-                        current_query.append(part)
-                        queries.append("\n".join(current_query))
-                        current_query = []
-                    else:
-                        queries.append(part)
-        elif _is_single_line_query(stripped):
-            # This is a complete single-line query
-            # First, finish any pending query
-            if current_query:
-                queries.append("\n".join(current_query))
-                current_query = []
-            queries.append(stripped)
-        else:
-            current_query.append(line)
-
-    # Don't forget the last query if no trailing semicolon/newline
-    if current_query:
-        queries.append("\n".join(current_query))
-
-    # Filter out empty queries and normalize them
-    def normalize_query(q: str) -> str:
-        """Normalize a query string for parsing."""
-        q = q.strip()
-        if not q:
-            return q
-        lower = q.lower()
-        # Keep newlines for create type (field definitions need them)
-        if lower.startswith("create type"):
-            return q
-        # For other queries, replace newlines with spaces
-        return " ".join(line.strip() for line in q.split("\n") if line.strip())
-
-    queries = [normalize_query(q) for q in queries if q.strip()]
+    # Split on semicolons to get individual queries
+    parts = content.split(";")
+    queries = [part.strip() for part in parts if part.strip()]
 
     if not queries:
         print("No queries found in file", file=sys.stderr)

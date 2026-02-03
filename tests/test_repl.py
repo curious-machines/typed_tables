@@ -11,31 +11,7 @@ from typed_tables.repl import main, run_file
 class TestHelperFunctions:
     """Tests for REPL helper functions."""
 
-    def test_has_balanced_parens(self):
-        """Test parenthesis balancing detection."""
-        # Import the function directly from the module
-        import typed_tables.repl as repl_module
-
-        # We need to access the function from within run_repl's scope
-        # For now, let's just test via run_file which uses similar logic
-
-    def test_is_single_line_query(self):
-        """Test single-line query detection."""
-        from typed_tables.repl import _is_single_line_query
-
-        # Single-line queries
-        assert _is_single_line_query("use mydb")
-        assert _is_single_line_query("show tables")
-        assert _is_single_line_query("describe Person")
-        assert _is_single_line_query("drop mydb")
-        assert _is_single_line_query("create alias uuid as uint128")
-        assert _is_single_line_query("delete Person")
-        assert _is_single_line_query("create type Point x:float32 y:float32")
-        assert _is_single_line_query("from Person")
-        assert _is_single_line_query('create Person(name="Alice", age=30)')
-
-        # Multi-line queries
-        assert not _is_single_line_query("create type Person")  # No fields on same line
+    pass
 
 
 class TestRunFile:
@@ -48,18 +24,18 @@ class TestRunFile:
 
         script.write_text(f"""
 -- Create a test database
-use {db_path}
+use {db_path};
 
 -- Create a type
 create type Person
-name: string
-age: uint8
+  name: string
+  age: uint8;
 
 -- Create an instance
-create Person(name="Alice", age=30)
+create Person(name="Alice", age=30);
 
 -- Query it
-from Person
+from Person;
 """)
 
         result = run_file(script, None, verbose=False)
@@ -85,9 +61,9 @@ use {db_path}; create type Point x:float32 y:float32; create Point(x=1.0, y=2.0)
 
         script = tmp_path / "test.ttq"
         script.write_text("""
-create type Item name:string
-create Item(name="test")
-from Item
+create type Item name:string;
+create Item(name="test");
+from Item;
 """)
 
         result = run_file(script, db_path, verbose=False)
@@ -96,7 +72,7 @@ from Item
     def test_run_file_error_no_database(self, tmp_path: Path):
         """Test that queries fail when no database is selected."""
         script = tmp_path / "test.ttq"
-        script.write_text("from Person")
+        script.write_text("from Person;")
 
         result = run_file(script, None, verbose=False)
         assert result == 1
@@ -107,8 +83,8 @@ from Item
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path}
-from where
+use {db_path};
+from where;
 """)
 
         result = run_file(script, None, verbose=False)
@@ -121,9 +97,9 @@ from where
 
         script.write_text(f"""
 -- This is a comment
-use {db_path}
+use {db_path};
 -- Another comment
-create type Test value:uint8
+create type Test value:uint8;
 -- Final comment
 """)
 
@@ -162,15 +138,15 @@ class TestExecuteCommand:
         db_path = tmp_path / "testdb"
         subscript = tmp_path / "subscript.ttq"
         subscript.write_text("""
-create type Item name:string
-create Item(name="from subscript")
+create type Item name:string;
+create Item(name="from subscript");
 """)
 
         main_script = tmp_path / "main.ttq"
         main_script.write_text(f"""
-use {db_path}
-execute {subscript}
-from Item
+use {db_path};
+execute {subscript};
+from Item;
 """)
 
         # Since execute is a REPL command, we need to test it differently
@@ -193,8 +169,8 @@ class TestMain:
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path}
-create type Simple value:uint8
+use {db_path};
+create type Simple value:uint8;
 """)
 
         result = main(["-f", str(script)])
@@ -207,7 +183,7 @@ create type Simple value:uint8
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path}
+use {db_path};
 """)
 
         result = main(["-f", str(script), "-v"])

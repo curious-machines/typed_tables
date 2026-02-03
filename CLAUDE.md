@@ -65,6 +65,8 @@ Metadata about types is stored in `_metadata.json` in the data directory.
 
 ## Query Language
 
+Newlines are treated as whitespace, so queries can be formatted freely across multiple lines. Semicolons are used to separate multiple queries (e.g., in scripts). A single query does not need a trailing semicolon.
+
 ### Select Database
 
 This will create a new database if one does not exist already
@@ -131,8 +133,7 @@ create Sensor(name="temperature", readings=[25, 26, 24, 27])
 ### Delete Entry
 
 ```ttq
-delete Person
-where name="Kevin"
+delete Person where name="Kevin"
 ```
 
 ### Selection
@@ -154,10 +155,7 @@ select uuid() as "One", uuid() as "Two"
 The return selection can be limited using `offset` and `limit` phrases. If `limit` is used without `offset`, then `offset` defaults to 0.
 
 ```ttq
-from Person
-select *
-offset 10
-limit 10
+from Person select * offset 10 limit 10
 ```
 
 This will skip the first 10 Person entries, and then display the next 10 entries
@@ -208,39 +206,30 @@ from Sensor select readings[0, 5:10, 15]
 Results can be grouped
 
 ```ttq
-from Person
-select age
-group by age
+from Person select age group by age
 ```
 
 Since there may be more than one Person that has the same age, the Person with the lowest id will be displayed for that group
 
 ```ttq
-from Person
-select age, count()
-group by age
+from Person select age, count() group by age
 ```
 
 ### Aggregation
 ```ttq
-from Person
-select average(age)
+from Person select average(age)
 ```
 
 ```ttq
-from Person
-select sum(age)
+from Person select sum(age)
 ```
 
 ```ttq
-from Person
-select product(age)
+from Person select product(age)
 ```
 
 ```ttq
-from Person
-select name, age
-sort by age, name
+from Person select name, age sort by age, name
 ```
 
 ### Special Queries

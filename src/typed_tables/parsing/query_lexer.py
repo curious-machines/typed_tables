@@ -63,7 +63,7 @@ class QueryLexer:
         "LTE",
         "GT",
         "GTE",
-        "NEWLINE",
+        "SEMICOLON",
     ] + list(reserved.values())
 
     # Simple tokens
@@ -82,8 +82,10 @@ class QueryLexer:
     t_GTE = r">="
     t_GT = r">"
 
-    # Ignored characters (NOT newlines - they're significant for create type)
+    # Ignored characters (including newlines - semicolons are the statement terminator)
     t_ignore = " \t"
+
+    t_SEMICOLON = r";"
 
     def __init__(self) -> None:
         self.lexer: lex.LexToken = None  # type: ignore
@@ -120,10 +122,9 @@ class QueryLexer:
         t.type = self.reserved.get(t.value.lower(), "IDENTIFIER")
         return t
 
-    def t_NEWLINE(self, t: lex.LexToken) -> lex.LexToken:
+    def t_NEWLINE(self, t: lex.LexToken) -> None:
         r"\n+"
         t.lexer.lineno += len(t.value)
-        return t
 
     def t_COMMENT(self, t: lex.LexToken) -> None:
         r"--[^\n]*"

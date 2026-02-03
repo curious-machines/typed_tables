@@ -193,110 +193,86 @@ class QueryParser:
         self.lexer.build()
         self.parser: yacc.LRParser = None  # type: ignore
 
+    def p_statement(self, p: yacc.YaccProduction) -> None:
+        """statement : query SEMICOLON
+                     | query"""
+        p[0] = p[1]
+
     def p_query_select(self, p: yacc.YaccProduction) -> None:
         """query : select_query"""
         p[0] = p[1]
 
     def p_query_show_tables(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW TABLES
-                 | SHOW TABLES newlines"""
+        """query : SHOW TABLES"""
         p[0] = ShowTablesQuery()
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
         """query : DESCRIBE IDENTIFIER
-                 | DESCRIBE IDENTIFIER newlines
-                 | DESCRIBE STRING
-                 | DESCRIBE STRING newlines"""
+                 | DESCRIBE STRING"""
         p[0] = DescribeQuery(table=p[2])
 
     def p_query_use_none(self, p: yacc.YaccProduction) -> None:
-        """query : USE
-                 | USE newlines"""
+        """query : USE"""
         p[0] = UseQuery(path="")
 
     def p_query_use_path(self, p: yacc.YaccProduction) -> None:
-        """query : USE PATH
-                 | USE PATH newlines"""
+        """query : USE PATH"""
         p[0] = UseQuery(path=p[2])
 
     def p_query_use_identifier(self, p: yacc.YaccProduction) -> None:
-        """query : USE IDENTIFIER
-                 | USE IDENTIFIER newlines"""
+        """query : USE IDENTIFIER"""
         p[0] = UseQuery(path=p[2])
 
     def p_query_use_string(self, p: yacc.YaccProduction) -> None:
-        """query : USE STRING
-                 | USE STRING newlines"""
+        """query : USE STRING"""
         p[0] = UseQuery(path=p[2])
 
     def p_query_create_alias(self, p: yacc.YaccProduction) -> None:
         """query : CREATE ALIAS IDENTIFIER AS IDENTIFIER
-                 | CREATE ALIAS IDENTIFIER AS IDENTIFIER newlines
-                 | CREATE ALIAS UUID AS IDENTIFIER
-                 | CREATE ALIAS UUID AS IDENTIFIER newlines"""
+                 | CREATE ALIAS UUID AS IDENTIFIER"""
         # Handle UUID keyword being used as the alias name
         name = p[3] if isinstance(p[3], str) else "uuid"
         p[0] = CreateAliasQuery(name=name, base_type=p[5])
 
     def p_query_create_type(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER newlines type_field_list
-                 | CREATE TYPE IDENTIFIER type_field_list"""
-        fields = p[5] if len(p) == 6 else p[4]
-        p[0] = CreateTypeQuery(name=p[3], fields=fields)
+        """query : CREATE TYPE IDENTIFIER type_field_list"""
+        p[0] = CreateTypeQuery(name=p[3], fields=p[4])
 
     def p_query_create_type_empty(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER
-                 | CREATE TYPE IDENTIFIER newlines"""
+        """query : CREATE TYPE IDENTIFIER"""
         p[0] = CreateTypeQuery(name=p[3], fields=[])
 
     def p_query_create_type_inherit(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER newlines type_field_list
-                 | CREATE TYPE IDENTIFIER FROM IDENTIFIER type_field_list"""
-        fields = p[7] if len(p) == 8 else p[6]
-        p[0] = CreateTypeQuery(name=p[3], fields=fields, parent=p[5])
+        """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER type_field_list"""
+        p[0] = CreateTypeQuery(name=p[3], fields=p[6], parent=p[5])
 
     def p_query_create_type_inherit_empty(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER
-                 | CREATE TYPE IDENTIFIER FROM IDENTIFIER newlines"""
+        """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER"""
         p[0] = CreateTypeQuery(name=p[3], fields=[], parent=p[5])
 
     def p_query_drop_database(self, p: yacc.YaccProduction) -> None:
         """query : DROP IDENTIFIER
-                 | DROP IDENTIFIER newlines
                  | DROP PATH
-                 | DROP PATH newlines
-                 | DROP STRING
-                 | DROP STRING newlines"""
+                 | DROP STRING"""
         p[0] = DropDatabaseQuery(path=p[2])
 
     def p_query_create_instance(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE IDENTIFIER LPAREN instance_field_list RPAREN
-                 | CREATE IDENTIFIER LPAREN instance_field_list RPAREN newlines"""
+        """query : CREATE IDENTIFIER LPAREN instance_field_list RPAREN"""
         p[0] = CreateInstanceQuery(type_name=p[2], fields=p[4])
 
     def p_query_create_instance_empty(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE IDENTIFIER LPAREN RPAREN
-                 | CREATE IDENTIFIER LPAREN RPAREN newlines"""
+        """query : CREATE IDENTIFIER LPAREN RPAREN"""
         p[0] = CreateInstanceQuery(type_name=p[2], fields=[])
 
     def p_query_delete(self, p: yacc.YaccProduction) -> None:
         """query : DELETE IDENTIFIER WHERE condition
-                 | DELETE IDENTIFIER WHERE condition newlines
-                 | DELETE STRING WHERE condition
-                 | DELETE STRING WHERE condition newlines"""
+                 | DELETE STRING WHERE condition"""
         p[0] = DeleteQuery(table=p[2], where=p[4])
 
     def p_query_delete_all(self, p: yacc.YaccProduction) -> None:
         """query : DELETE IDENTIFIER
-                 | DELETE IDENTIFIER newlines
-                 | DELETE STRING
-                 | DELETE STRING newlines"""
+                 | DELETE STRING"""
         p[0] = DeleteQuery(table=p[2], where=None)
-
-    def p_newlines(self, p: yacc.YaccProduction) -> None:
-        """newlines : NEWLINE
-                    | newlines NEWLINE"""
-        pass
 
     def p_type_field_list_single(self, p: yacc.YaccProduction) -> None:
         """type_field_list : type_field_def"""
@@ -307,11 +283,9 @@ class QueryParser:
         p[0] = p[1] + [p[2]]
 
     def p_type_field_def(self, p: yacc.YaccProduction) -> None:
-        """type_field_def : IDENTIFIER COLON IDENTIFIER newlines
-                          | IDENTIFIER COLON IDENTIFIER
-                          | IDENTIFIER COLON IDENTIFIER LBRACKET RBRACKET newlines
+        """type_field_def : IDENTIFIER COLON IDENTIFIER
                           | IDENTIFIER COLON IDENTIFIER LBRACKET RBRACKET"""
-        if len(p) >= 6:  # Array type: name : type []
+        if len(p) == 6:  # Array type: name : type []
             p[0] = FieldDef(name=p[1], type_name=p[3] + "[]")
         else:
             p[0] = FieldDef(name=p[1], type_name=p[3])
@@ -366,8 +340,7 @@ class QueryParser:
         p[0] = p[1]
 
     def p_query_eval(self, p: yacc.YaccProduction) -> None:
-        """query : SELECT eval_expr_list
-                 | SELECT eval_expr_list newlines"""
+        """query : SELECT eval_expr_list"""
         p[0] = EvalQuery(expressions=p[2])
 
     def p_eval_expr_list_single(self, p: yacc.YaccProduction) -> None:
@@ -589,7 +562,7 @@ class QueryParser:
 
     def build(self, **kwargs: Any) -> None:
         """Build the parser."""
-        self.parser = yacc.yacc(module=self, **kwargs)
+        self.parser = yacc.yacc(module=self, start="statement", **kwargs)
 
     def parse(self, data: str) -> Query:
         """Parse a query string."""
