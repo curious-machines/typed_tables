@@ -23,7 +23,7 @@ parsetab.py
 .pytest_cache/
 .coverage
 htmlcov/
-example_data/
+test_db/
 
 # mypy
 .mypy_cache/

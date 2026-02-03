@@ -16,8 +16,14 @@ from typed_tables.storage import StorageManager
 from typed_tables.types import TypeRegistry
 
 
-def format_value(value: Any) -> str:
-    """Format a value for display."""
+def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
+    """Format a value for display.
+
+    Args:
+        value: The value to format
+        max_items: Maximum number of array items to show before eliding
+        max_width: Maximum character width before truncating
+    """
     if value is None:
         return "NULL"
     elif isinstance(value, bool):
@@ -29,20 +35,40 @@ def format_value(value: Any) -> str:
     elif isinstance(value, float):
         return f"{value:.6g}"
     elif isinstance(value, str):
-        if len(value) > 40:
-            return repr(value[:37] + "...")
+        if len(value) > max_width:
+            return repr(value[:max_width - 3] + "...")
         return repr(value)
     elif isinstance(value, list):
+        # Check if it's a character array (string-like)
         if all(isinstance(v, str) and len(v) == 1 for v in value):
             s = "".join(value)
-            if len(s) > 40:
-                return repr(s[:37] + "...")
+            if len(s) > max_width:
+                return repr(s[:max_width - 3] + "...")
             return repr(s)
-        if len(value) > 5:
-            return f"[{len(value)} items]"
-        return str(value)
+
+        # Format each element
+        formatted = []
+        for i, v in enumerate(value):
+            if i >= max_items:
+                remaining = len(value) - max_items
+                formatted.append(f"...+{remaining} more")
+                break
+            formatted.append(format_value(v, max_items, max_width))
+
+        result = "[" + ", ".join(formatted) + "]"
+
+        # Truncate if too long
+        if len(result) > max_width:
+            # Try to show as much as possible
+            truncated = result[:max_width - 4] + "...]"
+            return truncated
+
+        return result
     else:
-        return str(value)
+        s = str(value)
+        if len(s) > max_width:
+            return s[:max_width - 3] + "..."
+        return s
 
 
 def print_result(result: QueryResult, max_width: int = 80) -> None:

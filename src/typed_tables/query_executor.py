@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import Any, Iterator
 
 from typed_tables.parsing.query_parser import (
+    ArrayIndex,
+    ArraySlice,
     CompoundCondition,
     CompositeRef,
     Condition,
@@ -723,6 +725,8 @@ class QueryExecutor:
             for field in query.fields:
                 if field.aggregate:
                     columns.append(f"{field.aggregate}({field.name})")
+                elif field.array_index is not None:
+                    columns.append(f"{field.name}[{self._format_array_index(field.array_index)}]")
                 else:
                     columns.append(field.name)
 
@@ -750,7 +754,15 @@ class QueryExecutor:
                     row.update(record)
                 else:
                     # Handle dotted paths like "address.state"
-                    row[field.name] = self._resolve_field_path(record, field.path, type_def)
+                    value = self._resolve_field_path(record, field.path, type_def)
+                    # Apply array indexing if specified
+                    if field.array_index is not None and isinstance(value, (list, str)):
+                        value = self._apply_array_index(value, field.array_index)
+                    # Build column name with index notation if applicable
+                    col_name = field.name
+                    if field.array_index is not None:
+                        col_name = f"{field.name}[{self._format_array_index(field.array_index)}]"
+                    row[col_name] = value
             rows.append(row)
 
         return columns, rows
@@ -891,3 +903,42 @@ class QueryExecutor:
             return len(values)
 
         return None
+
+    def _apply_array_index(self, value: list | str, array_index: ArrayIndex) -> Any:
+        """Apply array indexing to a list or string value."""
+        if not isinstance(value, (list, str)):
+            return value
+
+        result = []
+        for idx in array_index.indices:
+            if isinstance(idx, int):
+                # Single index
+                if 0 <= idx < len(value):
+                    result.append(value[idx])
+            elif isinstance(idx, ArraySlice):
+                # Slice
+                start = idx.start if idx.start is not None else 0
+                end = idx.end if idx.end is not None else len(value)
+                result.extend(value[start:end])
+
+        # If only one index was requested, return scalar
+        if len(array_index.indices) == 1 and isinstance(array_index.indices[0], int):
+            return result[0] if result else None
+
+        # For strings, join back together
+        if isinstance(value, str):
+            return "".join(result)
+
+        return result
+
+    def _format_array_index(self, array_index: ArrayIndex) -> str:
+        """Format an ArrayIndex for display."""
+        parts = []
+        for idx in array_index.indices:
+            if isinstance(idx, int):
+                parts.append(str(idx))
+            elif isinstance(idx, ArraySlice):
+                start = str(idx.start) if idx.start is not None else ""
+                end = str(idx.end) if idx.end is not None else ""
+                parts.append(f"{start}:{end}")
+        return ", ".join(parts)

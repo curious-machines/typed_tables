@@ -11,11 +11,27 @@ from typed_tables.parsing.query_lexer import QueryLexer
 
 
 @dataclass
+class ArraySlice:
+    """Represents an array slice like 0:5 or :5 or 0:."""
+
+    start: int | None = None
+    end: int | None = None
+
+
+@dataclass
+class ArrayIndex:
+    """Represents array indexing like [0], [0:5], [0, 2, 4], or [0, 2:5, 7]."""
+
+    indices: list[int | ArraySlice]  # List of single indices or slices
+
+
+@dataclass
 class SelectField:
     """A field in a SELECT clause."""
 
     name: str  # Field name or "*" or dotted path like "address.state"
     aggregate: str | None = None  # count, average, sum, product
+    array_index: ArrayIndex | None = None  # Optional array indexing
 
     @property
     def path(self) -> list[str]:
@@ -215,8 +231,12 @@ class QueryParser:
 
     def p_query_create_alias(self, p: yacc.YaccProduction) -> None:
         """query : CREATE ALIAS IDENTIFIER AS IDENTIFIER
-                 | CREATE ALIAS IDENTIFIER AS IDENTIFIER newlines"""
-        p[0] = CreateAliasQuery(name=p[3], base_type=p[5])
+                 | CREATE ALIAS IDENTIFIER AS IDENTIFIER newlines
+                 | CREATE ALIAS UUID AS IDENTIFIER
+                 | CREATE ALIAS UUID AS IDENTIFIER newlines"""
+        # Handle UUID keyword being used as the alias name
+        name = p[3] if isinstance(p[3], str) else "uuid"
+        p[0] = CreateAliasQuery(name=name, base_type=p[5])
 
     def p_query_create_type(self, p: yacc.YaccProduction) -> None:
         """query : CREATE TYPE IDENTIFIER newlines type_field_list
@@ -284,8 +304,13 @@ class QueryParser:
 
     def p_type_field_def(self, p: yacc.YaccProduction) -> None:
         """type_field_def : IDENTIFIER COLON IDENTIFIER newlines
-                          | IDENTIFIER COLON IDENTIFIER"""
-        p[0] = FieldDef(name=p[1], type_name=p[3])
+                          | IDENTIFIER COLON IDENTIFIER
+                          | IDENTIFIER COLON IDENTIFIER LBRACKET RBRACKET newlines
+                          | IDENTIFIER COLON IDENTIFIER LBRACKET RBRACKET"""
+        if len(p) >= 6:  # Array type: name : type []
+            p[0] = FieldDef(name=p[1], type_name=p[3] + "[]")
+        else:
+            p[0] = FieldDef(name=p[1], type_name=p[3])
 
     def p_instance_field_list_single(self, p: yacc.YaccProduction) -> None:
         """instance_field_list : instance_field"""
@@ -313,6 +338,28 @@ class QueryParser:
     def p_instance_value_composite_ref(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER LPAREN INTEGER RPAREN"""
         p[0] = CompositeRef(type_name=p[1], index=p[3])
+
+    def p_instance_value_array(self, p: yacc.YaccProduction) -> None:
+        """instance_value : LBRACKET array_elements RBRACKET
+                          | LBRACKET RBRACKET"""
+        if len(p) == 4:
+            p[0] = p[2]
+        else:
+            p[0] = []
+
+    def p_array_elements_single(self, p: yacc.YaccProduction) -> None:
+        """array_elements : array_element"""
+        p[0] = [p[1]]
+
+    def p_array_elements_multiple(self, p: yacc.YaccProduction) -> None:
+        """array_elements : array_elements COMMA array_element"""
+        p[0] = p[1] + [p[3]]
+
+    def p_array_element(self, p: yacc.YaccProduction) -> None:
+        """array_element : STRING
+                         | INTEGER
+                         | FLOAT"""
+        p[0] = p[1]
 
     def p_query_eval(self, p: yacc.YaccProduction) -> None:
         """query : SELECT eval_expr_list
@@ -386,6 +433,34 @@ class QueryParser:
     def p_select_field_name(self, p: yacc.YaccProduction) -> None:
         """select_field : field_path"""
         p[0] = SelectField(name=p[1])
+
+    def p_select_field_with_index(self, p: yacc.YaccProduction) -> None:
+        """select_field : field_path LBRACKET array_index_list RBRACKET"""
+        p[0] = SelectField(name=p[1], array_index=ArrayIndex(indices=p[3]))
+
+    def p_array_index_list_single(self, p: yacc.YaccProduction) -> None:
+        """array_index_list : array_index_item"""
+        p[0] = [p[1]]
+
+    def p_array_index_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """array_index_list : array_index_list COMMA array_index_item"""
+        p[0] = p[1] + [p[3]]
+
+    def p_array_index_item_single(self, p: yacc.YaccProduction) -> None:
+        """array_index_item : INTEGER"""
+        p[0] = p[1]
+
+    def p_array_index_item_slice_full(self, p: yacc.YaccProduction) -> None:
+        """array_index_item : INTEGER COLON INTEGER"""
+        p[0] = ArraySlice(start=p[1], end=p[3])
+
+    def p_array_index_item_slice_start(self, p: yacc.YaccProduction) -> None:
+        """array_index_item : INTEGER COLON"""
+        p[0] = ArraySlice(start=p[1], end=None)
+
+    def p_array_index_item_slice_end(self, p: yacc.YaccProduction) -> None:
+        """array_index_item : COLON INTEGER"""
+        p[0] = ArraySlice(start=None, end=p[2])
 
     def p_field_path_single(self, p: yacc.YaccProduction) -> None:
         """field_path : IDENTIFIER"""

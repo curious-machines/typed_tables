@@ -56,16 +56,66 @@
       "kind": "primitive",
       "primitive": "float64"
     },
+    "uuid": {
+      "kind": "alias",
+      "base_type": "uint128"
+    },
     "character[]": {
       "kind": "array",
       "element_type": "character"
     },
-    "person": {
+    "name": {
+      "kind": "alias",
+      "base_type": "character[]"
+    },
+    "age": {
+      "kind": "alias",
+      "base_type": "uint8"
+    },
+    "Person": {
+      "kind": "composite",
+      "fields": [
+        {
+          "name": "id",
+          "type": "uuid"
+        },
+        {
+          "name": "name",
+          "type": "name"
+        },
+        {
+          "name": "age",
+          "type": "age"
+        }
+      ]
+    },
+    "Address": {
+      "kind": "composite",
+      "fields": [
+        {
+          "name": "street",
+          "type": "character[]"
+        },
+        {
+          "name": "city",
+          "type": "character[]"
+        },
+        {
+          "name": "state",
+          "type": "character[]"
+        }
+      ]
+    },
+    "Contact": {
       "kind": "composite",
       "fields": [
         {
           "name": "name",
           "type": "character[]"
+        },
+        {
+          "name": "address",
+          "type": "Address"
         }
       ]
     }

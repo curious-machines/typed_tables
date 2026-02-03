@@ -104,6 +104,13 @@ create Employee from Person
   title: string
 ```
 
+Types with array fields:
+```ttq
+create type Sensor
+  name: string
+  readings: int8[]
+```
+
 ### Create Aliases
 
 ```ttq
@@ -114,6 +121,11 @@ create alias uuid as uint128
 
 ```ttq
 create Person(name="Kevin", id=uuid(), age=32, address=Address(1))
+```
+
+With array values:
+```ttq
+create Sensor(name="temperature", readings=[25, 26, 24, 27])
 ```
 
 ### Delete Entry
@@ -169,6 +181,27 @@ Comparisons are also available for filtering
 
 ```ttq
 from Person where age >= 18
+```
+
+### Array Indexing
+
+Array fields can be indexed to select specific elements:
+
+```ttq
+from Sensor select name, readings[0]
+```
+
+Slices can extract a range of elements:
+```ttq
+from Sensor select readings[0:5]
+from Sensor select readings[5:]
+from Sensor select readings[:3]
+```
+
+Multiple indices and slices can be combined:
+```ttq
+from Sensor select readings[0, 2, 4]
+from Sensor select readings[0, 5:10, 15]
 ```
 
 ### Grouping

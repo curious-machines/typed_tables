@@ -47,6 +47,7 @@ field_list      ::= select_field
                   | field_list "," select_field
 
 select_field    ::= field_path
+                  | field_path "[" array_index_list "]"   (* array indexing *)
                   | "count" "(" ")"
                   | "average" "(" IDENTIFIER ")"
                   | "sum" "(" IDENTIFIER ")"
@@ -55,6 +56,24 @@ select_field    ::= field_path
 (* Field paths support dot notation for nested composite fields *)
 field_path      ::= IDENTIFIER
                   | field_path "." IDENTIFIER
+
+(* Array indexing supports single indices, slices, and combinations *)
+array_index_list ::= array_index_item
+                   | array_index_list "," array_index_item
+
+array_index_item ::= INTEGER                  (* single index: [0] *)
+                   | INTEGER ":" INTEGER      (* slice: [0:5] *)
+                   | INTEGER ":"              (* slice from: [2:] *)
+                   | ":" INTEGER              (* slice to: [:5] *)
+
+(* Examples of array indexing:
+ *   readings[0]              -- single element
+ *   readings[0:5]            -- slice from index 0 to 5 (exclusive)
+ *   readings[5:]             -- slice from index 5 to end
+ *   readings[:5]             -- slice from start to index 5
+ *   readings[0, 2, 4]        -- multiple specific indices
+ *   readings[0, 2:5, 7]      -- mix of indices and slices
+ *)
 
 (* Examples of field paths:
  *   name                    -- simple field
@@ -229,8 +248,11 @@ create_type_query ::= "create" "type" IDENTIFIER type_field_list
 type_field_list ::= type_field_def
                   | type_field_list type_field_def
 
-type_field_def  ::= IDENTIFIER ":" IDENTIFIER NEWLINE
-                  | IDENTIFIER ":" IDENTIFIER
+type_field_def  ::= IDENTIFIER ":" type_ref NEWLINE
+                  | IDENTIFIER ":" type_ref
+
+type_ref        ::= IDENTIFIER
+                  | IDENTIFIER "[" "]"        (* array type, e.g., int8[] *)
 
 
 (* ========== CREATE Instance Query ========== *)
@@ -257,6 +279,13 @@ instance_value  ::= STRING
                   | IDENTIFIER "(" ")"
                   | "uuid" "(" ")"
                   | IDENTIFIER "(" INTEGER ")"        (* composite reference: TypeName(index) *)
+                  | "[" "]"                           (* empty array *)
+                  | "[" array_elements "]"            (* array literal *)
+
+array_elements  ::= array_element
+                  | array_elements "," array_element
+
+array_element   ::= STRING | INTEGER | FLOAT
 
 
 (* ========== DELETE Query ========== *)

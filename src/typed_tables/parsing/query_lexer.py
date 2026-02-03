@@ -55,6 +55,8 @@ class QueryLexer:
         "DOT",
         "LPAREN",
         "RPAREN",
+        "LBRACKET",
+        "RBRACKET",
         "EQ",
         "NEQ",
         "LT",
@@ -71,6 +73,8 @@ class QueryLexer:
     t_DOT = r"\."
     t_LPAREN = r"\("
     t_RPAREN = r"\)"
+    t_LBRACKET = r"\["
+    t_RBRACKET = r"\]"
     t_EQ = r"="
     t_NEQ = r"!="
     t_LTE = r"<="
