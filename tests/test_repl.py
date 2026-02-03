@@ -35,7 +35,7 @@ create type Person
 create Person(name="Alice", age=30);
 
 -- Query it
-from Person;
+from Person select *;
 """)
 
         result = run_file(script, None, verbose=False)
@@ -48,7 +48,7 @@ from Person;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path}; create type Point x:float32 y:float32; create Point(x=1.0, y=2.0); from Point
+use {db_path}; create type Point x:float32 y:float32; create Point(x=1.0, y=2.0); from Point select *
 """)
 
         result = run_file(script, None, verbose=False)
@@ -63,7 +63,7 @@ use {db_path}; create type Point x:float32 y:float32; create Point(x=1.0, y=2.0)
         script.write_text("""
 create type Item name:string;
 create Item(name="test");
-from Item;
+from Item select *;
 """)
 
         result = run_file(script, db_path, verbose=False)
@@ -72,7 +72,7 @@ from Item;
     def test_run_file_error_no_database(self, tmp_path: Path):
         """Test that queries fail when no database is selected."""
         script = tmp_path / "test.ttq"
-        script.write_text("from Person;")
+        script.write_text("from Person select *;")
 
         result = run_file(script, None, verbose=False)
         assert result == 1
@@ -120,7 +120,7 @@ create Person(
   name="Alice",
   age=30
 );
-from Person
+from Person select *
 """)
 
         result = run_file(script, None, verbose=False)
@@ -146,7 +146,7 @@ create Item(name="from subscript");
         main_script.write_text(f"""
 use {db_path};
 execute {subscript};
-from Item;
+from Item select *;
 """)
 
         # Since execute is a REPL command, we need to test it differently

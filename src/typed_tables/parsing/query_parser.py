@@ -387,10 +387,6 @@ class QueryParser:
                        | FROM STRING"""
         p[0] = p[2]
 
-    def p_select_clause_empty(self, p: yacc.YaccProduction) -> None:
-        """select_clause : """
-        p[0] = [SelectField(name="*")]
-
     def p_select_clause_star(self, p: yacc.YaccProduction) -> None:
         """select_clause : SELECT STAR"""
         p[0] = [SelectField(name="*")]

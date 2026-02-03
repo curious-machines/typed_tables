@@ -432,15 +432,14 @@ DELETE:
   delete <table>           Delete all records in table
 
 QUERIES:
-  from <table>                        Select all records
-  from "<table>"                      Use quotes for special names (e.g., "character[]")
-  from <table> select *               Same as above
+  from <table> select *               Select all records
+  from "<table>" select *             Use quotes for special names (e.g., "character[]")
   from <table> select field1, field2  Select specific fields
   from <table> select field.nested    Select nested composite fields (dot notation)
-  from <table> where <condition>      Filter records
-  from <table> sort by field1, field2 Sort results
-  from <table> offset N limit M       Paginate results
-  from <table> group by field         Group results
+  from <table> select * where <cond>  Filter records
+  from <table> select * sort by f1    Sort results
+  from <table> select * offset N limit M  Paginate results
+  from <table> select * group by field    Group results
 
 CONDITIONS:
   field = value            Equality
@@ -483,9 +482,9 @@ EXAMPLES:
 
   create Person(name="Alice", age=30)
 
-  from Person
+  from Person select *
   from Person select name, age where age >= 18
-  from Person where name starts with "A" sort by name
+  from Person select * where name starts with "A" sort by name
   from Person select age, count() group by age
   from Person select average(age)
 

@@ -38,11 +38,12 @@ query           ::= select_query
 (* ========== SELECT Query (with FROM) ========== *)
 (*
  * The main query type for retrieving data from tables.
+ * A SELECT clause is always required after FROM.
  *
  * Examples:
- *   from Person
+ *   from Person select *
  *   from Person select name, age
- *   from Person where age >= 18 sort by name
+ *   from Person select * where age >= 18 sort by name
  *   from Person select age, count() group by age
  *)
 
@@ -52,8 +53,7 @@ select_query    ::= from_clause select_clause where_clause group_clause
 from_clause     ::= "from" IDENTIFIER
                   | "from" STRING            (* for names like "character[]" *)
 
-select_clause   ::= (* empty - defaults to SELECT * *)
-                  | "select" "*"
+select_clause   ::= "select" "*"
                   | "select" field_list
 
 field_list      ::= select_field
@@ -365,7 +365,7 @@ SEMICOLON       ::= ";"
 (*
  * -- Single queries (no semicolon needed):
  *
- * from Person
+ * from Person select *
  *
  * from Person select name, age where age >= 21 sort by name
  *
@@ -390,5 +390,5 @@ SEMICOLON       ::= ";"
  *   price: float64
  *   quantity: uint32;
  * create Product(name="Widget", price=9.99, quantity=100);
- * from Product
+ * from Product select *
  *)

@@ -137,13 +137,13 @@ delete Person where name="Kevin"
 ```
 
 ### Selection
-The query language, TTQ, works by first selecting a type:
+The query language, TTQ, requires a `from` clause followed by a `select` clause:
 
 ```ttq
-from Person
+from Person select *
 ```
 
-This example will return all Person entries. This is equivalent to `from Person select *`
+This example will return all Person entries.
 
 ### Naming Fields
 
@@ -170,15 +170,13 @@ from Person select name, age where name starts with "K"
 or alternately, using regular expressions
 
 ```ttq
-from Person where name matches /^K/
+from Person select * where name matches /^K/
 ```
-
-In this example, notice that the `select` class has been omitted. This defaults to `select *`
 
 Comparisons are also available for filtering
 
 ```ttq
-from Person where age >= 18
+from Person select * where age >= 18
 ```
 
 ### Array Indexing
@@ -361,7 +359,7 @@ tt-dump <data_dir> <table_name> -n 10 # Limit to 10 records
 
 # TTQ REPL (interactive query shell)
 ttq <data_dir>                        # Start interactive REPL
-ttq <data_dir> -c "from Person"       # Execute single query
+ttq <data_dir> -c "from Person select *"  # Execute single query
 ttq -f script.ttq                     # Execute queries from file
 ttq <data_dir> -f script.ttq          # Execute with initial database
 ttq -f script.ttq -v                  # Verbose mode (print each query)

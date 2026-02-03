@@ -96,7 +96,7 @@ class TestQueryParser:
     def test_parse_simple_select(self):
         """Test parsing a simple select query."""
         parser = QueryParser()
-        query = parser.parse("from Person")
+        query = parser.parse("from Person select *")
 
         assert isinstance(query, SelectQuery)
         assert query.table == "Person"
@@ -117,7 +117,7 @@ class TestQueryParser:
     def test_parse_select_with_where(self):
         """Test parsing a select query with where clause."""
         parser = QueryParser()
-        query = parser.parse("from Person where age >= 18")
+        query = parser.parse("from Person select * where age >= 18")
 
         assert isinstance(query, SelectQuery)
         assert query.where is not None
@@ -128,7 +128,7 @@ class TestQueryParser:
     def test_parse_select_with_quoted_table(self):
         """Test parsing a select from a quoted table name."""
         parser = QueryParser()
-        query = parser.parse('from "character[]"')
+        query = parser.parse('from "character[]" select *')
 
         assert isinstance(query, SelectQuery)
         assert query.table == "character[]"
@@ -398,7 +398,7 @@ class TestQueryParser:
     def test_parse_offset_limit(self):
         """Test parsing offset and limit clauses."""
         parser = QueryParser()
-        query = parser.parse("from Person offset 10 limit 5")
+        query = parser.parse("from Person select * offset 10 limit 5")
 
         assert isinstance(query, SelectQuery)
         assert query.offset == 10
@@ -483,7 +483,7 @@ class TestQueryParser:
         """Test parsing queries terminated with a semicolon."""
         parser = QueryParser()
 
-        query = parser.parse("from Person;")
+        query = parser.parse("from Person select *;")
         assert isinstance(query, SelectQuery)
         assert query.table == "Person"
 
