@@ -303,6 +303,24 @@ class TestQueryParser:
         assert query.table == "Person"
         assert query.where is None
 
+    def test_parse_delete_quoted_table(self):
+        """Test parsing delete with quoted table name."""
+        parser = QueryParser()
+        query = parser.parse('delete "character[]"')
+
+        assert isinstance(query, DeleteQuery)
+        assert query.table == "character[]"
+        assert query.where is None
+
+    def test_parse_delete_quoted_table_with_where(self):
+        """Test parsing delete with quoted table name and where clause."""
+        parser = QueryParser()
+        query = parser.parse('delete "int8[]" where _index = 0')
+
+        assert isinstance(query, DeleteQuery)
+        assert query.table == "int8[]"
+        assert query.where is not None
+
     def test_parse_eval_uuid(self):
         """Test parsing eval query with uuid()."""
         parser = QueryParser()

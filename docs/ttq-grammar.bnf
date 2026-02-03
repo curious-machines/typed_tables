@@ -300,6 +300,8 @@ array_element   ::= STRING | INTEGER | FLOAT
 
 delete_query    ::= "delete" IDENTIFIER "where" condition
                   | "delete" IDENTIFIER
+                  | "delete" STRING "where" condition    (* for names like "character[]" *)
+                  | "delete" STRING
 
 
 (* ========== Lexical Elements ========== *)

@@ -257,6 +257,14 @@ describe Person
 
 This shows the type and all of its properties along with their types
 
+### Execute Script
+
+Execute queries from a file within the REPL:
+```ttq
+execute setup.ttq
+execute "./path/to/script.ttq"
+```
+
 To be determined, but here is a list of features that will be expected to be supported:
 
 
@@ -365,6 +373,9 @@ tt-dump <data_dir> <table_name> -n 10 # Limit to 10 records
 # TTQ REPL (interactive query shell)
 ttq <data_dir>                        # Start interactive REPL
 ttq <data_dir> -c "from Person"       # Execute single query
+ttq -f script.ttq                     # Execute queries from file
+ttq <data_dir> -f script.ttq          # Execute with initial database
+ttq -f script.ttq -v                  # Verbose mode (print each query)
 ```
 
 ## Design Principles

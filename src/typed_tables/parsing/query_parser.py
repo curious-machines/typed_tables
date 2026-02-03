@@ -281,12 +281,16 @@ class QueryParser:
 
     def p_query_delete(self, p: yacc.YaccProduction) -> None:
         """query : DELETE IDENTIFIER WHERE condition
-                 | DELETE IDENTIFIER WHERE condition newlines"""
+                 | DELETE IDENTIFIER WHERE condition newlines
+                 | DELETE STRING WHERE condition
+                 | DELETE STRING WHERE condition newlines"""
         p[0] = DeleteQuery(table=p[2], where=p[4])
 
     def p_query_delete_all(self, p: yacc.YaccProduction) -> None:
         """query : DELETE IDENTIFIER
-                 | DELETE IDENTIFIER newlines"""
+                 | DELETE IDENTIFIER newlines
+                 | DELETE STRING
+                 | DELETE STRING newlines"""
         p[0] = DeleteQuery(table=p[2], where=None)
 
     def p_newlines(self, p: yacc.YaccProduction) -> None:

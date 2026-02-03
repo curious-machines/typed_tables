@@ -172,8 +172,34 @@ def run_repl(data_dir: Path | None) -> int:
         # create type needs multi-line for field definitions
         if lower.startswith("create type"):
             return True
+        # create instance with unclosed parenthesis needs continuation
+        if lower.startswith("create ") and "(" in line:
+            return True
         # Regular queries can span multiple lines
         return True
+
+    def has_balanced_parens(line: str) -> bool:
+        """Check if parentheses are balanced in the line."""
+        count = 0
+        in_string = False
+        escape = False
+        for char in line:
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == "(":
+                count += 1
+            elif char == ")":
+                count -= 1
+        return count == 0
 
     def needs_continuation(line: str) -> bool:
         """Check if we need more input for this query."""
@@ -181,6 +207,9 @@ def run_repl(data_dir: Path | None) -> int:
         # create type continues until empty line (field definitions on separate lines)
         if lower.startswith("create type"):
             return True
+        # create instance continues until parentheses are balanced
+        if lower.startswith("create ") and "(" in line:
+            return not has_balanced_parens(line)
         # Other queries end with semicolon or empty line for continuation
         return not line.endswith(";")
 
@@ -204,12 +233,48 @@ def run_repl(data_dir: Path | None) -> int:
             elif line.lower() == "clear":
                 print("\033[2J\033[H", end="")
                 continue
+            elif line.lower().startswith("execute "):
+                # Execute a script file
+                script_path = Path(line[8:].strip().strip('"').strip("'"))
+                if not script_path.exists():
+                    print(f"Error: File not found: {script_path}")
+                    print()
+                    continue
+
+                # Run the script file, passing current database state
+                print(f"Executing {script_path}...")
+                result = run_file(script_path, data_dir, verbose=True)
+                if result != 0:
+                    print(f"Script execution failed with errors.")
+                else:
+                    print(f"Script execution completed.")
+
+                # Reload database state after script execution
+                # (script may have changed database or created new types)
+                if data_dir and data_dir.exists():
+                    try:
+                        if storage:
+                            storage.close()
+                        registry, storage, executor, _ = load_database(data_dir)
+                    except Exception as e:
+                        print(f"Warning: Could not reload database: {e}")
+                        storage = None
+                        registry = None
+                        executor = None
+
+                print()
+                continue
 
             # Parse and execute query
             try:
                 # Handle multi-line queries
                 if is_multiline_query(line) and needs_continuation(line):
                     is_create_type = line.lower().startswith("create type")
+                    is_create_instance = (
+                        line.lower().startswith("create ")
+                        and not is_create_type
+                        and "(" in line
+                    )
                     while True:
                         try:
                             continuation = input("...> ")
@@ -218,6 +283,16 @@ def run_repl(data_dir: Path | None) -> int:
                                 if not continuation.strip():
                                     break
                                 line += "\n" + continuation
+                            elif is_create_instance:
+                                # For create instance, continue until parens are balanced
+                                continuation = continuation.strip()
+                                if continuation:
+                                    line += " " + continuation
+                                if has_balanced_parens(line):
+                                    break
+                                # Allow empty line to cancel
+                                if not continuation:
+                                    break
                             else:
                                 # For other queries, join with space
                                 continuation = continuation.strip()
@@ -385,6 +460,8 @@ CREATE:
     field=value, ...         - Field values separated by commas
     field=uuid()             - Use uuid() to generate a UUID
     field=OtherType(index)   - Reference an existing composite instance
+    field=[1, 2, 3]          - Array literal
+                             - Fields can span multiple lines (close paren to finish)
 
 DELETE:
   delete <table> where ... Delete matching records (soft delete)
@@ -452,9 +529,252 @@ OTHER:
   help                     Show this help
   exit, quit               Exit the REPL
   clear                    Clear the screen
+  execute <file>           Execute queries from a file
 
 Queries can span multiple lines. End with semicolon or press Enter twice.
 """)
+
+
+def _is_single_line_query(line: str) -> bool:
+    """Check if this line is a complete single-line query."""
+    lower = line.lower().strip()
+    # These queries are complete on a single line
+    if lower.startswith("use"):
+        return True
+    if lower.startswith("show "):
+        return True
+    if lower.startswith("describe "):
+        return True
+    if lower.startswith("drop "):
+        return True
+    if lower.startswith("create alias "):
+        return True
+    if lower.startswith("delete "):
+        return True
+    # Single-line create type (all on one line with field definitions)
+    if lower.startswith("create type ") and ":" in lower:
+        return True
+    # Single-line from query (simple select without multi-line)
+    if lower.startswith("from ") and not lower.endswith(":"):
+        return True
+    # Eval query
+    if lower.startswith("select ") and "from" not in lower:
+        return True
+    # Create instance
+    if lower.startswith("create ") and "(" in lower and lower.endswith(")"):
+        return True
+    return False
+
+
+def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> int:
+    """Execute queries from a file.
+
+    Args:
+        file_path: Path to the file containing queries
+        data_dir: Optional initial data directory
+        verbose: If True, print each query before executing
+
+    Returns:
+        0 on success, 1 on error
+    """
+    from typed_tables.types import TypeRegistry
+
+    # Read file content
+    try:
+        content = file_path.read_text()
+    except Exception as e:
+        print(f"Error reading file: {e}", file=sys.stderr)
+        return 1
+
+    # Parse queries from file
+    # Queries are separated by semicolons, blank lines, or when a new single-line query starts
+    # Lines starting with -- are comments
+    queries = []
+    current_query: list[str] = []
+
+    for line in content.split("\n"):
+        stripped = line.strip()
+
+        # Skip empty lines and comments
+        if not stripped or stripped.startswith("--"):
+            # Blank line ends current query
+            if current_query:
+                queries.append("\n".join(current_query))
+                current_query = []
+            continue
+
+        # Check for semicolon-terminated queries
+        if ";" in stripped:
+            parts = stripped.split(";")
+            for i, part in enumerate(parts):
+                part = part.strip()
+                if part:
+                    if current_query:
+                        current_query.append(part)
+                        queries.append("\n".join(current_query))
+                        current_query = []
+                    else:
+                        queries.append(part)
+        elif _is_single_line_query(stripped):
+            # This is a complete single-line query
+            # First, finish any pending query
+            if current_query:
+                queries.append("\n".join(current_query))
+                current_query = []
+            queries.append(stripped)
+        else:
+            current_query.append(line)
+
+    # Don't forget the last query if no trailing semicolon/newline
+    if current_query:
+        queries.append("\n".join(current_query))
+
+    # Filter out empty queries and normalize them
+    def normalize_query(q: str) -> str:
+        """Normalize a query string for parsing."""
+        q = q.strip()
+        if not q:
+            return q
+        lower = q.lower()
+        # Keep newlines for create type (field definitions need them)
+        if lower.startswith("create type"):
+            return q
+        # For other queries, replace newlines with spaces
+        return " ".join(line.strip() for line in q.split("\n") if line.strip())
+
+    queries = [normalize_query(q) for q in queries if q.strip()]
+
+    if not queries:
+        print("No queries found in file", file=sys.stderr)
+        return 1
+
+    # Initialize state
+    registry: TypeRegistry | None = None
+    storage: StorageManager | None = None
+    executor: QueryExecutor | None = None
+    parser = QueryParser()
+
+    def load_database(path: Path) -> tuple[TypeRegistry, StorageManager, QueryExecutor, bool]:
+        """Load a database from the given path."""
+        metadata_file = path / "_metadata.json"
+        is_new = not path.exists() or not metadata_file.exists()
+        if is_new:
+            path.mkdir(parents=True, exist_ok=True)
+            reg = TypeRegistry()
+        else:
+            reg = load_registry_from_metadata(path)
+        stor = StorageManager(path, reg)
+        exec = QueryExecutor(stor, reg)
+        return reg, stor, exec, is_new
+
+    # Load initial database if provided
+    if data_dir:
+        try:
+            registry, storage, executor, is_new = load_database(data_dir)
+            if verbose and is_new:
+                print(f"Created new database: {data_dir}")
+        except Exception as e:
+            print(f"Error loading database: {e}", file=sys.stderr)
+            return 1
+
+    # Execute each query
+    for query_text in queries:
+        if verbose:
+            # Print query with prefix
+            for i, line in enumerate(query_text.split("\n")):
+                prefix = ">>> " if i == 0 else "... "
+                print(f"{prefix}{line}")
+
+        try:
+            # Check if we need a database for this query
+            lower = query_text.lower().strip()
+            needs_db = not (lower.startswith("use") or lower.startswith("drop") or lower.startswith("select "))
+
+            if needs_db and executor is None:
+                print("Error: No database selected. Use 'use <path>' first.", file=sys.stderr)
+                if storage:
+                    storage.close()
+                return 1
+
+            query = parser.parse(query_text)
+
+            # Handle USE query specially
+            if isinstance(query, UseQuery):
+                if not query.path:
+                    if storage:
+                        storage.close()
+                    storage = None
+                    registry = None
+                    executor = None
+                    data_dir = None
+                    if verbose:
+                        print("Exited database.")
+                else:
+                    new_path = Path(query.path)
+                    try:
+                        if storage:
+                            storage.close()
+                        registry, storage, executor, is_new = load_database(new_path)
+                        data_dir = new_path
+                        if verbose:
+                            if is_new:
+                                print(f"Created new database: {new_path}")
+                            else:
+                                print(f"Switched to database: {new_path}")
+                    except Exception as e:
+                        print(f"Error loading database: {e}", file=sys.stderr)
+                        return 1
+                continue
+
+            # Handle DROP query specially
+            if isinstance(query, DropDatabaseQuery):
+                drop_path = Path(query.path)
+                if not drop_path.exists():
+                    print(f"Database does not exist: {drop_path}")
+                elif drop_path == data_dir:
+                    if storage:
+                        storage.close()
+                    storage = None
+                    registry = None
+                    executor = None
+                    data_dir = None
+                    try:
+                        shutil.rmtree(drop_path)
+                        if verbose:
+                            print(f"Dropped database: {drop_path}")
+                    except Exception as e:
+                        print(f"Error dropping database: {e}", file=sys.stderr)
+                        return 1
+                else:
+                    try:
+                        shutil.rmtree(drop_path)
+                        if verbose:
+                            print(f"Dropped database: {drop_path}")
+                    except Exception as e:
+                        print(f"Error dropping database: {e}", file=sys.stderr)
+                        return 1
+                continue
+
+            # Execute query
+            result = executor.execute(query)  # type: ignore
+            print_result(result)
+
+        except SyntaxError as e:
+            print(f"Syntax error: {e}", file=sys.stderr)
+            if storage:
+                storage.close()
+            return 1
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            if storage:
+                storage.close()
+            return 1
+
+    # Cleanup
+    if storage:
+        storage.close()
+
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -474,8 +794,25 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         help="Execute a single command and exit",
     )
+    arg_parser.add_argument(
+        "-f", "--file",
+        type=Path,
+        help="Execute queries from a file and exit",
+    )
+    arg_parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Print each query before executing (for -f/--file)",
+    )
 
     args = arg_parser.parse_args(argv)
+
+    # Handle file execution
+    if args.file:
+        if not args.file.exists():
+            print(f"Error: File not found: {args.file}", file=sys.stderr)
+            return 1
+        return run_file(args.file, args.data_dir, args.verbose)
 
     if args.command:
         if not args.data_dir:
