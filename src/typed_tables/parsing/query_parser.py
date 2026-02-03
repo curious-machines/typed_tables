@@ -188,7 +188,9 @@ class QueryParser:
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
         """query : DESCRIBE IDENTIFIER
-                 | DESCRIBE IDENTIFIER newlines"""
+                 | DESCRIBE IDENTIFIER newlines
+                 | DESCRIBE STRING
+                 | DESCRIBE STRING newlines"""
         p[0] = DescribeQuery(table=p[2])
 
     def p_query_use_none(self, p: yacc.YaccProduction) -> None:
@@ -357,7 +359,8 @@ class QueryParser:
         )
 
     def p_from_clause(self, p: yacc.YaccProduction) -> None:
-        """from_clause : FROM IDENTIFIER"""
+        """from_clause : FROM IDENTIFIER
+                       | FROM STRING"""
         p[0] = p[2]
 
     def p_select_clause_empty(self, p: yacc.YaccProduction) -> None:

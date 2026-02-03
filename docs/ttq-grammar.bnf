@@ -37,6 +37,7 @@ select_query    ::= from_clause select_clause where_clause group_clause
                     sort_clause offset_clause limit_clause
 
 from_clause     ::= "from" IDENTIFIER
+                  | "from" STRING            (* for names like "character[]" *)
 
 select_clause   ::= (* empty - defaults to SELECT * *)
                   | "select" "*"
@@ -153,6 +154,7 @@ show_tables_query ::= "show" "tables"
  *)
 
 describe_query  ::= "describe" IDENTIFIER
+                  | "describe" STRING         (* for names like "character[]" *)
 
 
 (* ========== USE Query ========== *)

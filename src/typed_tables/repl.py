@@ -345,7 +345,7 @@ DATABASE:
   use                      Exit current database (no database selected)
   drop <path>              Delete a database directory (can drop current db)
   show tables              List all tables
-  describe <table>         Show table structure
+  describe <table>         Show table structure (use quotes for special names)
 
 CREATE:
   create type <Name>       Create a new composite type (fields on following lines)
@@ -366,6 +366,7 @@ DELETE:
 
 QUERIES:
   from <table>                        Select all records
+  from "<table>"                      Use quotes for special names (e.g., "character[]")
   from <table> select *               Same as above
   from <table> select field1, field2  Select specific fields
   from <table> select field.nested    Select nested composite fields (dot notation)
