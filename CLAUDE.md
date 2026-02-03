@@ -65,7 +65,7 @@ Metadata about types is stored in `_metadata.json` in the data directory.
 
 ## Query Language
 
-Newlines are treated as whitespace, so queries can be formatted freely across multiple lines. Semicolons are used to separate multiple queries (e.g., in scripts). A single query does not need a trailing semicolon.
+Newlines are treated as whitespace, so queries can be formatted freely across multiple lines. Semicolons terminate queries in the interactive REPL and separate queries in scripts. In the REPL, a query can also be submitted by pressing Enter on an empty line during continuation.
 
 ### Select Database
 

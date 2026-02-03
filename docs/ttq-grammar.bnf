@@ -7,9 +7,8 @@
  * aggregating, creating, and deleting data.
  *
  * Newlines are treated as whitespace and are not significant — queries
- * can be formatted freely across lines. Semicolons separate multiple
- * queries in scripts and multi-query input. A single query does not
- * require a trailing semicolon.
+ * can be formatted freely across lines. Semicolons terminate queries
+ * in the interactive REPL and separate queries in scripts.
  *
  * The grammar is implemented using PLY (Python Lex-Yacc).
  *)
@@ -17,9 +16,9 @@
 
 (* ========== Top-Level Statement ========== *)
 (*
- * A statement is a query optionally followed by a semicolon.
- * Semicolons are required to separate multiple queries but are
- * optional for a single query.
+ * A statement is a query followed by a semicolon, or a bare query.
+ * The grammar accepts both forms. In practice, semicolons are required
+ * in the interactive REPL and in scripts with multiple queries.
  *)
 
 statement       ::= query ";"
@@ -329,7 +328,7 @@ REGEX           ::= "/" ([^/\\] | \\.)* "/"
 PATH            ::= \.?\.?/[a-zA-Z0-9_./\-]+
 
 (* Newlines are treated as whitespace and ignored by the lexer.
- * Semicolons separate multiple queries; optional for a single query. *)
+ * Semicolons terminate queries in the REPL and separate queries in scripts. *)
 SEMICOLON       ::= ";"
 
 
