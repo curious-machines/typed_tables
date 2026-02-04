@@ -48,6 +48,7 @@ class QueryLexer:
         "pretty": "PRETTY",
         "tag": "TAG",
         "scope": "SCOPE",
+        "forward": "FORWARD",
     }
 
     # Token list

@@ -1,0 +1,16 @@
+forward type B;
+create type A name:string link:B;
+create type B name:string link:A;
+
+scope {
+    create A(
+        tag(A),
+        name="One",
+        link=B
+    );
+    create B(
+        tag(B),
+        name="Two",
+        link=A
+    );
+};

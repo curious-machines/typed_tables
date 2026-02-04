@@ -19,6 +19,7 @@ from typed_tables.parsing.query_parser import (
     CreateInstanceQuery,
     CreateTypeQuery,
     DeleteQuery,
+    ForwardTypeQuery,
     DescribeQuery,
     DropDatabaseQuery,
     DumpItem,
@@ -168,6 +169,8 @@ class QueryExecutor:
             return self._execute_use(query)
         elif isinstance(query, CreateTypeQuery):
             return self._execute_create_type(query)
+        elif isinstance(query, ForwardTypeQuery):
+            return self._execute_forward_type(query)
         elif isinstance(query, CreateAliasQuery):
             return self._execute_create_alias(query)
         elif isinstance(query, CreateInstanceQuery):
@@ -443,9 +446,8 @@ class QueryExecutor:
     def _execute_create_type(self, query: CreateTypeQuery) -> CreateResult:
         """Execute CREATE TYPE query.
 
-        Supports forward declarations and self-referential types:
-        - `create type B` (no fields) → forward declaration stub
-        - `create type B a:A` on an existing stub → populates the stub
+        Supports self-referential types and populating forward-declared stubs:
+        - `forward type B` then `create type B a:A` → populates the stub
         - `create type Node children:Node[]` → self-referential (stub registered first)
         """
         existing = self.registry.get(query.name)
@@ -462,19 +464,6 @@ class QueryExecutor:
                     message=f"Type '{query.name}' already exists",
                     type_name=query.name,
                 )
-
-        # Forward declaration: no fields and no parent → register stub and return
-        if not query.fields and not query.parent:
-            if existing is None:
-                self.registry.register_stub(query.name)
-            # Save updated metadata
-            self.storage.save_metadata()
-            return CreateResult(
-                columns=["type", "fields"],
-                rows=[{"type": query.name, "fields": 0}],
-                message=f"Created type '{query.name}' (forward declaration)",
-                type_name=query.name,
-            )
 
         # Register stub for self-reference support (idempotent if already exists)
         if existing is None:
@@ -548,6 +537,28 @@ class QueryExecutor:
             columns=["type", "fields"],
             rows=[{"type": query.name, "fields": len(fields)}],
             message=f"Created type '{query.name}' with {len(fields)} field(s)",
+            type_name=query.name,
+        )
+
+    def _execute_forward_type(self, query: ForwardTypeQuery) -> CreateResult:
+        """Execute FORWARD TYPE query - register a stub for forward references."""
+        existing = self.registry.get(query.name)
+
+        if existing is not None:
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Type '{query.name}' already exists",
+                type_name=query.name,
+            )
+
+        self.registry.register_stub(query.name)
+        self.storage.save_metadata()
+
+        return CreateResult(
+            columns=["type", "fields"],
+            rows=[{"type": query.name, "fields": 0}],
+            message=f"Forward declared type '{query.name}'",
             type_name=query.name,
         )
 
@@ -1708,55 +1719,61 @@ class QueryExecutor:
             base_name = alias_def.base_type.name
             lines.append(f"create alias {name} as {base_name};")
 
-        # Emit forward declarations for cycle types
+        # Determine which cycle types need forward declarations
+        # Only types referenced before they're defined need forwarding
+        cycle_type_names = {name for name, _ in cycle_composites}
+        needs_forward: set[str] = set()
+        defined_so_far: set[str] = set()
+
         for name, comp_def in cycle_composites:
-            lines.append(f"create type {name};")
+            # Check what this type references
+            for f in comp_def.fields:
+                fb = f.type_def.resolve_base_type()
+                ref_name = None
+                if isinstance(fb, CompositeTypeDefinition) and fb.name != name:
+                    ref_name = fb.name
+                elif isinstance(fb, ArrayTypeDefinition):
+                    elem_base = fb.element_type.resolve_base_type()
+                    if isinstance(elem_base, CompositeTypeDefinition) and elem_base.name != name:
+                        ref_name = elem_base.name
+                # If referencing a cycle type not yet defined, it needs forwarding
+                if ref_name and ref_name in cycle_type_names and ref_name not in defined_so_far:
+                    needs_forward.add(ref_name)
+            defined_so_far.add(name)
+
+        # Emit only the necessary forward declarations
+        for name in sorted(needs_forward):
+            lines.append(f"forward type {name};")
+
+        # Helper to emit a type definition
+        def emit_type_def(name: str, comp_def: CompositeTypeDefinition) -> None:
+            field_strs = []
+            for f in comp_def.fields:
+                field_type_name = f.type_def.name
+                if field_type_name == "character[]":
+                    field_type_name = "string"
+                elif field_type_name.endswith("[]"):
+                    base_elem = field_type_name[:-2]
+                    field_type_name = f"{base_elem}[]"
+                field_strs.append(f"{f.name}:{field_type_name}")
+            if pretty:
+                lines.append(f"create type {name}")
+                for i, fs in enumerate(field_strs):
+                    fs_with_space = fs.replace(":", ": ", 1)
+                    suffix = ";" if i == len(field_strs) - 1 else ""
+                    lines.append(f"    {fs_with_space}{suffix}")
+                lines.append("")  # blank line between type blocks
+            else:
+                fields_part = " ".join(field_strs)
+                lines.append(f"create type {name} {fields_part};")
 
         # Emit non-cycle composite type definitions
         for name, comp_def in sorted_composites:
-            field_strs = []
-            for f in comp_def.fields:
-                field_type_name = f.type_def.name
-                # Map character[] back to string
-                if field_type_name == "character[]":
-                    field_type_name = "string"
-                elif field_type_name.endswith("[]"):
-                    base_elem = field_type_name[:-2]
-                    field_type_name = f"{base_elem}[]"
-                field_strs.append(f"{f.name}:{field_type_name}")
-            if pretty:
-                lines.append(f"create type {name}")
-                for i, fs in enumerate(field_strs):
-                    # Add space after colon for pretty: "name:string" -> "name: string"
-                    fs_with_space = fs.replace(":", ": ", 1)
-                    suffix = ";" if i == len(field_strs) - 1 else ""
-                    lines.append(f"    {fs_with_space}{suffix}")
-                lines.append("")  # blank line between type blocks
-            else:
-                fields_part = " ".join(field_strs)
-                lines.append(f"create type {name} {fields_part};")
+            emit_type_def(name, comp_def)
 
-        # Emit full definitions for cycle types (populates the forward declarations)
+        # Emit cycle type definitions
         for name, comp_def in cycle_composites:
-            field_strs = []
-            for f in comp_def.fields:
-                field_type_name = f.type_def.name
-                if field_type_name == "character[]":
-                    field_type_name = "string"
-                elif field_type_name.endswith("[]"):
-                    base_elem = field_type_name[:-2]
-                    field_type_name = f"{base_elem}[]"
-                field_strs.append(f"{f.name}:{field_type_name}")
-            if pretty:
-                lines.append(f"create type {name}")
-                for i, fs in enumerate(field_strs):
-                    fs_with_space = fs.replace(":", ": ", 1)
-                    suffix = ";" if i == len(field_strs) - 1 else ""
-                    lines.append(f"    {fs_with_space}{suffix}")
-                lines.append("")  # blank line between type blocks
-            else:
-                fields_part = " ".join(field_strs)
-                lines.append(f"create type {name} {fields_part};")
+            emit_type_def(name, comp_def)
 
         # Determine which composites to dump records for
         if dump_targets is not None:

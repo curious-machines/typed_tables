@@ -1,0 +1,20 @@
+-- TTQ dump
+forward type A;
+create type B
+    name: string
+    link: A;
+
+create type A
+    name: string
+    link: B;
+
+scope {
+    create B(
+        tag(A),
+        name="Two",
+        link=A(
+            name="One",
+            link=A
+        )
+    );
+};

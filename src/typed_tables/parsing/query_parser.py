@@ -114,6 +114,13 @@ class CreateTypeQuery:
 
 
 @dataclass
+class ForwardTypeQuery:
+    """A FORWARD TYPE query - declares a type name for forward references."""
+
+    name: str
+
+
+@dataclass
 class CreateAliasQuery:
     """A CREATE ALIAS query."""
 
@@ -340,9 +347,9 @@ class QueryParser:
         """query : CREATE TYPE IDENTIFIER type_field_list"""
         p[0] = CreateTypeQuery(name=p[3], fields=p[4])
 
-    def p_query_create_type_empty(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER"""
-        p[0] = CreateTypeQuery(name=p[3], fields=[])
+    def p_query_forward_type(self, p: yacc.YaccProduction) -> None:
+        """query : FORWARD TYPE IDENTIFIER"""
+        p[0] = ForwardTypeQuery(name=p[3])
 
     def p_query_create_type_inherit(self, p: yacc.YaccProduction) -> None:
         """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER type_field_list"""

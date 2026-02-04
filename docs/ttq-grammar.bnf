@@ -29,6 +29,7 @@ query           ::= select_query
                   | show_tables_query
                   | describe_query
                   | use_query
+                  | forward_type_query
                   | create_type_query
                   | create_instance_query
                   | variable_assignment_query
@@ -248,6 +249,22 @@ drop_database_query ::= "drop" IDENTIFIER
                       | "drop" STRING
 
 
+(* ========== FORWARD TYPE Query ========== *)
+(*
+ * Forward-declare a type name for mutual references.
+ *
+ * Example:
+ *   forward type B
+ *
+ * Mutual reference pattern:
+ *   forward type B;
+ *   create type A value:uint8 b:B;
+ *   create type B value:uint8 a:A;
+ *)
+
+forward_type_query ::= "forward" "type" IDENTIFIER
+
+
 (* ========== CREATE TYPE Query ========== *)
 (*
  * Create a new composite type. Fields can be on one line or multiple lines.
@@ -264,25 +281,16 @@ drop_database_query ::= "drop" IDENTIFIER
  * With inheritance:
  *   create type Employee from Person department:string title:string
  *
- * Forward declaration (stub with no fields, for mutual references):
- *   create type B
- *
- * Re-definition (populates a forward-declared stub):
+ * Populating a forward-declared stub:
  *   create type B a:A
  *
  * Self-referential type:
  *   create type Node value:uint8 children:Node[]
  *
- * Mutual reference pattern:
- *   create type B;
- *   create type A value:uint8 b:B;
- *   create type B value:uint8 a:A;
- *
  * Note: "string" is an alias for "character[]"
  *)
 
 create_type_query ::= "create" "type" IDENTIFIER type_field_list
-                    | "create" "type" IDENTIFIER
                     | "create" "type" IDENTIFIER "from" IDENTIFIER type_field_list
                     | "create" "type" IDENTIFIER "from" IDENTIFIER
 
@@ -541,7 +549,7 @@ SEMICOLON       ::= ";"
  * and, or, not, starts, with, matches, show, tables,
  * describe, count, average, sum, product, use, create,
  * type, uuid, delete, as, alias, drop, dump, to, collect,
- * null, update, set, pretty, tag, scope
+ * null, update, set, pretty, tag, scope, forward
  *)
 
 

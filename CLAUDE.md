@@ -131,12 +131,12 @@ create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)));
 
 For mutually referential types, use forward declarations:
 ```ttq
-create type B;
+forward type B;
 create type A value:uint8 b:B;
 create type B value:uint8 a:A;
 ```
 
-The first `create type B` registers an empty stub. The third statement populates it with fields. This allows A and B to reference each other.
+The `forward type B` registers an empty stub. The third statement populates it with fields. This allows A and B to reference each other.
 
 ### NULL Values
 
