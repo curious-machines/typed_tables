@@ -21,9 +21,11 @@ from typed_tables.parsing.query_parser import (
     FunctionCall,
     CompositeRef,
     InlineInstance,
+    NullValue,
     QueryParser,
     SelectQuery,
     ShowTablesQuery,
+    UpdateQuery,
     UseQuery,
     VariableAssignmentQuery,
     VariableReference,
@@ -938,3 +940,82 @@ class TestQueryParser:
         assert query.items is not None
         assert len(query.items) == 1
         assert query.items[0].table == "Person"
+
+    def test_parse_null_value(self):
+        """Test parsing create instance with null field value."""
+        parser = QueryParser()
+        query = parser.parse("create Node(value=1, next=null)")
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.type_name == "Node"
+        assert len(query.fields) == 2
+        assert query.fields[0].name == "value"
+        assert query.fields[0].value == 1
+        assert query.fields[1].name == "next"
+        assert isinstance(query.fields[1].value, NullValue)
+
+    def test_parse_null_in_array(self):
+        """Test parsing null as an array element."""
+        parser = QueryParser()
+        query = parser.parse("create Foo(items=[1, null, 3])")
+
+        assert isinstance(query, CreateInstanceQuery)
+        arr = query.fields[0].value
+        assert isinstance(arr, list)
+        assert len(arr) == 3
+        assert arr[0] == 1
+        assert isinstance(arr[1], NullValue)
+        assert arr[2] == 3
+
+    def test_parse_update_variable(self):
+        """Test parsing update $var set field=value."""
+        parser = QueryParser()
+        query = parser.parse("update $n1 set next=$n2")
+
+        assert isinstance(query, UpdateQuery)
+        assert query.var_name == "n1"
+        assert query.type_name == ""
+        assert query.index is None
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "next"
+        assert isinstance(query.fields[0].value, VariableReference)
+        assert query.fields[0].value.var_name == "n2"
+
+    def test_parse_update_composite_ref(self):
+        """Test parsing update Type(index) set field=value."""
+        parser = QueryParser()
+        query = parser.parse("update Node(0) set next=Node(1)")
+
+        assert isinstance(query, UpdateQuery)
+        assert query.type_name == "Node"
+        assert query.index == 0
+        assert query.var_name is None
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "next"
+        assert isinstance(query.fields[0].value, CompositeRef)
+        assert query.fields[0].value.type_name == "Node"
+        assert query.fields[0].value.index == 1
+
+    def test_parse_update_null(self):
+        """Test parsing update with null value."""
+        parser = QueryParser()
+        query = parser.parse("update $n set next=null")
+
+        assert isinstance(query, UpdateQuery)
+        assert query.var_name == "n"
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "next"
+        assert isinstance(query.fields[0].value, NullValue)
+
+    def test_parse_update_multiple_fields(self):
+        """Test parsing update with multiple fields."""
+        parser = QueryParser()
+        query = parser.parse('update $n set a=1, b="hello"')
+
+        assert isinstance(query, UpdateQuery)
+        assert query.var_name == "n"
+        assert len(query.fields) == 2
+        assert query.fields[0].name == "a"
+        assert query.fields[0].value == 1
+        assert query.fields[1].name == "b"
+        assert query.fields[1].value == "hello"

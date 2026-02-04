@@ -27,10 +27,12 @@ from typed_tables.parsing.query_parser import (
     FieldValue,
     FunctionCall,
     InlineInstance,
+    NullValue,
     Query,
     SelectField,
     SelectQuery,
     ShowTablesQuery,
+    UpdateQuery,
     UseQuery,
     VariableAssignmentQuery,
     VariableReference,
@@ -41,6 +43,7 @@ from typed_tables.types import (
     ArrayTypeDefinition,
     CompositeTypeDefinition,
     FieldDefinition,
+    NULL_REF,
     PrimitiveType,
     PrimitiveTypeDefinition,
     TypeDefinition,
@@ -112,6 +115,14 @@ class CollectResult(QueryResult):
     count: int = 0
 
 
+@dataclass
+class UpdateResult(QueryResult):
+    """Result of an UPDATE query."""
+
+    type_name: str = ""
+    index: int | None = None
+
+
 class QueryExecutor:
     """Executes TTQ queries against storage."""
 
@@ -148,6 +159,8 @@ class QueryExecutor:
             return self._execute_variable_assignment(query)
         elif isinstance(query, CollectQuery):
             return self._execute_collect(query)
+        elif isinstance(query, UpdateQuery):
+            return self._execute_update(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -417,15 +430,10 @@ class QueryExecutor:
             value = self._resolve_instance_value(field_val.value)
             values[field_val.name] = value
 
-        # Check all required fields are present
+        # Default missing fields to null
         for field in base.fields:
             if field.name not in values:
-                return CreateResult(
-                    columns=[],
-                    rows=[],
-                    message=f"Missing required field: {field.name}",
-                    type_name=query.type_name,
-                )
+                values[field.name] = None
 
         # Create the instance using storage manager
         try:
@@ -563,9 +571,102 @@ class QueryExecutor:
             count=len(indices),
         )
 
+    def _execute_update(self, query: UpdateQuery) -> UpdateResult:
+        """Execute UPDATE query — modify fields on an existing record."""
+        # Resolve target: variable or direct Type(index)
+        if query.var_name:
+            if query.var_name not in self.variables:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"Undefined variable: ${query.var_name}",
+                )
+            type_name, ref = self.variables[query.var_name]
+            if isinstance(ref, list):
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"Cannot update a set variable ${query.var_name} (contains multiple records)",
+                )
+            index = ref
+        else:
+            type_name = query.type_name
+            index = query.index
+
+        type_def = self.registry.get(type_name)
+        if type_def is None:
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Unknown type: {type_name}",
+            )
+
+        base = type_def.resolve_base_type()
+        if not isinstance(base, CompositeTypeDefinition):
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Cannot update non-composite type: {type_name}",
+            )
+
+        table = self.storage.get_table(type_name)
+        if index < 0 or index >= table.count:
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Index {index} out of range for {type_name}",
+            )
+        if table.is_deleted(index):
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"{type_name}[{index}] has been deleted",
+            )
+
+        # Read current raw record
+        raw_record = table.get(index)
+
+        # Apply SET fields
+        for fv in query.fields:
+            field_def = base.get_field(fv.name)
+            if field_def is None:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"Unknown field '{fv.name}' on type {type_name}",
+                )
+
+            resolved_value = self._resolve_instance_value(fv.value)
+            field_base = field_def.type_def.resolve_base_type()
+
+            if resolved_value is None:
+                raw_record[fv.name] = NULL_REF
+            elif isinstance(field_base, ArrayTypeDefinition):
+                if isinstance(resolved_value, str):
+                    resolved_value = list(resolved_value)
+                array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                array_index = array_table.insert(resolved_value)
+                raw_record[fv.name] = array_index
+            elif isinstance(field_base, CompositeTypeDefinition):
+                if isinstance(resolved_value, int):
+                    raw_record[fv.name] = resolved_value
+                else:
+                    nested_index = self._create_instance(field_def.type_def, field_base, resolved_value)
+                    raw_record[fv.name] = nested_index
+            else:
+                field_table = self.storage.get_table(field_def.type_def.name)
+                ref_index = field_table.insert(resolved_value)
+                raw_record[fv.name] = ref_index
+
+        # Write back modified record
+        table.update(index, raw_record)
+
+        return UpdateResult(
+            columns=["type", "index"],
+            rows=[{"type": type_name, "index": index}],
+            message=f"Updated {type_name}[{index}]",
+            type_name=type_name,
+            index=index,
+        )
+
     def _resolve_instance_value(self, value: Any) -> Any:
-        """Resolve a value from CREATE instance, handling function calls, composite refs, inline instances, and variable refs."""
-        if isinstance(value, VariableReference):
+        """Resolve a value from CREATE instance, handling function calls, composite refs, inline instances, variable refs, and null."""
+        if isinstance(value, NullValue):
+            return None
+        elif isinstance(value, VariableReference):
             if value.var_name not in self.variables:
                 raise ValueError(f"Undefined variable: ${value.var_name}")
             type_name, ref = self.variables[value.var_name]
@@ -607,8 +708,12 @@ class QueryExecutor:
         field_references: dict[str, Any] = {}
 
         for field in composite_type.fields:
-            field_value = values[field.name]
+            field_value = values.get(field.name)
             field_base = field.type_def.resolve_base_type()
+
+            if field_value is None:
+                field_references[field.name] = NULL_REF
+                continue
 
             if isinstance(field_base, ArrayTypeDefinition):
                 # Convert string to character list if needed
@@ -821,6 +926,9 @@ class QueryExecutor:
 
                 for field in base.fields:
                     ref = record[field.name]
+                    if ref == NULL_REF:
+                        resolved[field.name] = None
+                        continue
                     field_base = field.type_def.resolve_base_type()
 
                     if isinstance(field_base, ArrayTypeDefinition):
@@ -875,6 +983,9 @@ class QueryExecutor:
 
             for field in base.fields:
                 ref = record[field.name]
+                if ref == NULL_REF:
+                    resolved[field.name] = None
+                    continue
                 field_base = field.type_def.resolve_base_type()
 
                 if isinstance(field_base, ArrayTypeDefinition):
@@ -1135,6 +1246,9 @@ class QueryExecutor:
         resolved: dict[str, Any] = {}
         for f in composite_base.fields:
             ref = raw_record[f.name]
+            if ref == NULL_REF:
+                resolved[f.name] = None
+                continue
             field_type_base = f.type_def.resolve_base_type()
             if isinstance(field_type_base, ArrayTypeDefinition):
                 arr_table = self.storage.get_array_table_for_type(f.type_def)
@@ -1459,6 +1573,8 @@ class QueryExecutor:
                 raw_record = table.get(i)
                 for f in comp_def.fields:
                     ref = raw_record[f.name]
+                    if ref == NULL_REF:
+                        continue
                     field_base = f.type_def.resolve_base_type()
                     if isinstance(field_base, CompositeTypeDefinition):
                         ref_counts[(f.type_def.name, ref)] += 1
@@ -1480,8 +1596,132 @@ class QueryExecutor:
             if count > 1:
                 dump_vars[(type_name, index)] = f"{type_name}_{index}"
 
-        # Pass 3: Emit variable assignments for shared refs (in dependency order)
+        # Pass 2.5: Detect data cycles and force involved records into dump_vars
+        back_edges = self._detect_back_edges(composites, _include_record)
+        back_edge_set: set[tuple[str, int, str]] = set()
+        for src_type, src_idx, field_name, tgt_type, tgt_idx in back_edges:
+            if (src_type, src_idx) not in dump_vars:
+                dump_vars[(src_type, src_idx)] = f"{src_type}_{src_idx}"
+            if (tgt_type, tgt_idx) not in dump_vars:
+                dump_vars[(tgt_type, tgt_idx)] = f"{tgt_type}_{tgt_idx}"
+            back_edge_set.add((src_type, src_idx, field_name))
+
+        # Pass 3: Emit variable assignments for shared refs
+        # Build a dependency-ordered emit list for dump_vars. After removing
+        # back-edges, the remaining forward references form a DAG.
         emitted_vars: set[tuple[str, int]] = set()
+        # Track all records consumed (inlined) during Pass 3 so Pass 4 skips them
+        inlined_records: set[tuple[str, int]] = set()
+        comp_map = dict(composites)
+
+        def _collect_dump_var_deps(name: str, idx: int, visited: set[tuple[str, int]]) -> None:
+            """Recursively find all dump_var keys that a record depends on
+            by following inline composite chains (non-back-edge, non-dump-var)."""
+            key = (name, idx)
+            if key in visited:
+                return
+            visited.add(key)
+            comp_def = comp_map.get(name)
+            if comp_def is None:
+                return
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                return
+            table = self.storage.get_table(name)
+            if idx >= table.count or table.is_deleted(idx):
+                return
+            raw_record = table.get(idx)
+            for f in comp_def.fields:
+                ref = raw_record[f.name]
+                if ref == NULL_REF:
+                    continue
+                if back_edge_set and (name, idx, f.name) in back_edge_set:
+                    continue
+                field_base = f.type_def.resolve_base_type()
+                if isinstance(field_base, CompositeTypeDefinition):
+                    dep_key = (f.type_def.name, ref)
+                    if dep_key in dump_vars:
+                        # Direct dependency on a dump_var — just record it
+                        pass
+                    else:
+                        # Inlined record — follow transitively
+                        _collect_dump_var_deps(f.type_def.name, ref, visited)
+
+        def _emit_var(key: tuple[str, int]) -> None:
+            if key in emitted_vars:
+                return
+            name, idx = key
+            # Find all transitive dump_var dependencies
+            visited: set[tuple[str, int]] = set()
+            _collect_dump_var_deps(name, idx, visited)
+            # Emit all dump_var deps found in the transitive closure
+            for v_key in visited:
+                if v_key == key:
+                    continue
+                v_name, v_idx = v_key
+                comp_def_v = comp_map.get(v_name)
+                if comp_def_v is None:
+                    continue
+                table_file_v = self.storage.data_dir / f"{v_name}.bin"
+                if not table_file_v.exists():
+                    continue
+                table_v = self.storage.get_table(v_name)
+                if v_idx >= table_v.count or table_v.is_deleted(v_idx):
+                    continue
+                raw_record_v = table_v.get(v_idx)
+                for f in comp_def_v.fields:
+                    ref = raw_record_v[f.name]
+                    if ref == NULL_REF:
+                        continue
+                    if back_edge_set and (v_name, v_idx, f.name) in back_edge_set:
+                        continue
+                    field_base = f.type_def.resolve_base_type()
+                    if isinstance(field_base, CompositeTypeDefinition):
+                        dep_key = (f.type_def.name, ref)
+                        if dep_key in dump_vars and dep_key not in emitted_vars:
+                            _emit_var(dep_key)
+            # Also check direct composite fields of this record
+            comp_def = comp_map.get(name)
+            if comp_def:
+                table_file = self.storage.data_dir / f"{name}.bin"
+                if table_file.exists():
+                    table = self.storage.get_table(name)
+                    if idx < table.count and not table.is_deleted(idx):
+                        raw_record = table.get(idx)
+                        for f in comp_def.fields:
+                            ref = raw_record[f.name]
+                            if ref == NULL_REF:
+                                continue
+                            if back_edge_set and (name, idx, f.name) in back_edge_set:
+                                continue
+                            field_base = f.type_def.resolve_base_type()
+                            if isinstance(field_base, CompositeTypeDefinition):
+                                dep_key = (f.type_def.name, ref)
+                                if dep_key in dump_vars and dep_key not in emitted_vars:
+                                    _emit_var(dep_key)
+            # Emit this record
+            comp_def = comp_map.get(name)
+            if comp_def is None:
+                return
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                return
+            table = self.storage.get_table(name)
+            if idx >= table.count or table.is_deleted(idx):
+                return
+            raw_record = table.get(idx)
+            create_str = self._format_record_as_create(
+                name, comp_def, raw_record, dump_vars,
+                back_edge_set=back_edge_set, record_index=idx,
+            )
+            var_name = dump_vars[key]
+            lines.append(f"${var_name} = {create_str};")
+            emitted_vars.add(key)
+            # Mark inlined records so Pass 4 skips them
+            for v_key in visited:
+                if v_key != key and v_key not in dump_vars:
+                    inlined_records.add(v_key)
+
         for name, comp_def in composites:
             table_file = self.storage.data_dir / f"{name}.bin"
             if not table_file.exists():
@@ -1491,12 +1731,8 @@ class QueryExecutor:
                 if table.is_deleted(i):
                     continue
                 key = (name, i)
-                if key in dump_vars and key not in emitted_vars:
-                    raw_record = table.get(i)
-                    create_str = self._format_record_as_create(name, comp_def, raw_record, dump_vars)
-                    var_name = dump_vars[key]
-                    lines.append(f"${var_name} = {create_str};")
-                    emitted_vars.add(key)
+                if key in dump_vars:
+                    _emit_var(key)
 
         # Pass 4: Emit remaining create statements using $var references
         for name, comp_def in types_to_dump:
@@ -1510,11 +1746,21 @@ class QueryExecutor:
                 if not _include_record(name, i):
                     continue
                 # Skip records that were emitted as variable assignments
-                if (name, i) in dump_vars:
+                # or inlined into a dump_var's create statement
+                if (name, i) in dump_vars or (name, i) in inlined_records:
                     continue
                 raw_record = table.get(i)
-                create_str = self._format_record_as_create(name, comp_def, raw_record, dump_vars)
+                create_str = self._format_record_as_create(
+                    name, comp_def, raw_record, dump_vars,
+                    back_edge_set=back_edge_set, record_index=i,
+                )
                 lines.append(f"{create_str};")
+
+        # Pass 5: Emit update statements for back-edge fields
+        for src_type, src_idx, field_name, tgt_type, tgt_idx in sorted(back_edges):
+            src_var = dump_vars[(src_type, src_idx)]
+            tgt_var = dump_vars[(tgt_type, tgt_idx)]
+            lines.append(f"update ${src_var} set {field_name}=${tgt_var};")
 
         return DumpResult(columns=[], rows=[], script="\n".join(lines), output_file=query.output_file)
 
@@ -1588,19 +1834,89 @@ class QueryExecutor:
                 stack.append(type_def.element_type.name)
         return needed
 
+    def _detect_back_edges(
+        self,
+        composites: list[tuple[str, CompositeTypeDefinition]],
+        include_record: Any,
+    ) -> set[tuple[str, int, str, str, int]]:
+        """DFS to find back-edges in composite reference graph.
+
+        Returns set of (src_type, src_idx, field_name, tgt_type, tgt_idx).
+        Only follows direct composite fields (not array elements).
+        """
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color: dict[tuple[str, int], int] = {}
+        back_edges: set[tuple[str, int, str, str, int]] = set()
+
+        comp_map = dict(composites)
+
+        def dfs(type_name: str, idx: int) -> None:
+            key = (type_name, idx)
+            color[key] = GRAY
+            comp_def = comp_map.get(type_name)
+            if comp_def is None:
+                color[key] = BLACK
+                return
+            table_file = self.storage.data_dir / f"{type_name}.bin"
+            if not table_file.exists():
+                color[key] = BLACK
+                return
+            table = self.storage.get_table(type_name)
+            if idx >= table.count or table.is_deleted(idx):
+                color[key] = BLACK
+                return
+            raw_record = table.get(idx)
+            for f in comp_def.fields:
+                ref = raw_record[f.name]
+                if ref == NULL_REF:
+                    continue
+                field_base = f.type_def.resolve_base_type()
+                if not isinstance(field_base, CompositeTypeDefinition):
+                    continue
+                tgt_key = (f.type_def.name, ref)
+                c = color.get(tgt_key, WHITE)
+                if c == GRAY:
+                    # Back-edge found
+                    back_edges.add((type_name, idx, f.name, f.type_def.name, ref))
+                elif c == WHITE:
+                    dfs(f.type_def.name, ref)
+            color[key] = BLACK
+
+        for name, comp_def in composites:
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                continue
+            table = self.storage.get_table(name)
+            for i in range(table.count):
+                if table.is_deleted(i):
+                    continue
+                if not include_record(name, i):
+                    continue
+                key = (name, i)
+                if color.get(key, WHITE) == WHITE:
+                    dfs(name, i)
+
+        return back_edges
+
     def _format_record_as_create(
         self,
         type_name: str,
         composite_def: CompositeTypeDefinition,
         raw_record: dict[str, Any],
         dump_vars: dict[tuple[str, int], str] | None = None,
+        back_edge_set: set[tuple[str, int, str]] | None = None,
+        record_index: int | None = None,
     ) -> str:
         """Format a raw composite record as a TTQ create statement with inline instances."""
         formatting: set[tuple[str, int]] = set()
         field_strs = []
         for f in composite_def.fields:
             ref = raw_record[f.name]
-            value_str = self._format_field_value(f, ref, dump_vars, formatting)
+            # If this field is a back-edge, emit null instead
+            if back_edge_set and record_index is not None and (type_name, record_index, f.name) in back_edge_set:
+                value_str = "null"
+            else:
+                value_str = self._format_field_value(f, ref, dump_vars, formatting)
             field_strs.append(f"{f.name}={value_str}")
         return f"create {type_name}({', '.join(field_strs)})"
 
@@ -1618,6 +1934,9 @@ class QueryExecutor:
         """
         if formatting is None:
             formatting = set()
+
+        if ref == NULL_REF:
+            return "null"
 
         field_base = field.type_def.resolve_base_type()
 
@@ -1729,8 +2048,12 @@ class QueryExecutor:
         field_references: dict[str, Any] = {}
 
         for field in composite_type.fields:
-            field_value = values[field.name]
+            field_value = values.get(field.name)
             field_base = field.type_def.resolve_base_type()
+
+            if field_value is None:
+                field_references[field.name] = NULL_REF
+                continue
 
             if isinstance(field_base, ArrayTypeDefinition):
                 if isinstance(field_value, str):

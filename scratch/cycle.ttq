@@ -1,0 +1,16 @@
+create type Node
+  name: string
+  child: Node;
+
+$back = create Node(name="D", child=null);
+$top = create Node(
+    name="A",
+    child=Node(
+        name="B",
+        child=Node(
+            name="C",
+            child=$back
+        )
+    )
+);
+update $back set child=$top;

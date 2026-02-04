@@ -871,8 +871,9 @@ create LinkedNode(value=42, next=LinkedNode(0));
 
         dump_result = executor.execute(DumpQuery())
         assert isinstance(dump_result, DumpResult)
-        # Should use CompositeRef syntax to break the cycle
-        assert "LinkedNode(0)" in dump_result.script
+        # Should use null + update to break the cycle
+        assert "next=null" in dump_result.script
+        assert "update $LinkedNode_0 set next=$LinkedNode_0" in dump_result.script
         storage.close()
 
 
@@ -1554,3 +1555,442 @@ use {db_path};
 
         captured = capsys.readouterr()
         assert ">>>" in captured.out or "use" in captured.out
+
+
+class TestNullValues:
+    """Tests for NULL value support."""
+
+    def test_null_create_and_select(self, tmp_path: Path):
+        """Test creating a record with null field and selecting it."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+create Node(value=1, next=null);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+
+        r = executor.execute(parser.parse("from Node select *"))
+        assert len(r.rows) == 1
+        assert r.rows[0]["value"] == 1
+        assert r.rows[0]["next"] is None
+        storage.close()
+
+    def test_null_roundtrip(self, tmp_path: Path):
+        """Test that null values survive dump and re-execute."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery, QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+create Node(value=1, next=null);
+create Node(value=2, next=null);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery())
+        assert isinstance(dump_result, DumpResult)
+        assert "next=null" in dump_result.script
+        storage.close()
+
+        # Re-execute dump into fresh db
+        db_path2 = tmp_path / "testdb2"
+        roundtrip_script = tmp_path / "roundtrip.ttq"
+        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+
+        result = run_file(roundtrip_script, None, verbose=False)
+        assert result == 0
+
+        registry2 = load_registry_from_metadata(db_path2)
+        storage2 = StorageManager(db_path2, registry2)
+        executor2 = QueryExecutor(storage2, registry2)
+        parser = QueryParser()
+
+        r = executor2.execute(parser.parse("from Node select *"))
+        assert len(r.rows) == 2
+        assert r.rows[0]["next"] is None
+        assert r.rows[1]["next"] is None
+        storage2.close()
+
+    def test_missing_fields_default_to_null(self, tmp_path: Path):
+        """Test that missing fields default to null."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+create Node(value=1);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+
+        r = executor.execute(parser.parse("from Node select *"))
+        assert len(r.rows) == 1
+        assert r.rows[0]["value"] == 1
+        assert r.rows[0]["next"] is None
+        storage.close()
+
+
+class TestUpdate:
+    """Tests for UPDATE queries."""
+
+    def test_update_variable(self, tmp_path: Path):
+        """Test updating a variable-bound record."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+$n1 = create Node(value=1, next=null);
+$n2 = create Node(value=2, next=null);
+update $n1 set next=$n2;
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+
+        r = executor.execute(parser.parse("from Node select *"))
+        assert len(r.rows) == 2
+        # Node 0 (value=1) should now point to Node 1
+        assert r.rows[0]["value"] == 1
+        assert r.rows[0]["next"] == "<Node[1]>"
+        # Node 1 (value=2) should still be null
+        assert r.rows[1]["value"] == 2
+        assert r.rows[1]["next"] is None
+        storage.close()
+
+    def test_update_composite_ref(self, tmp_path: Path):
+        """Test update Type(index) form."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor, UpdateResult
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+create Node(value=1, next=null);
+create Node(value=2, next=null);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+
+        r = executor.execute(parser.parse("update Node(0) set next=Node(1)"))
+        assert isinstance(r, UpdateResult)
+        assert r.index == 0
+
+        r2 = executor.execute(parser.parse("from Node select *"))
+        assert r2.rows[0]["next"] == "<Node[1]>"
+        storage.close()
+
+    def test_update_cycle(self, tmp_path: Path):
+        """Test building a cyclic linked list via null+update."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+$n1 = create Node(value=1, next=null);
+$n2 = create Node(value=2, next=null);
+$n3 = create Node(value=3, next=$n1);
+update $n1 set next=$n2;
+update $n2 set next=$n3;
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+
+        r = executor.execute(parser.parse("from Node select *"))
+        assert len(r.rows) == 3
+        # n1→n2→n3→n1
+        assert r.rows[0]["next"] == "<Node[1]>"
+        assert r.rows[1]["next"] == "<Node[2]>"
+        assert r.rows[2]["next"] == "<Node[0]>"
+        storage.close()
+
+    def test_update_undefined_var(self, tmp_path: Path):
+        """Test error for undefined variable in update."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor, UpdateResult
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+
+        r = executor.execute(parser.parse("update $undefined set value=1"))
+        assert isinstance(r, UpdateResult)
+        assert "Undefined variable" in r.message
+        storage.close()
+
+    def test_update_unknown_field(self, tmp_path: Path):
+        """Test error for nonexistent field in update."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor, UpdateResult
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+$n = create Node(value=1, next=null);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+
+        # Re-bind variable
+        executor.variables["n"] = ("Node", 0)
+        r = executor.execute(parser.parse("update $n set nonexistent=1"))
+        assert isinstance(r, UpdateResult)
+        assert "Unknown field" in r.message
+        storage.close()
+
+
+class TestCycleAwareDump:
+    """Tests for cycle-aware dump with null+update pattern."""
+
+    def test_dump_cycle_uses_null_update(self, tmp_path: Path):
+        """Test that cyclic data dumps with null+update pattern."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+$n1 = create Node(value=1, next=null);
+$n2 = create Node(value=2, next=$n1);
+update $n1 set next=$n2;
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery())
+        assert isinstance(dump_result, DumpResult)
+        # Should contain null and update, not CompositeRef
+        assert "null" in dump_result.script
+        assert "update" in dump_result.script
+        storage.close()
+
+    def test_dump_cycle_roundtrip(self, tmp_path: Path):
+        """Test that cyclic data dumps and re-executes correctly."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery, QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+$n1 = create Node(value=1, next=null);
+$n2 = create Node(value=2, next=$n1);
+update $n1 set next=$n2;
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery())
+        assert isinstance(dump_result, DumpResult)
+        storage.close()
+
+        # Roundtrip
+        db_path2 = tmp_path / "testdb2"
+        roundtrip_script = tmp_path / "roundtrip.ttq"
+        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+
+        result = run_file(roundtrip_script, None, verbose=False)
+        assert result == 0
+
+        registry2 = load_registry_from_metadata(db_path2)
+        storage2 = StorageManager(db_path2, registry2)
+        executor2 = QueryExecutor(storage2, registry2)
+        parser = QueryParser()
+
+        r = executor2.execute(parser.parse("from Node select *"))
+        # Should have at least 2 nodes with a cycle
+        assert len(r.rows) >= 2
+        # Verify both nodes exist with correct values
+        values = {row["value"] for row in r.rows}
+        assert 1 in values
+        assert 2 in values
+        storage2.close()
+
+    def test_dump_4node_cycle_no_duplicates(self, tmp_path: Path):
+        """Test that a 4-node cycle roundtrips without duplicate records."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery, QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node name:string child:Node;
+$back = create Node(name="D", child=null);
+$top = create Node(name="A", child=Node(name="B", child=Node(name="C", child=$back)));
+update $back set child=$top;
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery())
+        assert isinstance(dump_result, DumpResult)
+        storage.close()
+
+        # Roundtrip: create new db from dump
+        db_path2 = tmp_path / "testdb2"
+        roundtrip_script = tmp_path / "roundtrip.ttq"
+        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+
+        result = run_file(roundtrip_script, None, verbose=False)
+        assert result == 0
+
+        registry2 = load_registry_from_metadata(db_path2)
+        storage2 = StorageManager(db_path2, registry2)
+        executor2 = QueryExecutor(storage2, registry2)
+        parser = QueryParser()
+
+        r = executor2.execute(parser.parse("from Node select *"))
+        # Must have exactly 4 nodes: A, B, C, D — no duplicates
+        assert len(r.rows) == 4
+        names = {row["name"] for row in r.rows}
+        assert names == {"A", "B", "C", "D"}
+        storage2.close()
+
+    def test_dump_no_cycle_unchanged(self, tmp_path: Path):
+        """Test that acyclic data still dumps normally (regression test)."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery, QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Person name:string age:uint8;
+create Person(name="Alice", age=30);
+create Person(name="Bob", age=25);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery())
+        assert isinstance(dump_result, DumpResult)
+        # Should NOT contain update or null for non-cyclic data
+        assert "update" not in dump_result.script
+        assert "null" not in dump_result.script
+        # Should contain normal create statements
+        assert "create Person(" in dump_result.script
+        assert "Alice" in dump_result.script
+        assert "Bob" in dump_result.script
+        storage.close()

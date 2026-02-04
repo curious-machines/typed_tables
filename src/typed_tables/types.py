@@ -57,6 +57,9 @@ PRIMITIVE_TYPE_NAMES: dict[str, PrimitiveType] = {pt.value: pt for pt in Primiti
 # Size of a reference (index) to an entry in a table
 REFERENCE_SIZE = 4  # uint32 index
 
+# Sentinel value: field points to no entry in the referenced table
+NULL_REF = 0xFFFFFFFF
+
 
 @dataclass
 class TypeDefinition:

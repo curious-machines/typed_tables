@@ -11,7 +11,7 @@ from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import DropDatabaseQuery, QueryParser, UseQuery
-from typed_tables.query_executor import CollectResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, UseResult, VariableAssignmentResult
+from typed_tables.query_executor import CollectResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, UpdateResult, UseResult, VariableAssignmentResult
 from typed_tables.storage import StorageManager
 from typed_tables.types import TypeRegistry
 
@@ -86,7 +86,7 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
         return
 
     # Special handling for UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult)):
+    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -207,12 +207,14 @@ def run_repl(data_dir: Path | None) -> int:
         stripped = line.strip()
         if not stripped:
             return False
-        # If it ends with a semicolon, check paren balance for create instance or variable assignment
+        # If it ends with a semicolon, check paren balance for create instance, variable assignment, or update
         if stripped.endswith(";"):
             lower = stripped.lower()
             if lower.startswith("create ") and not lower.startswith("create type") and "(" in stripped:
                 return not has_balanced_parens(stripped)
             if stripped.startswith("$") and "(" in stripped:
+                return not has_balanced_parens(stripped)
+            if lower.startswith("update ") and "(" in stripped:
                 return not has_balanced_parens(stripped)
             return False
         return True
@@ -444,6 +446,16 @@ CREATE:
 DELETE:
   delete <table> where ... Delete matching records (soft delete)
   delete <table>           Delete all records in table
+
+UPDATE:
+  update $var set field=value, ...
+                           Update fields on a variable-bound record
+  update <Type>(index) set field=value, ...
+                           Update fields on a specific record by index
+
+NULL VALUES:
+  create <Type>(field=null) Set a field to null (no entry created)
+  Missing fields default to null
 
 QUERIES:
   from <table> select *               Select all records

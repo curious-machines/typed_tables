@@ -42,6 +42,9 @@ class QueryLexer:
         "dump": "DUMP",
         "to": "TO",
         "collect": "COLLECT",
+        "null": "NULL",
+        "update": "UPDATE",
+        "set": "SET",
     }
 
     # Token list

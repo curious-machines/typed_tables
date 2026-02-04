@@ -35,6 +35,7 @@ query           ::= select_query
                   | collect_query
                   | delete_query
                   | dump_query
+                  | update_query
 
 
 (* ========== SELECT Query (with FROM) ========== *)
@@ -322,6 +323,7 @@ instance_value  ::= STRING
                   | "[" "]"                                 (* empty array *)
                   | "[" array_elements "]"                  (* array literal *)
                   | VARIABLE                                (* variable reference: $var *)
+                  | "null"                                  (* null reference *)
 
 array_elements  ::= array_element
                   | array_elements "," array_element
@@ -329,6 +331,7 @@ array_elements  ::= array_element
 array_element   ::= STRING | INTEGER | FLOAT
                   | IDENTIFIER "(" instance_field_list ")"  (* inline instance *)
                   | VARIABLE                                (* variable reference: $var *)
+                  | "null"                                  (* null reference *)
 
 
 (* ========== DUMP Query ========== *)
@@ -416,6 +419,21 @@ delete_query    ::= "delete" IDENTIFIER "where" condition
                   | "delete" STRING
 
 
+(* ========== UPDATE Query ========== *)
+(*
+ * Modify fields on an existing record. The target can be a variable
+ * or a direct type reference with index.
+ *
+ * Examples:
+ *   update $n1 set next=$n2
+ *   update Node(0) set next=Node(1)
+ *   update $n set value=42, next=null
+ *)
+
+update_query    ::= "update" VARIABLE "set" instance_field_list
+                  | "update" IDENTIFIER "(" INTEGER ")" "set" instance_field_list
+
+
 (* ========== Lexical Elements ========== *)
 
 VARIABLE        ::= "$" [a-zA-Z_][a-zA-Z0-9_]*
@@ -442,7 +460,8 @@ SEMICOLON       ::= ";"
  * from, select, where, offset, limit, group, sort, by,
  * and, or, not, starts, with, matches, show, tables,
  * describe, count, average, sum, product, use, create,
- * type, uuid, delete, as, alias, drop, dump, to, collect
+ * type, uuid, delete, as, alias, drop, dump, to, collect,
+ * null, update, set
  *)
 
 

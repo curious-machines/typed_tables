@@ -202,6 +202,13 @@ class DumpQuery:
 
 
 @dataclass
+class NullValue:
+    """The null literal value."""
+
+    pass
+
+
+@dataclass
 class VariableReference:
     """A reference to a bound variable: $var."""
 
@@ -237,7 +244,17 @@ class CollectQuery:
     limit: int | None = None
 
 
-Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery
+@dataclass
+class UpdateQuery:
+    """An UPDATE query to modify fields on existing records."""
+
+    type_name: str
+    index: int | None = None
+    var_name: str | None = None
+    fields: list[FieldValue] = field(default_factory=list)
+
+
+Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery
 
 
 class QueryParser:
@@ -424,6 +441,14 @@ class QueryParser:
                  | DELETE STRING"""
         p[0] = DeleteQuery(table=p[2], where=None)
 
+    def p_query_update_var(self, p: yacc.YaccProduction) -> None:
+        """query : UPDATE VARIABLE SET instance_field_list"""
+        p[0] = UpdateQuery(type_name="", var_name=p[2], fields=p[4])
+
+    def p_query_update_ref(self, p: yacc.YaccProduction) -> None:
+        """query : UPDATE IDENTIFIER LPAREN INTEGER RPAREN SET instance_field_list"""
+        p[0] = UpdateQuery(type_name=p[2], index=p[4], fields=p[7])
+
     def p_type_field_list_single(self, p: yacc.YaccProduction) -> None:
         """type_field_list : type_field_def"""
         p[0] = [p[1]]
@@ -471,6 +496,10 @@ class QueryParser:
         """instance_value : IDENTIFIER LPAREN instance_field_list RPAREN"""
         p[0] = InlineInstance(type_name=p[1], fields=p[3])
 
+    def p_instance_value_null(self, p: yacc.YaccProduction) -> None:
+        """instance_value : NULL"""
+        p[0] = NullValue()
+
     def p_instance_value_variable(self, p: yacc.YaccProduction) -> None:
         """instance_value : VARIABLE"""
         p[0] = VariableReference(var_name=p[1])
@@ -500,6 +529,10 @@ class QueryParser:
     def p_array_element_inline_instance(self, p: yacc.YaccProduction) -> None:
         """array_element : IDENTIFIER LPAREN instance_field_list RPAREN"""
         p[0] = InlineInstance(type_name=p[1], fields=p[3])
+
+    def p_array_element_null(self, p: yacc.YaccProduction) -> None:
+        """array_element : NULL"""
+        p[0] = NullValue()
 
     def p_array_element_variable(self, p: yacc.YaccProduction) -> None:
         """array_element : VARIABLE"""

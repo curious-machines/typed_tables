@@ -138,6 +138,18 @@ create type B value:uint8 a:A;
 
 The first `create type B` registers an empty stub. The third statement populates it with fields. This allows A and B to reference each other.
 
+### NULL Values
+
+Composite fields can be set to `null` to indicate the absence of a referenced record. Internally, null is stored as `0xFFFFFFFF` (the max uint32 sentinel). Fields omitted during creation default to null.
+
+```ttq
+create type Node value:uint8 next:Node;
+create Node(value=1, next=null);
+create Node(value=2);              -- next defaults to null
+```
+
+NULL values display as `NULL` in select results and as `null` in dump output.
+
 ### Create Aliases
 
 ```ttq
@@ -195,6 +207,32 @@ $union = collect $seniors, $young;
 ```ttq
 delete Person where name="Kevin"
 ```
+
+### Update Entry
+
+Modify fields on an existing record. The target can be a variable or a direct type reference with index.
+
+```ttq
+update $n1 set next=$n2
+update Node(0) set value=42
+update $n set value=10, next=null
+```
+
+### Cyclic Data Structures
+
+Cycles in composite references (e.g., linked lists, graphs) are supported using `null` + `update`:
+
+```ttq
+create type Node value:uint8 next:Node;
+$n1 = create Node(value=1, next=null);
+$n2 = create Node(value=2, next=null);
+$n3 = create Node(value=3, next=$n1);
+update $n1 set next=$n2;
+update $n2 set next=$n3;
+-- Now: n1 -> n2 -> n3 -> n1 (cycle)
+```
+
+The `dump` command is cycle-aware: it detects back-edges via DFS, emits them as `null` in create statements, then appends `update` statements to patch the back-edge fields. This ensures dump output is a valid executable script that reconstructs cycles.
 
 ### Selection
 The query language, TTQ, requires a `from` clause followed by a `select` clause:
