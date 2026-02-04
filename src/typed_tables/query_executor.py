@@ -1714,6 +1714,13 @@ class QueryExecutor:
         # Recombine for record dumping (sorted first, then cycle types)
         composites = sorted_composites + cycle_composites
 
+        # Branch based on output format
+        if query.format == "yaml":
+            return self._execute_dump_yaml(
+                query, dump_targets, aliases, composites, sorted_composites, cycle_composites
+            )
+
+        # TTQ format output
         # Emit aliases
         for name, alias_def in aliases:
             base_name = alias_def.base_type.name
@@ -2085,6 +2092,163 @@ class QueryExecutor:
                 lines.append("};")
             else:
                 lines.append("scope { " + " ".join(scope_statements) + " };")
+
+        return DumpResult(columns=[], rows=[], script="\n".join(lines) + "\n", output_file=query.output_file)
+
+    def _execute_dump_yaml(
+        self,
+        query: DumpQuery,
+        dump_targets: dict[str, set[int] | None] | None,
+        aliases: list[tuple[str, AliasTypeDefinition]],
+        composites: list[tuple[str, CompositeTypeDefinition]],
+        sorted_composites: list[tuple[str, CompositeTypeDefinition]],
+        cycle_composites: list[tuple[str, CompositeTypeDefinition]],
+    ) -> DumpResult:
+        """Execute DUMP query with YAML output format.
+
+        All records are emitted at the top level under their type name.
+        Each record gets an anchor (&type_idx) and composite field references
+        use aliases (*type_idx). This handles cycles naturally.
+        """
+        pretty = query.pretty
+        indent = "  " if pretty else ""
+
+        lines: list[str] = []
+        lines.append("# YAML dump")
+
+        # Determine which composites to dump records for
+        if dump_targets is not None:
+            types_to_dump = [(n, t) for n, t in composites if n in dump_targets]
+        else:
+            types_to_dump = composites
+
+        # Helper: filter records by dump_targets
+        def _include_record(name: str, idx: int) -> bool:
+            if dump_targets is None:
+                return True
+            if name not in dump_targets:
+                return False
+            allowed = dump_targets[name]
+            return allowed is None or idx in allowed
+
+        # Generate anchor names for ALL records (simple approach: type_idx)
+        def anchor_name(type_name: str, idx: int) -> str:
+            return f"{type_name}_{idx}"
+
+        # Helper to format a primitive value
+        def fmt_primitive(val: Any, prim_type: PrimitiveTypeDefinition) -> str:
+            if prim_type.primitive == PrimitiveType.CHARACTER:
+                return repr(chr(val)) if isinstance(val, int) else repr(val)
+            elif prim_type.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+                return str(val)
+            else:
+                return str(val)
+
+        # Helper to format a field value
+        def fmt_value(val: Any, field_type: TypeDefinition, depth: int = 0) -> str:
+            ind_inner = indent * (depth + 1) if pretty else ""
+
+            base = field_type.resolve_base_type()
+
+            if val is None or val == NULL_REF:
+                return "null"
+            elif isinstance(base, PrimitiveTypeDefinition):
+                return fmt_primitive(val, base)
+            elif isinstance(base, CompositeTypeDefinition):
+                # Always use alias reference - record is at top level
+                return f"*{anchor_name(field_type.name, val)}"
+            elif isinstance(base, ArrayTypeDefinition):
+                arr_table = self.storage.get_array_table_for_type(field_type)
+                start_idx, length = arr_table.get_header(val)
+
+                if length == 0:
+                    return "[]"
+
+                elem_base = base.element_type.resolve_base_type()
+
+                # Character array → string
+                if isinstance(elem_base, PrimitiveTypeDefinition) and elem_base.primitive == PrimitiveType.CHARACTER:
+                    chars = [arr_table.element_table.get(start_idx + j) for j in range(length)]
+                    s = "".join(chars)
+                    # YAML string - use double quotes
+                    escaped = s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+                    return f'"{escaped}"'
+
+                elements = [arr_table.element_table.get(start_idx + j) for j in range(length)]
+
+                if isinstance(elem_base, CompositeTypeDefinition):
+                    # Composite array - always use alias references
+                    elem_strs = []
+                    for elem_ref in elements:
+                        if elem_ref == NULL_REF:
+                            elem_strs.append("null")
+                        else:
+                            elem_strs.append(f"*{anchor_name(elem_base.name, elem_ref)}")
+                    if pretty:
+                        elem_lines = "\n".join(f"{ind_inner}- {e}" for e in elem_strs)
+                        return f"\n{elem_lines}"
+                    else:
+                        return "[" + ", ".join(elem_strs) + "]"
+                else:
+                    # Primitive array
+                    elem_strs = [fmt_primitive(e, elem_base) for e in elements]
+                    if pretty and len(elem_strs) > 5:
+                        elem_lines = "\n".join(f"{ind_inner}- {e}" for e in elem_strs)
+                        return f"\n{elem_lines}"
+                    else:
+                        return "[" + ", ".join(elem_strs) + "]"
+            elif isinstance(base, AliasTypeDefinition):
+                return fmt_value(val, base.base_type, depth)
+            else:
+                return str(val)
+
+        def fmt_record_fields(comp_def: CompositeTypeDefinition, raw: dict[str, Any], depth: int) -> str:
+            """Format record fields as YAML."""
+            ind_inner = indent * (depth + 1) if pretty else ""
+
+            field_strs = []
+            for f in comp_def.fields:
+                val = raw[f.name]
+                val_str = fmt_value(val, f.type_def, depth + 1)
+                field_strs.append((f.name, val_str))
+
+            if pretty:
+                result_lines = []
+                for fname, fval in field_strs:
+                    if "\n" in fval:
+                        result_lines.append(f"{ind_inner}{fname}:{fval}")
+                    else:
+                        result_lines.append(f"{ind_inner}{fname}: {fval}")
+                return "\n" + "\n".join(result_lines)
+            else:
+                return "{" + ", ".join(f"{fn}: {fv}" for fn, fv in field_strs) + "}"
+
+        # Emit records grouped by type
+        for name, comp_def in types_to_dump:
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                continue
+            table = self.storage.get_table(name)
+
+            records_output = []
+            for i in range(table.count):
+                if table.is_deleted(i) or not _include_record(name, i):
+                    continue
+
+                raw = table.get(i)
+                anchor = anchor_name(name, i)
+                record_yaml = fmt_record_fields(comp_def, raw, 1)
+
+                if pretty:
+                    records_output.append(f"  - &{anchor}{record_yaml}")
+                else:
+                    records_output.append(f"- &{anchor} {record_yaml}")
+
+            if records_output:
+                lines.append(f"{name}:")
+                lines.extend(records_output)
+                if pretty:
+                    lines.append("")
 
         return DumpResult(columns=[], rows=[], script="\n".join(lines) + "\n", output_file=query.output_file)
 

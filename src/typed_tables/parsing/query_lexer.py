@@ -49,6 +49,7 @@ class QueryLexer:
         "tag": "TAG",
         "scope": "SCOPE",
         "forward": "FORWARD",
+        "yaml": "YAML",
     }
 
     # Token list

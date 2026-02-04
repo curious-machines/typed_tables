@@ -400,6 +400,24 @@ dump [Person, $seniors, Employee]             -- dump a list of tables/variables
 dump [Person, $seniors, Employee] to "backup.ttq"  -- dump list to file
 ```
 
+YAML format is also supported using anchors and aliases for references:
+```ttq
+dump yaml                     -- dump as YAML
+dump yaml pretty              -- pretty-print YAML
+dump yaml to "backup.yaml"    -- dump YAML to file
+```
+
+Example YAML output with cyclic references:
+```yaml
+Node:
+  - &Node_0
+    name: "A"
+    child: *Node_1
+  - &Node_1
+    name: "B"
+    child: *Node_0
+```
+
 To be determined, but here is a list of features that will be expected to be supported:
 
 

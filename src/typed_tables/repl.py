@@ -618,6 +618,9 @@ DUMP:
   dump pretty              Pretty-print with multi-line indented formatting
   dump pretty <table>      Pretty-print a single table
                            (pretty can be added to any dump variant above)
+  dump yaml                Dump as YAML (uses anchors/aliases for references)
+  dump yaml pretty         Pretty-print YAML output
+                           (yaml can be combined with other dump options)
 
 CYCLIC DATA:
   Tags allow creating cyclic data structures. Tags must be used within a
