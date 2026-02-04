@@ -59,7 +59,8 @@ field_list      ::= select_field
                   | field_list "," select_field
 
 select_field    ::= field_path
-                  | field_path "[" array_index_list "]"   (* array indexing *)
+                  | field_path "[" array_index_list "]"                 (* array indexing *)
+                  | field_path "[" array_index_list "]" "." field_path  (* post-index dot notation *)
                   | "count" "(" ")"
                   | "average" "(" IDENTIFIER ")"
                   | "sum" "(" IDENTIFIER ")"
@@ -91,6 +92,16 @@ array_index_item ::= INTEGER                  (* single index: [0] *)
  *   name                    -- simple field
  *   address.city            -- nested composite field
  *   address.location.lat    -- deeply nested field
+ *)
+
+(* Examples of post-index dot notation:
+ *   employees[0].name       -- field of a single array element
+ *   employees[0].addr.city  -- deep path after index
+ *   employees[0:3].name     -- project 'name' over a slice result
+ *)
+
+(* Array projection — dotted path on an array of composites:
+ *   employees.name           -- returns a list of all employee names
  *)
 
 where_clause    ::= (* empty *)
@@ -272,6 +283,7 @@ type_ref        ::= IDENTIFIER
  *   create Person(name="Alice", age=30)
  *   create Person(id=uuid(), name="Bob", age=25)
  *   create Contact(name="John", address=Address(0))  -- reference existing composite
+ *   create Person(name="Alice", address=Address(street="123 Main", city="Springfield"))  -- inline instance
  *)
 
 create_instance_query ::= "create" IDENTIFIER "(" instance_field_list ")"
@@ -287,9 +299,10 @@ instance_value  ::= STRING
                   | FLOAT
                   | IDENTIFIER "(" ")"
                   | "uuid" "(" ")"
-                  | IDENTIFIER "(" INTEGER ")"        (* composite reference: TypeName(index) *)
-                  | "[" "]"                           (* empty array *)
-                  | "[" array_elements "]"            (* array literal *)
+                  | IDENTIFIER "(" INTEGER ")"              (* composite reference: TypeName(index) *)
+                  | IDENTIFIER "(" instance_field_list ")"  (* inline instance creation *)
+                  | "[" "]"                                 (* empty array *)
+                  | "[" array_elements "]"                  (* array literal *)
 
 array_elements  ::= array_element
                   | array_elements "," array_element

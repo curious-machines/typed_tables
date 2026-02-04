@@ -155,6 +155,78 @@ from Item select *;
         assert result == 0
 
 
+class TestInlineInstanceAndProjection:
+    """Tests for inline instance creation, post-index dot notation, and array projection."""
+
+    def test_inline_instance_creation(self, tmp_path: Path):
+        """Test creating instances with inline nested composites."""
+        script = tmp_path / "test.ttq"
+        db_path = tmp_path / "testdb"
+
+        script.write_text(f"""
+use {db_path};
+create type Address street:string city:string;
+create type Person name:string address:Address;
+create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
+from Person select *;
+""")
+
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+    def test_inline_instance_dot_notation_query(self, tmp_path: Path):
+        """Test querying nested fields from inline-created instances."""
+        script = tmp_path / "test.ttq"
+        db_path = tmp_path / "testdb"
+
+        script.write_text(f"""
+use {db_path};
+create type Address street:string city:string;
+create type Person name:string address:Address;
+create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
+from Person select address.city;
+""")
+
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+    def test_post_index_dot_notation(self, tmp_path: Path):
+        """Test post-index dot notation: employees[0].name."""
+        script = tmp_path / "test.ttq"
+        db_path = tmp_path / "testdb"
+
+        script.write_text(f"""
+use {db_path};
+create type Employee name:string;
+create type Team title:string employees:Employee[];
+create Employee(name="Alice");
+create Employee(name="Bob");
+create Team(title="Engineering", employees=[0, 1]);
+from Team select employees[0].name;
+""")
+
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+    def test_array_projection(self, tmp_path: Path):
+        """Test array projection: employees.name projects over all elements."""
+        script = tmp_path / "test.ttq"
+        db_path = tmp_path / "testdb"
+
+        script.write_text(f"""
+use {db_path};
+create type Employee name:string;
+create type Team title:string employees:Employee[];
+create Employee(name="Alice");
+create Employee(name="Bob");
+create Team(title="Engineering", employees=[0, 1]);
+from Team select employees.name;
+""")
+
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+
 class TestMain:
     """Tests for the main entry point."""
 

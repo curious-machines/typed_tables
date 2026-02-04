@@ -32,6 +32,7 @@ class SelectField:
     name: str  # Field name or "*" or dotted path like "address.state"
     aggregate: str | None = None  # count, average, sum, product
     array_index: ArrayIndex | None = None  # Optional array indexing
+    post_path: list[str] | None = None  # Path after array index: arr[0].name
 
     @property
     def path(self) -> list[str]:
@@ -125,6 +126,14 @@ class CompositeRef:
 
     type_name: str
     index: int
+
+
+@dataclass
+class InlineInstance:
+    """An inline instance creation: TypeName(field=value, ...)."""
+
+    type_name: str
+    fields: list[FieldValue]
 
 
 @dataclass
@@ -317,6 +326,10 @@ class QueryParser:
         """instance_value : IDENTIFIER LPAREN INTEGER RPAREN"""
         p[0] = CompositeRef(type_name=p[1], index=p[3])
 
+    def p_instance_value_inline_instance(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER LPAREN instance_field_list RPAREN"""
+        p[0] = InlineInstance(type_name=p[1], fields=p[3])
+
     def p_instance_value_array(self, p: yacc.YaccProduction) -> None:
         """instance_value : LBRACKET array_elements RBRACKET
                           | LBRACKET RBRACKET"""
@@ -410,6 +423,14 @@ class QueryParser:
     def p_select_field_with_index(self, p: yacc.YaccProduction) -> None:
         """select_field : field_path LBRACKET array_index_list RBRACKET"""
         p[0] = SelectField(name=p[1], array_index=ArrayIndex(indices=p[3]))
+
+    def p_select_field_with_index_and_path(self, p: yacc.YaccProduction) -> None:
+        """select_field : field_path LBRACKET array_index_list RBRACKET DOT field_path"""
+        p[0] = SelectField(
+            name=p[1],
+            array_index=ArrayIndex(indices=p[3]),
+            post_path=p[6].split("."),
+        )
 
     def p_array_index_list_single(self, p: yacc.YaccProduction) -> None:
         """array_index_list : array_index_item"""

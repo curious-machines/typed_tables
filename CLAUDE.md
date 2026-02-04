@@ -125,6 +125,11 @@ create alias uuid as uint128
 create Person(name="Kevin", id=uuid(), age=32, address=Address(1))
 ```
 
+With inline nested instances:
+```ttq
+create Person(name="Alice", address=Address(street="123 Main", city="Springfield"))
+```
+
 With array values:
 ```ttq
 create Sensor(name="temperature", readings=[25, 26, 24, 27])
@@ -198,6 +203,17 @@ Multiple indices and slices can be combined:
 ```ttq
 from Sensor select readings[0, 2, 4]
 from Sensor select readings[0, 5:10, 15]
+```
+
+Post-index dot notation accesses fields of composite array elements:
+```ttq
+from Team select employees[0].name
+from Team select employees[0].address.city
+```
+
+Array projection maps a field path across all elements of a composite array:
+```ttq
+from Team select employees.name
 ```
 
 ### Grouping

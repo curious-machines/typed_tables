@@ -22,6 +22,7 @@ from typed_tables.parsing.query_parser import (
     EvalQuery,
     FieldValue,
     FunctionCall,
+    InlineInstance,
     Query,
     SelectField,
     SelectQuery,
@@ -375,7 +376,7 @@ class QueryExecutor:
             )
 
     def _resolve_instance_value(self, value: Any) -> Any:
-        """Resolve a value from CREATE instance, handling function calls and composite refs."""
+        """Resolve a value from CREATE instance, handling function calls, composite refs, and inline instances."""
         if isinstance(value, FunctionCall):
             if value.name == "uuid":
                 # Generate a random UUID as uint128
@@ -385,6 +386,20 @@ class QueryExecutor:
         elif isinstance(value, CompositeRef):
             # Return the index directly - the type will be validated during instance creation
             return value.index
+        elif isinstance(value, InlineInstance):
+            # Inline instance creation: resolve fields and create the instance
+            type_def = self.registry.get(value.type_name)
+            if type_def is None:
+                raise ValueError(f"Unknown type: {value.type_name}")
+            base = type_def.resolve_base_type()
+            if not isinstance(base, CompositeTypeDefinition):
+                raise ValueError(f"Not a composite type: {value.type_name}")
+            # Recursively resolve field values (handles nested InlineInstances)
+            values: dict[str, Any] = {}
+            for fv in value.fields:
+                values[fv.name] = self._resolve_instance_value(fv.value)
+            # Create the instance and return its index
+            return self._create_instance(type_def, base, values)
         return value
 
     def _create_instance(
@@ -725,6 +740,9 @@ class QueryExecutor:
             for field in query.fields:
                 if field.aggregate:
                     columns.append(f"{field.aggregate}({field.name})")
+                elif field.array_index is not None and field.post_path is not None:
+                    post = ".".join(field.post_path)
+                    columns.append(f"{field.name}[{self._format_array_index(field.array_index)}].{post}")
                 elif field.array_index is not None:
                     columns.append(f"{field.name}[{self._format_array_index(field.array_index)}]")
                 else:
@@ -758,9 +776,15 @@ class QueryExecutor:
                     # Apply array indexing if specified
                     if field.array_index is not None and isinstance(value, (list, str)):
                         value = self._apply_array_index(value, field.array_index)
+                    # Apply post-index path (e.g., employees[0].name)
+                    if field.post_path is not None and value is not None:
+                        value = self._resolve_post_index_path(value, field.post_path, field, type_def)
                     # Build column name with index notation if applicable
                     col_name = field.name
-                    if field.array_index is not None:
+                    if field.array_index is not None and field.post_path is not None:
+                        post = ".".join(field.post_path)
+                        col_name = f"{field.name}[{self._format_array_index(field.array_index)}].{post}"
+                    elif field.array_index is not None:
                         col_name = f"{field.name}[{self._format_array_index(field.array_index)}]"
                     row[col_name] = value
             rows.append(row)
@@ -795,60 +819,123 @@ class QueryExecutor:
             return None
 
         field_base = field_def.type_def.resolve_base_type()
+
+        # Array projection: employees.name projects 'name' over each element
+        if isinstance(field_base, ArrayTypeDefinition):
+            elem_base = field_base.element_type.resolve_base_type()
+            if isinstance(elem_base, CompositeTypeDefinition) and isinstance(value, list):
+                # Elements are dicts of raw field references from element_table.get()
+                # Resolve each element and project the remaining path
+                projected = []
+                for elem in value:
+                    if isinstance(elem, dict):
+                        # Raw field reference dict - resolve it into a full record
+                        resolved_elem = self._resolve_raw_composite(elem, elem_base, field_base.element_type)
+                        result = self._resolve_field_path(resolved_elem, path[1:], field_base.element_type)
+                        projected.append(result)
+                    elif isinstance(elem, str) and elem.startswith("<") and elem.endswith(">"):
+                        # Already a composite reference string
+                        projected.append(self._resolve_composite_ref_path(elem, path[1:]))
+                    else:
+                        projected.append(None)
+                return projected
+            return None
+
         if not isinstance(field_base, CompositeTypeDefinition):
             # Can't traverse into non-composite types
             return None
 
-        # The value should be a string like "<Address[0]>" or an index
-        # Parse the index from the string representation
+        # The value should be a string like "<Address[0]>" - resolve remaining path
+        return self._resolve_composite_ref_path(value, path[1:])
+
+    def _resolve_raw_composite(
+        self,
+        raw_record: dict[str, Any],
+        composite_base: CompositeTypeDefinition,
+        type_def: TypeDefinition,
+    ) -> dict[str, Any]:
+        """Resolve raw field references in a composite record to actual values."""
+        resolved: dict[str, Any] = {}
+        for f in composite_base.fields:
+            ref = raw_record[f.name]
+            field_type_base = f.type_def.resolve_base_type()
+            if isinstance(field_type_base, ArrayTypeDefinition):
+                arr_table = self.storage.get_array_table_for_type(f.type_def)
+                start_index, length = arr_table.get_header(ref)
+                if length == 0:
+                    resolved[f.name] = []
+                else:
+                    elements = [
+                        arr_table.element_table.get(start_index + j)
+                        for j in range(length)
+                    ]
+                    if all(isinstance(e, str) and len(e) == 1 for e in elements):
+                        resolved[f.name] = "".join(elements)
+                    else:
+                        resolved[f.name] = elements
+            elif isinstance(field_type_base, CompositeTypeDefinition):
+                resolved[f.name] = f"<{f.type_def.name}[{ref}]>"
+            else:
+                field_table = self.storage.get_table(f.type_def.name)
+                resolved[f.name] = field_table.get(ref)
+        return resolved
+
+    def _load_composite_record(
+        self,
+        type_name: str,
+        index: int,
+    ) -> tuple[dict[str, Any], TypeDefinition] | None:
+        """Load and resolve a composite record by type name and index.
+
+        Returns (resolved_record, type_def) or None if not found.
+        """
+        nested_type_def = self.registry.get(type_name)
+        if nested_type_def is None:
+            return None
+
+        nested_base = nested_type_def.resolve_base_type()
+        if not isinstance(nested_base, CompositeTypeDefinition):
+            return None
+
+        nested_table = self.storage.get_table(type_name)
+        raw_record = nested_table.get(index)
+
+        nested_resolved = self._resolve_raw_composite(raw_record, nested_base, nested_type_def)
+        nested_resolved["_index"] = index
+
+        return nested_resolved, nested_type_def
+
+    def _resolve_composite_ref_path(
+        self,
+        value: Any,
+        path: list[str],
+    ) -> Any:
+        """Resolve a dotted path starting from a composite reference string like '<Address[0]>'."""
         if isinstance(value, str) and value.startswith("<") and value.endswith(">"):
-            # Parse "<TypeName[index]>" format
-            import re
             match = re.match(r"<(\w+)\[(\d+)\]>", value)
             if match:
-                nested_type_name = match.group(1)
-                nested_index = int(match.group(2))
-
-                # Load the nested record
-                nested_type_def = self.registry.get(nested_type_name)
-                if nested_type_def is None:
+                type_name = match.group(1)
+                index = int(match.group(2))
+                result = self._load_composite_record(type_name, index)
+                if result is None:
                     return None
-
-                nested_table = self.storage.get_table(nested_type_name)
-                raw_record = nested_table.get(nested_index)
-
-                # Resolve the nested record's fields
-                nested_resolved = {"_index": nested_index}
-                nested_base = nested_type_def.resolve_base_type()
-                if isinstance(nested_base, CompositeTypeDefinition):
-                    for field in nested_base.fields:
-                        ref = raw_record[field.name]
-                        field_type_base = field.type_def.resolve_base_type()
-
-                        if isinstance(field_type_base, ArrayTypeDefinition):
-                            arr_table = self.storage.get_array_table_for_type(field.type_def)
-                            start_index, length = arr_table.get_header(ref)
-                            if length == 0:
-                                nested_resolved[field.name] = []
-                            else:
-                                elements = [
-                                    arr_table.element_table.get(start_index + j)
-                                    for j in range(length)
-                                ]
-                                if all(isinstance(e, str) and len(e) == 1 for e in elements):
-                                    nested_resolved[field.name] = "".join(elements)
-                                else:
-                                    nested_resolved[field.name] = elements
-                        elif isinstance(field_type_base, CompositeTypeDefinition):
-                            nested_resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
-                        else:
-                            field_table = self.storage.get_table(field.type_def.name)
-                            nested_resolved[field.name] = field_table.get(ref)
-
-                # Recursively resolve remaining path
-                return self._resolve_field_path(nested_resolved, path[1:], nested_type_def)
-
+                nested_resolved, nested_type_def = result
+                return self._resolve_field_path(nested_resolved, path, nested_type_def)
         return None
+
+    def _resolve_post_index_path(
+        self,
+        value: Any,
+        post_path: list[str],
+        field: SelectField,
+        type_def: TypeDefinition,
+    ) -> Any:
+        """Resolve a dotted path after array indexing, e.g., employees[0].name."""
+        # If value is a list (from slice/multi-index), map the post-path over each element
+        if isinstance(value, list):
+            return [self._resolve_post_index_path(elem, post_path, field, type_def) for elem in value]
+
+        return self._resolve_composite_ref_path(value, post_path)
 
     def _compute_global_aggregates(
         self, records: list[dict[str, Any]], fields: list[SelectField]

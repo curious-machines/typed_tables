@@ -16,6 +16,7 @@ from typed_tables.parsing.query_parser import (
     FieldDef,
     FunctionCall,
     CompositeRef,
+    InlineInstance,
     QueryParser,
     SelectQuery,
     ShowTablesQuery,
@@ -516,3 +517,66 @@ class TestQueryParser:
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Person"
         assert len(query.fields) == 2
+
+    def test_parse_inline_instance(self):
+        """Test parsing create instance with inline nested instance."""
+        parser = QueryParser()
+        query = parser.parse('create Person(address=Address(street="123 Main", city="Springfield"))')
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.type_name == "Person"
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "address"
+
+        inline = query.fields[0].value
+        assert isinstance(inline, InlineInstance)
+        assert inline.type_name == "Address"
+        assert len(inline.fields) == 2
+        assert inline.fields[0].name == "street"
+        assert inline.fields[0].value == "123 Main"
+        assert inline.fields[1].name == "city"
+        assert inline.fields[1].value == "Springfield"
+
+    def test_parse_nested_inline_instance(self):
+        """Test parsing deeply nested inline instances."""
+        parser = QueryParser()
+        query = parser.parse(
+            'create Person(address=Address(location=Location(lat=1.0, lng=2.0)))'
+        )
+
+        assert isinstance(query, CreateInstanceQuery)
+        inline_addr = query.fields[0].value
+        assert isinstance(inline_addr, InlineInstance)
+        assert inline_addr.type_name == "Address"
+
+        inline_loc = inline_addr.fields[0].value
+        assert isinstance(inline_loc, InlineInstance)
+        assert inline_loc.type_name == "Location"
+        assert inline_loc.fields[0].name == "lat"
+        assert inline_loc.fields[0].value == 1.0
+        assert inline_loc.fields[1].name == "lng"
+        assert inline_loc.fields[1].value == 2.0
+
+    def test_parse_post_index_dot(self):
+        """Test parsing post-index dot notation like arr[0].name."""
+        parser = QueryParser()
+        query = parser.parse("from Team select members[0].name")
+
+        assert isinstance(query, SelectQuery)
+        field = query.fields[0]
+        assert field.name == "members"
+        assert field.array_index is not None
+        assert field.array_index.indices == [0]
+        assert field.post_path == ["name"]
+
+    def test_parse_post_index_dot_deep(self):
+        """Test parsing post-index dot notation with deep path."""
+        parser = QueryParser()
+        query = parser.parse("from Team select members[0].address.city")
+
+        assert isinstance(query, SelectQuery)
+        field = query.fields[0]
+        assert field.name == "members"
+        assert field.array_index is not None
+        assert field.array_index.indices == [0]
+        assert field.post_path == ["address", "city"]
