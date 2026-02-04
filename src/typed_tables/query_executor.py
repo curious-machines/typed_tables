@@ -1723,6 +1723,10 @@ class QueryExecutor:
             return self._execute_dump_json(
                 query, dump_targets, aliases, composites, sorted_composites, cycle_composites
             )
+        elif query.format == "xml":
+            return self._execute_dump_xml(
+                query, dump_targets, aliases, composites, sorted_composites, cycle_composites
+            )
 
         # TTQ format output
         # Emit aliases
@@ -2385,6 +2389,159 @@ class QueryExecutor:
         else:
             script = json.dumps(output) + "\n"
 
+        return DumpResult(columns=[], rows=[], script=script, output_file=query.output_file)
+
+    def _execute_dump_xml(
+        self,
+        query: DumpQuery,
+        dump_targets: dict[str, set[int] | None] | None,
+        aliases: list[tuple[str, AliasTypeDefinition]],
+        composites: list[tuple[str, CompositeTypeDefinition]],
+        sorted_composites: list[tuple[str, CompositeTypeDefinition]],
+        cycle_composites: list[tuple[str, CompositeTypeDefinition]],
+    ) -> DumpResult:
+        """Execute DUMP query with XML output format.
+
+        Uses id/ref convention for references:
+        - Each record has id="Type_idx" attribute for identification
+        - References use ref="#Type_idx" attribute
+        """
+        from xml.sax.saxutils import escape
+
+        pretty = query.pretty
+        indent = "  " if pretty else ""
+        newline = "\n" if pretty else ""
+
+        # Determine which composites to dump records for
+        if dump_targets is not None:
+            types_to_dump = [(n, t) for n, t in composites if n in dump_targets]
+        else:
+            types_to_dump = composites
+
+        # Helper: filter records by dump_targets
+        def _include_record(name: str, idx: int) -> bool:
+            if dump_targets is None:
+                return True
+            if name not in dump_targets:
+                return False
+            allowed = dump_targets[name]
+            return allowed is None or idx in allowed
+
+        # Generate ID for a record
+        def record_id(type_name: str, idx: int) -> str:
+            return f"{type_name}_{idx}"
+
+        # Helper to format a primitive value for XML
+        def fmt_primitive(val: Any, prim_type: PrimitiveTypeDefinition) -> str:
+            if prim_type.primitive == PrimitiveType.CHARACTER:
+                ch = chr(val) if isinstance(val, int) else val
+                return escape(ch)
+            elif prim_type.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+                return str(float(val))
+            elif prim_type.primitive in (
+                PrimitiveType.INT8, PrimitiveType.INT16, PrimitiveType.INT32, PrimitiveType.INT64,
+                PrimitiveType.UINT8, PrimitiveType.UINT16, PrimitiveType.UINT32, PrimitiveType.UINT64,
+                PrimitiveType.INT128, PrimitiveType.UINT128,
+            ):
+                return str(int(val))
+            else:
+                return escape(str(val))
+
+        # Helper to format a field value for XML
+        def fmt_value(field_name: str, val: Any, field_type: TypeDefinition, depth: int) -> str:
+            base = field_type.resolve_base_type()
+            ind = indent * depth if pretty else ""
+            ind_inner = indent * (depth + 1) if pretty else ""
+
+            if val is None or val == NULL_REF:
+                return f"{ind}<{field_name} null=\"true\"/>"
+            elif isinstance(base, PrimitiveTypeDefinition):
+                prim_val = fmt_primitive(val, base)
+                return f"{ind}<{field_name}>{prim_val}</{field_name}>"
+            elif isinstance(base, CompositeTypeDefinition):
+                # Reference to another record using ref
+                return f"{ind}<{field_name} ref=\"#{record_id(field_type.name, val)}\"/>"
+            elif isinstance(base, ArrayTypeDefinition):
+                arr_table = self.storage.get_array_table_for_type(field_type)
+                start_idx, length = arr_table.get_header(val)
+
+                if length == 0:
+                    return f"{ind}<{field_name}/>"
+
+                elem_base = base.element_type.resolve_base_type()
+
+                # Character array → string
+                if isinstance(elem_base, PrimitiveTypeDefinition) and elem_base.primitive == PrimitiveType.CHARACTER:
+                    chars = [arr_table.element_table.get(start_idx + j) for j in range(length)]
+                    text = escape("".join(chars))
+                    return f"{ind}<{field_name}>{text}</{field_name}>"
+
+                # Build array elements
+                elements_xml = []
+                for j in range(length):
+                    elem_val = arr_table.element_table.get(start_idx + j)
+                    if isinstance(elem_base, CompositeTypeDefinition):
+                        if elem_val == NULL_REF:
+                            elements_xml.append(f"{ind_inner}<item null=\"true\"/>")
+                        else:
+                            elements_xml.append(f"{ind_inner}<item ref=\"#{record_id(elem_base.name, elem_val)}\"/>")
+                    elif isinstance(elem_base, PrimitiveTypeDefinition):
+                        prim_val = fmt_primitive(elem_val, elem_base)
+                        elements_xml.append(f"{ind_inner}<item>{prim_val}</item>")
+                    else:
+                        elements_xml.append(f"{ind_inner}<item>{escape(str(elem_val))}</item>")
+
+                if pretty:
+                    inner = newline + newline.join(elements_xml) + newline + ind
+                else:
+                    inner = "".join(elements_xml)
+                return f"{ind}<{field_name}>{inner}</{field_name}>"
+            elif isinstance(base, AliasTypeDefinition):
+                return fmt_value(field_name, val, base.base_type, depth)
+            else:
+                return f"{ind}<{field_name}>{escape(str(val))}</{field_name}>"
+
+        # Build the XML output
+        lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+        lines.append(f"<database>{newline}")
+
+        for name, comp_def in types_to_dump:
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                continue
+            table = self.storage.get_table(name)
+
+            has_records = False
+            for i in range(table.count):
+                if table.is_deleted(i) or not _include_record(name, i):
+                    continue
+
+                if not has_records:
+                    lines.append(f"{indent}<{name}s>{newline}")
+                    has_records = True
+
+                raw = table.get(i)
+                rec_id = record_id(name, i)
+
+                # Build field elements
+                field_lines = []
+                for f in comp_def.fields:
+                    val = raw[f.name]
+                    field_lines.append(fmt_value(f.name, val, f.type_def, 3))
+
+                if pretty:
+                    fields_xml = newline.join(field_lines)
+                    lines.append(f"{indent}{indent}<{name} id=\"{rec_id}\">{newline}{fields_xml}{newline}{indent}{indent}</{name}>{newline}")
+                else:
+                    fields_xml = "".join(field_lines)
+                    lines.append(f"<{name} id=\"{rec_id}\">{fields_xml}</{name}>")
+
+            if has_records:
+                lines.append(f"{indent}</{name}s>{newline}")
+
+        lines.append("</database>")
+
+        script = "".join(lines) + "\n"
         return DumpResult(columns=[], rows=[], script=script, output_file=query.output_file)
 
     def _sort_composites_by_dependency(

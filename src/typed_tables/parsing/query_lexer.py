@@ -51,6 +51,7 @@ class QueryLexer:
         "forward": "FORWARD",
         "yaml": "YAML",
         "json": "JSON",
+        "xml": "XML",
     }
 
     # Token list

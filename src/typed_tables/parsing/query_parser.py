@@ -368,7 +368,10 @@ class QueryParser:
                        | DUMP PRETTY YAML
                        | DUMP JSON
                        | DUMP JSON PRETTY
-                       | DUMP PRETTY JSON"""
+                       | DUMP PRETTY JSON
+                       | DUMP XML
+                       | DUMP XML PRETTY
+                       | DUMP PRETTY XML"""
         # Returns (pretty: bool, format: str)
         tokens = [p[i].lower() if isinstance(p[i], str) else p[i] for i in range(1, len(p))]
         pretty = "pretty" in tokens
@@ -376,6 +379,8 @@ class QueryParser:
             fmt = "yaml"
         elif "json" in tokens:
             fmt = "json"
+        elif "xml" in tokens:
+            fmt = "xml"
         else:
             fmt = "ttq"
         p[0] = (pretty, fmt)

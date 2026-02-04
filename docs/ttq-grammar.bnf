@@ -352,11 +352,12 @@ array_element   ::= STRING | INTEGER | FLOAT
 
 (* ========== DUMP Query ========== *)
 (*
- * Serialize database contents as TTQ script, YAML, or JSON.
+ * Serialize database contents as TTQ script, YAML, JSON, or XML.
  * Use "to" to write output to a file instead of stdout.
  * Use "pretty" for multi-line indented formatting.
  * Use "yaml" for YAML output with anchors/aliases for references.
  * Use "json" for JSON output with $id/$ref for references.
+ * Use "xml" for XML output with id/ref="#id" for references.
  *
  * Examples:
  *   dump                     -- dump entire database as TTQ
@@ -371,6 +372,9 @@ array_element   ::= STRING | INTEGER | FLOAT
  *   dump json                -- dump as JSON
  *   dump json pretty         -- pretty-print JSON
  *   dump json to "data.json" -- dump JSON to file
+ *   dump xml                 -- dump as XML
+ *   dump xml pretty          -- pretty-print XML
+ *   dump xml to "data.xml"   -- dump XML to file
  *)
 
 dump_prefix     ::= "dump"
@@ -381,6 +385,9 @@ dump_prefix     ::= "dump"
                   | "dump" "json"
                   | "dump" "json" "pretty"
                   | "dump" "pretty" "json"
+                  | "dump" "xml"
+                  | "dump" "xml" "pretty"
+                  | "dump" "pretty" "xml"
 
 dump_query      ::= dump_prefix
                   | dump_prefix IDENTIFIER
@@ -563,7 +570,7 @@ SEMICOLON       ::= ";"
  * and, or, not, starts, with, matches, show, tables,
  * describe, count, average, sum, product, use, create,
  * type, uuid, delete, as, alias, drop, dump, to, collect,
- * null, update, set, pretty, tag, scope, forward, yaml, json
+ * null, update, set, pretty, tag, scope, forward, yaml, json, xml
  *)
 
 

@@ -435,6 +435,30 @@ Example JSON output with cyclic references:
 }
 ```
 
+XML format is supported using `id` and `ref="#id"` attributes for references:
+```ttq
+dump xml                      -- dump as XML
+dump xml pretty               -- pretty-print XML
+dump xml to "backup.xml"      -- dump XML to file
+```
+
+Example XML output with cyclic references:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<database>
+  <Nodes>
+    <Node id="Node_0">
+      <name>A</name>
+      <child ref="#Node_1"/>
+    </Node>
+    <Node id="Node_1">
+      <name>B</name>
+      <child ref="#Node_0"/>
+    </Node>
+  </Nodes>
+</database>
+```
+
 To be determined, but here is a list of features that will be expected to be supported:
 
 

@@ -624,6 +624,9 @@ DUMP:
   dump json                Dump as JSON (uses $id/$ref for references)
   dump json pretty         Pretty-print JSON output
                            (json can be combined with other dump options)
+  dump xml                 Dump as XML (uses id/ref="#id" for references)
+  dump xml pretty          Pretty-print XML output
+                           (xml can be combined with other dump options)
 
 CYCLIC DATA:
   Tags allow creating cyclic data structures. Tags must be used within a
