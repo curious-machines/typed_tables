@@ -199,18 +199,25 @@ class TypeParser:
         return self.registry.get_or_raise(type_ref.name)
 
     def _resolve_specs(self) -> None:
-        """Resolve all specs into type definitions."""
-        # We need to resolve in dependency order
-        # First pass: register all names (for forward references)
-        unresolved: list[AliasSpec | TypeSpec] = []
+        """Resolve all specs into type definitions using two-phase resolution.
 
+        Phase 1: Pre-register stubs for all composite TypeSpecs so that
+        self-referential and mutually referential types can resolve.
+        Phase 2: Iteratively resolve aliases and populate composite stubs.
+        """
+        # Phase 1: Pre-register composite stubs
+        for spec in self._specs:
+            if isinstance(spec, TypeSpec):
+                self.registry.register_stub(spec.name)
+
+        # Phase 2: Iteratively resolve
+        unresolved: list[AliasSpec | TypeSpec] = []
         for spec in self._specs:
             if isinstance(spec, AliasSpec):
                 unresolved.append(spec)
             elif isinstance(spec, TypeSpec):
                 unresolved.append(spec)
 
-        # Iteratively resolve until all are done
         max_iterations = len(unresolved) + 1
         for _ in range(max_iterations):
             if not unresolved:
@@ -230,15 +237,15 @@ class TypeParser:
                         fields: list[FieldDefinition] = []
                         for field_spec in spec.fields:
                             if field_spec.type_ref is None:
-                                # Implicit type: field name is type name
                                 field_type = self.registry.get_or_raise(field_spec.name)
                             else:
                                 field_type = self._resolve_type_ref(field_spec.type_ref)
                             fields.append(
                                 FieldDefinition(name=field_spec.name, type_def=field_type)
                             )
-                        composite = CompositeTypeDefinition(name=spec.name, fields=fields)
-                        self.registry.register(composite)
+                        # Mutate the existing stub in-place
+                        stub = self.registry.get(spec.name)
+                        stub.fields = fields
                         progress = True
                 except KeyError:
                     # Dependency not yet resolved
@@ -247,7 +254,6 @@ class TypeParser:
             unresolved = still_unresolved
 
             if not progress and unresolved:
-                # No progress made, there must be undefined types
                 remaining = [
                     s.name if isinstance(s, TypeSpec) else s.name for s in unresolved
                 ]

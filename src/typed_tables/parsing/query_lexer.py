@@ -39,10 +39,14 @@ class QueryLexer:
         "as": "AS",
         "alias": "ALIAS",
         "drop": "DROP",
+        "dump": "DUMP",
+        "to": "TO",
+        "collect": "COLLECT",
     }
 
     # Token list
     tokens = [
+        "VARIABLE",
         "IDENTIFIER",
         "INTEGER",
         "FLOAT",
@@ -89,6 +93,11 @@ class QueryLexer:
 
     def __init__(self) -> None:
         self.lexer: lex.LexToken = None  # type: ignore
+
+    def t_VARIABLE(self, t: lex.LexToken) -> lex.LexToken:
+        r"\$[a-zA-Z_][a-zA-Z0-9_]*"
+        t.value = t.value[1:]  # Strip the $ prefix, store just the name
+        return t
 
     def t_FLOAT(self, t: lex.LexToken) -> lex.LexToken:
         r"-?\d+\.\d+"

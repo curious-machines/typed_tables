@@ -21,7 +21,12 @@ from typed_tables.types import (
 
 
 def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
-    """Load type registry from metadata file."""
+    """Load type registry from metadata file.
+
+    Uses two-phase resolution to support cyclical type definitions:
+    Phase 1: Pre-register stubs for all composite types.
+    Phase 2: Iteratively resolve, populating composite stubs' fields.
+    """
     metadata_path = data_dir / "_metadata.json"
     if not metadata_path.exists():
         raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
@@ -32,11 +37,19 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
     registry = TypeRegistry()
     types_data = metadata.get("types", {})
 
-    # We need to resolve types in dependency order
-    # First pass: collect all type specs
+    # Phase 1: Pre-register stubs for all composite types
+    for name, spec in types_data.items():
+        if name not in registry and spec.get("kind") == "composite":
+            registry.register_stub(name)
+
+    # Phase 2: Collect non-primitive specs to resolve
     to_resolve = {}
     for name, spec in types_data.items():
-        if name not in registry:  # Skip primitives already registered
+        if name not in registry:
+            # Not yet registered (non-composite, non-primitive)
+            to_resolve[name] = spec
+        elif registry.is_stub(name):
+            # Composite stub that needs field population
             to_resolve[name] = spec
 
     # Iteratively resolve
@@ -48,10 +61,14 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
         resolved_this_pass = []
         for name, spec in to_resolve.items():
             try:
-                type_def = _create_type_from_spec(name, spec, registry)
-                if type_def:
-                    registry.register(type_def)
+                if spec.get("kind") == "composite":
+                    _populate_composite_from_spec(name, spec, registry)
                     resolved_this_pass.append(name)
+                else:
+                    type_def = _create_type_from_spec(name, spec, registry)
+                    if type_def:
+                        registry.register(type_def)
+                        resolved_this_pass.append(name)
             except KeyError:
                 # Dependency not yet resolved
                 pass
@@ -68,7 +85,7 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
 def _create_type_from_spec(
     name: str, spec: dict[str, Any], registry: TypeRegistry
 ) -> TypeDefinition | None:
-    """Create a type definition from a metadata spec."""
+    """Create a type definition from a metadata spec (non-composite types)."""
     kind = spec.get("kind")
 
     if kind == "primitive":
@@ -81,15 +98,34 @@ def _create_type_from_spec(
         element_type = registry.get_or_raise(spec["element_type"])
         return ArrayTypeDefinition(name=name, element_type=element_type)
     elif kind == "composite":
-        from typed_tables.types import FieldDefinition
-
-        fields = []
-        for field_spec in spec["fields"]:
-            field_type = registry.get_or_raise(field_spec["type"])
-            fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type))
-        return CompositeTypeDefinition(name=name, fields=fields)
+        # Composites are handled by _populate_composite_from_spec
+        return None
 
     return None
+
+
+def _populate_composite_from_spec(
+    name: str, spec: dict[str, Any], registry: TypeRegistry
+) -> None:
+    """Populate a pre-registered composite stub with its fields.
+
+    Gets the existing stub via registry.get() and sets stub.fields.
+    Skips if already populated (idempotent).
+    """
+    from typed_tables.types import FieldDefinition
+
+    stub = registry.get(name)
+    if not isinstance(stub, CompositeTypeDefinition):
+        return
+    # Skip if already populated
+    if stub.fields:
+        return
+
+    fields = []
+    for field_spec in spec["fields"]:
+        field_type = registry.get_or_raise(field_spec["type"])
+        fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type))
+    stub.fields = fields
 
 
 def format_value(value: Any, type_def: TypeDefinition) -> str:

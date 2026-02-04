@@ -6,12 +6,16 @@ from typed_tables.parsing.query_lexer import QueryLexer
 from typed_tables.parsing.query_parser import (
     ArrayIndex,
     ArraySlice,
+    CollectQuery,
+    CollectSource,
     CreateAliasQuery,
     CreateInstanceQuery,
     CreateTypeQuery,
     DeleteQuery,
     DescribeQuery,
     DropDatabaseQuery,
+    DumpItem,
+    DumpQuery,
     EvalQuery,
     FieldDef,
     FunctionCall,
@@ -21,6 +25,8 @@ from typed_tables.parsing.query_parser import (
     SelectQuery,
     ShowTablesQuery,
     UseQuery,
+    VariableAssignmentQuery,
+    VariableReference,
 )
 
 
@@ -580,3 +586,355 @@ class TestQueryParser:
         assert field.array_index is not None
         assert field.array_index.indices == [0]
         assert field.post_path == ["address", "city"]
+
+    def test_parse_dump_all(self):
+        """Test parsing dump query without table name."""
+        parser = QueryParser()
+        query = parser.parse("dump")
+
+        assert isinstance(query, DumpQuery)
+        assert query.table is None
+        assert query.output_file is None
+
+    def test_parse_dump_table(self):
+        """Test parsing dump query with table name."""
+        parser = QueryParser()
+        query = parser.parse("dump Person")
+
+        assert isinstance(query, DumpQuery)
+        assert query.table == "Person"
+        assert query.output_file is None
+
+    def test_parse_dump_to_file(self):
+        """Test parsing dump query with output file."""
+        parser = QueryParser()
+        query = parser.parse('dump to "backup.ttq"')
+
+        assert isinstance(query, DumpQuery)
+        assert query.table is None
+        assert query.output_file == "backup.ttq"
+
+    def test_parse_dump_table_to_file(self):
+        """Test parsing dump query with table name and output file."""
+        parser = QueryParser()
+        query = parser.parse('dump Person to "person.ttq"')
+
+        assert isinstance(query, DumpQuery)
+        assert query.table == "Person"
+        assert query.output_file == "person.ttq"
+
+    def test_parse_dump_quoted_table_to_file(self):
+        """Test parsing dump query with quoted table name and output file."""
+        parser = QueryParser()
+        query = parser.parse('dump "character[]" to "chars.ttq"')
+
+        assert isinstance(query, DumpQuery)
+        assert query.table == "character[]"
+        assert query.output_file == "chars.ttq"
+
+    def test_parse_array_element_inline_instance(self):
+        """Test parsing inline instances as array elements."""
+        parser = QueryParser()
+        query = parser.parse('create Team(employees=[Employee(name="Alice")])')
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.type_name == "Team"
+        arr = query.fields[0].value
+        assert isinstance(arr, list)
+        assert len(arr) == 1
+        assert isinstance(arr[0], InlineInstance)
+        assert arr[0].type_name == "Employee"
+        assert arr[0].fields[0].name == "name"
+        assert arr[0].fields[0].value == "Alice"
+
+    def test_parse_variable_assignment(self):
+        """Test parsing variable assignment: $addr = create Address(street="123")."""
+        parser = QueryParser()
+        query = parser.parse('$addr = create Address(street="123 Main")')
+
+        assert isinstance(query, VariableAssignmentQuery)
+        assert query.var_name == "addr"
+        assert query.create_query.type_name == "Address"
+        assert len(query.create_query.fields) == 1
+        assert query.create_query.fields[0].name == "street"
+        assert query.create_query.fields[0].value == "123 Main"
+
+    def test_parse_variable_reference_in_field(self):
+        """Test parsing variable reference in field value: create Person(address=$addr)."""
+        parser = QueryParser()
+        query = parser.parse("create Person(address=$addr)")
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.type_name == "Person"
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "address"
+        assert isinstance(query.fields[0].value, VariableReference)
+        assert query.fields[0].value.var_name == "addr"
+
+    def test_parse_variable_reference_in_array(self):
+        """Test parsing variable references in array: create Team(members=[$e1, $e2])."""
+        parser = QueryParser()
+        query = parser.parse("create Team(members=[$e1, $e2])")
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.type_name == "Team"
+        arr = query.fields[0].value
+        assert isinstance(arr, list)
+        assert len(arr) == 2
+        assert isinstance(arr[0], VariableReference)
+        assert arr[0].var_name == "e1"
+        assert isinstance(arr[1], VariableReference)
+        assert arr[1].var_name == "e2"
+
+    def test_parse_variable_assignment_empty(self):
+        """Test parsing variable assignment with empty field list: $x = create Empty()."""
+        parser = QueryParser()
+        query = parser.parse("$x = create Empty()")
+
+        assert isinstance(query, VariableAssignmentQuery)
+        assert query.var_name == "x"
+        assert query.create_query.type_name == "Empty"
+        assert len(query.create_query.fields) == 0
+
+    def test_tokenize_variable(self):
+        """Test that the lexer tokenizes $var correctly."""
+        lexer = QueryLexer()
+        lexer.build()
+
+        tokens = lexer.tokenize("$addr = create Address()")
+        token_types = [t.type for t in tokens]
+        assert token_types[0] == "VARIABLE"
+        assert tokens[0].value == "addr"
+
+    def test_parse_collect_basic(self):
+        """Test parsing collect query with where clause."""
+        parser = QueryParser()
+        query = parser.parse("$seniors = collect Person where age >= 65")
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "seniors"
+        assert len(query.sources) == 1
+        assert query.sources[0].table == "Person"
+        assert query.sources[0].where is not None
+        assert query.sources[0].where.field == "age"
+        assert query.sources[0].where.operator == "gte"
+        assert query.sources[0].where.value == 65
+
+    def test_parse_collect_no_where(self):
+        """Test parsing bare collect without any clauses."""
+        parser = QueryParser()
+        query = parser.parse("$all = collect Person")
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "all"
+        assert len(query.sources) == 1
+        assert query.sources[0].table == "Person"
+        assert query.sources[0].where is None
+        assert query.group_by == []
+        assert query.sort_by == []
+        assert query.offset == 0
+        assert query.limit is None
+
+    def test_parse_collect_with_sort_limit(self):
+        """Test parsing collect with sort by and limit."""
+        parser = QueryParser()
+        query = parser.parse("$top10 = collect Score sort by value limit 10")
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "top10"
+        assert len(query.sources) == 1
+        assert query.sources[0].table == "Score"
+        assert query.sort_by == ["value"]
+        assert query.limit == 10
+
+    def test_parse_collect_with_group_by(self):
+        """Test parsing collect with group by."""
+        parser = QueryParser()
+        query = parser.parse("$grouped = collect Person group by age")
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "grouped"
+        assert len(query.sources) == 1
+        assert query.sources[0].table == "Person"
+        assert query.group_by == ["age"]
+
+    def test_parse_collect_quoted_table(self):
+        """Test parsing collect with quoted table name."""
+        parser = QueryParser()
+        query = parser.parse('$items = collect "character[]"')
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "items"
+        assert len(query.sources) == 1
+        assert query.sources[0].table == "character[]"
+
+    def test_parse_collect_with_semicolon(self):
+        """Test parsing collect terminated with semicolon."""
+        parser = QueryParser()
+        query = parser.parse("$all = collect Person;")
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "all"
+        assert len(query.sources) == 1
+        assert query.sources[0].table == "Person"
+
+    def test_parse_dump_variable(self):
+        """Test parsing dump $var."""
+        parser = QueryParser()
+        query = parser.parse("dump $myvar")
+
+        assert isinstance(query, DumpQuery)
+        assert query.variable == "myvar"
+        assert query.table is None
+        assert query.output_file is None
+
+    def test_parse_dump_variable_to_file(self):
+        """Test parsing dump $var to file."""
+        parser = QueryParser()
+        query = parser.parse('dump $myvar to "output.ttq"')
+
+        assert isinstance(query, DumpQuery)
+        assert query.variable == "myvar"
+        assert query.output_file == "output.ttq"
+        assert query.table is None
+
+    # --- from $var tests ---
+
+    def test_parse_from_variable(self):
+        """Test parsing from $var select ..."""
+        parser = QueryParser()
+        query = parser.parse("from $seniors select name, age")
+
+        assert isinstance(query, SelectQuery)
+        assert query.source_var == "seniors"
+        assert query.table is None
+        assert len(query.fields) == 2
+        assert query.fields[0].name == "name"
+        assert query.fields[1].name == "age"
+
+    def test_parse_from_variable_with_where(self):
+        """Test parsing from $var select * where ..."""
+        parser = QueryParser()
+        query = parser.parse("from $seniors select * where age > 70")
+
+        assert isinstance(query, SelectQuery)
+        assert query.source_var == "seniors"
+        assert query.table is None
+        assert query.where is not None
+        assert query.where.field == "age"
+        assert query.where.operator == "gt"
+        assert query.where.value == 70
+
+    # --- multi-source collect tests ---
+
+    def test_parse_collect_multi_source(self):
+        """Test parsing collect with multiple sources."""
+        parser = QueryParser()
+        query = parser.parse("$combined = collect Person where age >= 65, Person where age = 30")
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "combined"
+        assert len(query.sources) == 2
+        assert query.sources[0].table == "Person"
+        assert query.sources[0].where is not None
+        assert query.sources[0].where.field == "age"
+        assert query.sources[0].where.operator == "gte"
+        assert query.sources[0].where.value == 65
+        assert query.sources[1].table == "Person"
+        assert query.sources[1].where is not None
+        assert query.sources[1].where.field == "age"
+        assert query.sources[1].where.operator == "eq"
+        assert query.sources[1].where.value == 30
+
+    def test_parse_collect_variable_source(self):
+        """Test parsing collect from a variable source."""
+        parser = QueryParser()
+        query = parser.parse('$subset = collect $seniors where city = "Springfield"')
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "subset"
+        assert len(query.sources) == 1
+        assert query.sources[0].variable == "seniors"
+        assert query.sources[0].table is None
+        assert query.sources[0].where is not None
+        assert query.sources[0].where.field == "city"
+
+    def test_parse_collect_mixed_sources(self):
+        """Test parsing collect with mixed table and variable sources."""
+        parser = QueryParser()
+        query = parser.parse("$union = collect $seniors, Person where age = 30")
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "union"
+        assert len(query.sources) == 2
+        assert query.sources[0].variable == "seniors"
+        assert query.sources[0].where is None
+        assert query.sources[1].table == "Person"
+        assert query.sources[1].where is not None
+
+    def test_parse_collect_bare_variables(self):
+        """Test parsing collect with bare variable sources."""
+        parser = QueryParser()
+        query = parser.parse("$union = collect $seniors, $young")
+
+        assert isinstance(query, CollectQuery)
+        assert query.var_name == "union"
+        assert len(query.sources) == 2
+        assert query.sources[0].variable == "seniors"
+        assert query.sources[1].variable == "young"
+
+    def test_parse_collect_single_source_compat(self):
+        """Test that single-source collect still works."""
+        parser = QueryParser()
+        query = parser.parse("$all = collect Person")
+
+        assert isinstance(query, CollectQuery)
+        assert len(query.sources) == 1
+        assert query.sources[0].table == "Person"
+        assert query.sources[0].where is None
+
+    def test_parse_collect_with_post_union_clauses(self):
+        """Test parsing collect with post-union sort/limit."""
+        parser = QueryParser()
+        query = parser.parse("$top = collect Person where age >= 65, Person where age = 30 sort by age limit 10")
+
+        assert isinstance(query, CollectQuery)
+        assert len(query.sources) == 2
+        assert query.sort_by == ["age"]
+        assert query.limit == 10
+
+    # --- dump list tests ---
+
+    def test_parse_dump_list(self):
+        """Test parsing dump list."""
+        parser = QueryParser()
+        query = parser.parse("dump [Person, $seniors, Employee]")
+
+        assert isinstance(query, DumpQuery)
+        assert query.items is not None
+        assert len(query.items) == 3
+        assert query.items[0].table == "Person"
+        assert query.items[1].variable == "seniors"
+        assert query.items[2].table == "Employee"
+        assert query.output_file is None
+
+    def test_parse_dump_list_to_file(self):
+        """Test parsing dump list with output file."""
+        parser = QueryParser()
+        query = parser.parse('dump [$combined] to "backup.ttq"')
+
+        assert isinstance(query, DumpQuery)
+        assert query.items is not None
+        assert len(query.items) == 1
+        assert query.items[0].variable == "combined"
+        assert query.output_file == "backup.ttq"
+
+    def test_parse_dump_list_single_item(self):
+        """Test parsing dump list with single item."""
+        parser = QueryParser()
+        query = parser.parse("dump [Person]")
+
+        assert isinstance(query, DumpQuery)
+        assert query.items is not None
+        assert len(query.items) == 1
+        assert query.items[0].table == "Person"

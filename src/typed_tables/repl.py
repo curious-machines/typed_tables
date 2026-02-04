@@ -11,7 +11,7 @@ from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import DropDatabaseQuery, QueryParser, UseQuery
-from typed_tables.query_executor import CreateResult, DeleteResult, DropResult, QueryExecutor, QueryResult, UseResult
+from typed_tables.query_executor import CollectResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, UseResult, VariableAssignmentResult
 from typed_tables.storage import StorageManager
 from typed_tables.types import TypeRegistry
 
@@ -73,8 +73,20 @@ def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
 
 def print_result(result: QueryResult, max_width: int = 80) -> None:
     """Print query results in a formatted table."""
-    # Special handling for UseResult, CreateResult, DeleteResult, DropResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult)):
+    # Special handling for DumpResult - print script or write to file
+    if isinstance(result, DumpResult):
+        if result.output_file:
+            try:
+                Path(result.output_file).write_text(result.script)
+                print(f"Dumped to {result.output_file}")
+            except Exception as e:
+                print(f"Error writing to {result.output_file}: {e}")
+        elif result.script:
+            print(result.script)
+        return
+
+    # Special handling for UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult - show message as success, not error
+    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -195,10 +207,12 @@ def run_repl(data_dir: Path | None) -> int:
         stripped = line.strip()
         if not stripped:
             return False
-        # If it ends with a semicolon, check paren balance for create instance
+        # If it ends with a semicolon, check paren balance for create instance or variable assignment
         if stripped.endswith(";"):
             lower = stripped.lower()
             if lower.startswith("create ") and not lower.startswith("create type") and "(" in stripped:
+                return not has_balanced_parens(stripped)
+            if stripped.startswith("$") and "(" in stripped:
                 return not has_balanced_parens(stripped)
             return False
         return True
@@ -440,6 +454,8 @@ QUERIES:
   from <table> select * sort by f1    Sort results
   from <table> select * offset N limit M  Paginate results
   from <table> select * group by field    Group results
+  from $var select *                  Select from a variable (set or single ref)
+  from $var select * where <cond>     Filter variable records further
 
 CONDITIONS:
   field = value            Equality
@@ -487,6 +503,38 @@ EXAMPLES:
   from Person select * where name starts with "A" sort by name
   from Person select age, count() group by age
   from Person select average(age)
+
+VARIABLES:
+  $var = create <Type>(...) Bind a created instance to an immutable variable
+  create <Type>(field=$var) Use a variable as a field value
+  create <Type>(arr=[$v1, $v2])
+                           Use variables as array elements
+
+COLLECT:
+  $var = collect <Type>    Collect all record indices into a variable
+  $var = collect <Type> where <cond>
+                           Collect filtered record indices
+  $var = collect <Type> sort by f limit N
+                           Collect with sort/limit
+  $var = collect <Type> where <cond> group by f sort by f offset N limit M
+                           Full collect syntax (all clauses optional)
+  $var = collect <Type> where ..., <Type> where ...
+                           Multi-source collect (same type, union, dedup)
+  $var = collect $other where <cond>
+                           Collect from an existing variable
+  $var = collect $a, $b    Combine multiple variables
+
+DUMP:
+  dump                     Dump entire database as executable TTQ script
+  dump <table>             Dump a single table as TTQ script
+  dump to "file"           Dump entire database to a file
+  dump <table> to "file"   Dump a single table to a file
+  dump $var                Dump records referenced by a variable
+  dump $var to "file"      Dump variable records to a file
+  dump [Person, $var, ...]
+                           Dump a list of tables and/or variables
+  dump [...] to "file"     Dump list to a file
+                           Shared references are emitted as $var bindings
 
 OTHER:
   help                     Show this help

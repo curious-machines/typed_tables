@@ -254,6 +254,26 @@ class TypeRegistry:
         self._types[array_name] = array_type
         return array_type
 
+    def register_stub(self, name: str) -> CompositeTypeDefinition:
+        """Pre-register an empty composite for forward/self-references.
+
+        Idempotent: returns existing stub if name is already an empty composite.
+        Raises ValueError if name is registered with a non-empty type.
+        """
+        existing = self._types.get(name)
+        if existing is not None:
+            if isinstance(existing, CompositeTypeDefinition) and not existing.fields:
+                return existing
+            raise ValueError(f"Type '{name}' is already defined")
+        stub = CompositeTypeDefinition(name=name, fields=[])
+        self._types[name] = stub
+        return stub
+
+    def is_stub(self, name: str) -> bool:
+        """Check if a type is registered as an unpopulated stub."""
+        td = self._types.get(name)
+        return isinstance(td, CompositeTypeDefinition) and not td.fields
+
     def list_types(self) -> list[str]:
         """List all registered type names."""
         return list(self._types.keys())

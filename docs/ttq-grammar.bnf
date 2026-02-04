@@ -31,7 +31,10 @@ query           ::= select_query
                   | use_query
                   | create_type_query
                   | create_instance_query
+                  | variable_assignment_query
+                  | collect_query
                   | delete_query
+                  | dump_query
 
 
 (* ========== SELECT Query (with FROM) ========== *)
@@ -51,6 +54,7 @@ select_query    ::= from_clause select_clause where_clause group_clause
 
 from_clause     ::= "from" IDENTIFIER
                   | "from" STRING            (* for names like "character[]" *)
+                  | "from" VARIABLE          (* from $var — use a variable as source *)
 
 select_clause   ::= "select" "*"
                   | "select" field_list
@@ -258,6 +262,20 @@ drop_database_query ::= "drop" IDENTIFIER
  * With inheritance:
  *   create type Employee from Person department:string title:string
  *
+ * Forward declaration (stub with no fields, for mutual references):
+ *   create type B
+ *
+ * Re-definition (populates a forward-declared stub):
+ *   create type B a:A
+ *
+ * Self-referential type:
+ *   create type Node value:uint8 children:Node[]
+ *
+ * Mutual reference pattern:
+ *   create type B;
+ *   create type A value:uint8 b:B;
+ *   create type B value:uint8 a:A;
+ *
  * Note: "string" is an alias for "character[]"
  *)
 
@@ -303,11 +321,83 @@ instance_value  ::= STRING
                   | IDENTIFIER "(" instance_field_list ")"  (* inline instance creation *)
                   | "[" "]"                                 (* empty array *)
                   | "[" array_elements "]"                  (* array literal *)
+                  | VARIABLE                                (* variable reference: $var *)
 
 array_elements  ::= array_element
                   | array_elements "," array_element
 
 array_element   ::= STRING | INTEGER | FLOAT
+                  | IDENTIFIER "(" instance_field_list ")"  (* inline instance *)
+                  | VARIABLE                                (* variable reference: $var *)
+
+
+(* ========== DUMP Query ========== *)
+(*
+ * Serialize database contents as an executable TTQ script.
+ * Use "to" to write output to a file instead of stdout.
+ *
+ * Examples:
+ *   dump                     -- dump entire database
+ *   dump Person              -- dump single table
+ *   dump to "backup.ttq"     -- dump entire database to file
+ *   dump Person to "p.ttq"   -- dump single table to file
+ *)
+
+dump_query      ::= "dump"
+                  | "dump" IDENTIFIER
+                  | "dump" STRING
+                  | "dump" "to" STRING
+                  | "dump" IDENTIFIER "to" STRING
+                  | "dump" STRING "to" STRING
+                  | "dump" VARIABLE
+                  | "dump" VARIABLE "to" STRING
+                  | "dump" "[" dump_item_list "]"
+                  | "dump" "[" dump_item_list "]" "to" STRING
+
+dump_item_list  ::= dump_item
+                  | dump_item_list "," dump_item
+
+dump_item       ::= IDENTIFIER                  (* table name *)
+                  | STRING                       (* quoted table name *)
+                  | VARIABLE                     (* variable reference *)
+
+
+(* ========== Collect Query ========== *)
+(*
+ * Collect record indices into an immutable set variable.
+ * Supports the same filtering/sorting/pagination clauses as SELECT.
+ * The variable holds a list of matching record indices.
+ *
+ * Examples:
+ *   $seniors = collect Person where age >= 65
+ *   $top10 = collect Score sort by value limit 10
+ *   $all = collect Person
+ *)
+
+collect_query   ::= VARIABLE "=" "collect" collect_source_list group_clause
+                    sort_clause offset_clause limit_clause
+
+collect_source_list ::= collect_source
+                      | collect_source_list "," collect_source
+
+collect_source  ::= IDENTIFIER where_clause    (* table source *)
+                  | STRING where_clause         (* quoted table source *)
+                  | VARIABLE where_clause       (* variable source *)
+
+
+(* ========== Variable Assignment Query ========== *)
+(*
+ * Bind the result of a create to an immutable variable.
+ * Variables can be used as field values or array elements.
+ *
+ * Examples:
+ *   $addr = create Address(street="123 Main", city="Springfield")
+ *   create Person(name="Alice", address=$addr)
+ *   create Team(members=[$e1, $e2])
+ *)
+
+variable_assignment_query ::= VARIABLE "=" "create" IDENTIFIER "(" instance_field_list ")"
+                            | VARIABLE "=" "create" IDENTIFIER "(" ")"
 
 
 (* ========== DELETE Query ========== *)
@@ -327,6 +417,8 @@ delete_query    ::= "delete" IDENTIFIER "where" condition
 
 
 (* ========== Lexical Elements ========== *)
+
+VARIABLE        ::= "$" [a-zA-Z_][a-zA-Z0-9_]*
 
 IDENTIFIER      ::= [a-zA-Z_][a-zA-Z0-9_]*
 
@@ -350,7 +442,7 @@ SEMICOLON       ::= ";"
  * from, select, where, offset, limit, group, sort, by,
  * and, or, not, starts, with, matches, show, tables,
  * describe, count, average, sum, product, use, create,
- * type, uuid, delete, as, alias, drop
+ * type, uuid, delete, as, alias, drop, dump, to, collect
  *)
 
 

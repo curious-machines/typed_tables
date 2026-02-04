@@ -65,13 +65,14 @@ class CompoundCondition:
 class SelectQuery:
     """A SELECT query."""
 
-    table: str
+    table: str | None = None
     fields: list[SelectField] = field(default_factory=list)
     where: Condition | CompoundCondition | None = None
     group_by: list[str] = field(default_factory=list)
     sort_by: list[str] = field(default_factory=list)
     offset: int = 0
     limit: int | None = None
+    source_var: str | None = None
 
 
 @dataclass
@@ -182,7 +183,61 @@ class DropDatabaseQuery:
     path: str
 
 
-Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | EvalQuery | DeleteQuery | DropDatabaseQuery
+@dataclass
+class DumpItem:
+    """A single item in a dump list."""
+
+    table: str | None = None
+    variable: str | None = None
+
+
+@dataclass
+class DumpQuery:
+    """A DUMP query to serialize database contents as a TTQ script."""
+
+    table: str | None = None
+    output_file: str | None = None
+    variable: str | None = None
+    items: list[DumpItem] | None = None
+
+
+@dataclass
+class VariableReference:
+    """A reference to a bound variable: $var."""
+
+    var_name: str
+
+
+@dataclass
+class VariableAssignmentQuery:
+    """A variable assignment: $var = create Type(...)."""
+
+    var_name: str
+    create_query: CreateInstanceQuery
+
+
+@dataclass
+class CollectSource:
+    """A single source in a collect query."""
+
+    table: str | None = None
+    variable: str | None = None
+    where: Condition | CompoundCondition | None = None
+
+
+@dataclass
+class CollectQuery:
+    """A collect query: $var = collect Type where ... sort by ... offset N limit M."""
+
+    var_name: str
+    sources: list[CollectSource] = field(default_factory=list)
+    group_by: list[str] = field(default_factory=list)
+    sort_by: list[str] = field(default_factory=list)
+    offset: int = 0
+    limit: int | None = None
+
+
+Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery
 
 
 class QueryParser:
@@ -259,11 +314,97 @@ class QueryParser:
         """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER"""
         p[0] = CreateTypeQuery(name=p[3], fields=[], parent=p[5])
 
+    def p_query_dump(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP"""
+        p[0] = DumpQuery()
+
+    def p_query_dump_table(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP IDENTIFIER
+                 | DUMP STRING"""
+        p[0] = DumpQuery(table=p[2])
+
+    def p_query_dump_to(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP TO STRING"""
+        p[0] = DumpQuery(output_file=p[3])
+
+    def p_query_dump_table_to(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP IDENTIFIER TO STRING
+                 | DUMP STRING TO STRING"""
+        p[0] = DumpQuery(table=p[2], output_file=p[4])
+
+    def p_query_dump_variable(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP VARIABLE"""
+        p[0] = DumpQuery(variable=p[2])
+
+    def p_query_dump_variable_to(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP VARIABLE TO STRING"""
+        p[0] = DumpQuery(variable=p[2], output_file=p[4])
+
+    def p_query_dump_list(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP LBRACKET dump_item_list RBRACKET"""
+        p[0] = DumpQuery(items=p[3])
+
+    def p_query_dump_list_to(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP LBRACKET dump_item_list RBRACKET TO STRING"""
+        p[0] = DumpQuery(items=p[3], output_file=p[6])
+
+    def p_dump_item_list_single(self, p: yacc.YaccProduction) -> None:
+        """dump_item_list : dump_item"""
+        p[0] = [p[1]]
+
+    def p_dump_item_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """dump_item_list : dump_item_list COMMA dump_item"""
+        p[0] = p[1] + [p[3]]
+
+    def p_dump_item_table(self, p: yacc.YaccProduction) -> None:
+        """dump_item : IDENTIFIER
+                     | STRING"""
+        p[0] = DumpItem(table=p[1])
+
+    def p_dump_item_variable(self, p: yacc.YaccProduction) -> None:
+        """dump_item : VARIABLE"""
+        p[0] = DumpItem(variable=p[1])
+
+    def p_query_collect(self, p: yacc.YaccProduction) -> None:
+        """query : VARIABLE EQ COLLECT collect_source_list group_clause sort_clause offset_clause limit_clause"""
+        p[0] = CollectQuery(var_name=p[1], sources=p[4], group_by=p[5], sort_by=p[6], offset=p[7], limit=p[8])
+
+    def p_collect_source_list_single(self, p: yacc.YaccProduction) -> None:
+        """collect_source_list : collect_source"""
+        p[0] = [p[1]]
+
+    def p_collect_source_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """collect_source_list : collect_source_list COMMA collect_source"""
+        p[0] = p[1] + [p[3]]
+
+    def p_collect_source_table(self, p: yacc.YaccProduction) -> None:
+        """collect_source : IDENTIFIER where_clause
+                          | STRING where_clause"""
+        p[0] = CollectSource(table=p[1], where=p[2])
+
+    def p_collect_source_variable(self, p: yacc.YaccProduction) -> None:
+        """collect_source : VARIABLE where_clause"""
+        p[0] = CollectSource(variable=p[1], where=p[2])
+
     def p_query_drop_database(self, p: yacc.YaccProduction) -> None:
         """query : DROP IDENTIFIER
                  | DROP PATH
                  | DROP STRING"""
         p[0] = DropDatabaseQuery(path=p[2])
+
+    def p_query_variable_assignment(self, p: yacc.YaccProduction) -> None:
+        """query : VARIABLE EQ CREATE IDENTIFIER LPAREN instance_field_list RPAREN
+                 | VARIABLE EQ CREATE IDENTIFIER LPAREN RPAREN"""
+        if len(p) == 8:
+            p[0] = VariableAssignmentQuery(
+                var_name=p[1],
+                create_query=CreateInstanceQuery(type_name=p[4], fields=p[6]),
+            )
+        else:
+            p[0] = VariableAssignmentQuery(
+                var_name=p[1],
+                create_query=CreateInstanceQuery(type_name=p[4], fields=[]),
+            )
 
     def p_query_create_instance(self, p: yacc.YaccProduction) -> None:
         """query : CREATE IDENTIFIER LPAREN instance_field_list RPAREN"""
@@ -330,6 +471,10 @@ class QueryParser:
         """instance_value : IDENTIFIER LPAREN instance_field_list RPAREN"""
         p[0] = InlineInstance(type_name=p[1], fields=p[3])
 
+    def p_instance_value_variable(self, p: yacc.YaccProduction) -> None:
+        """instance_value : VARIABLE"""
+        p[0] = VariableReference(var_name=p[1])
+
     def p_instance_value_array(self, p: yacc.YaccProduction) -> None:
         """instance_value : LBRACKET array_elements RBRACKET
                           | LBRACKET RBRACKET"""
@@ -351,6 +496,14 @@ class QueryParser:
                          | INTEGER
                          | FLOAT"""
         p[0] = p[1]
+
+    def p_array_element_inline_instance(self, p: yacc.YaccProduction) -> None:
+        """array_element : IDENTIFIER LPAREN instance_field_list RPAREN"""
+        p[0] = InlineInstance(type_name=p[1], fields=p[3])
+
+    def p_array_element_variable(self, p: yacc.YaccProduction) -> None:
+        """array_element : VARIABLE"""
+        p[0] = VariableReference(var_name=p[1])
 
     def p_query_eval(self, p: yacc.YaccProduction) -> None:
         """query : SELECT eval_expr_list"""
@@ -385,20 +538,36 @@ class QueryParser:
 
     def p_select_query(self, p: yacc.YaccProduction) -> None:
         """select_query : from_clause select_clause where_clause group_clause sort_clause offset_clause limit_clause"""
-        p[0] = SelectQuery(
-            table=p[1],
-            fields=p[2],
-            where=p[3],
-            group_by=p[4],
-            sort_by=p[5],
-            offset=p[6],
-            limit=p[7],
-        )
+        from_val = p[1]
+        if isinstance(from_val, VariableReference):
+            p[0] = SelectQuery(
+                source_var=from_val.var_name,
+                fields=p[2],
+                where=p[3],
+                group_by=p[4],
+                sort_by=p[5],
+                offset=p[6],
+                limit=p[7],
+            )
+        else:
+            p[0] = SelectQuery(
+                table=from_val,
+                fields=p[2],
+                where=p[3],
+                group_by=p[4],
+                sort_by=p[5],
+                offset=p[6],
+                limit=p[7],
+            )
 
     def p_from_clause(self, p: yacc.YaccProduction) -> None:
         """from_clause : FROM IDENTIFIER
                        | FROM STRING"""
         p[0] = p[2]
+
+    def p_from_clause_variable(self, p: yacc.YaccProduction) -> None:
+        """from_clause : FROM VARIABLE"""
+        p[0] = VariableReference(var_name=p[2])
 
     def p_select_clause_star(self, p: yacc.YaccProduction) -> None:
         """select_clause : SELECT STAR"""

@@ -10,6 +10,8 @@ from typing import Any, Iterator
 from typed_tables.parsing.query_parser import (
     ArrayIndex,
     ArraySlice,
+    CollectQuery,
+    CollectSource,
     CompoundCondition,
     CompositeRef,
     Condition,
@@ -19,6 +21,8 @@ from typed_tables.parsing.query_parser import (
     DeleteQuery,
     DescribeQuery,
     DropDatabaseQuery,
+    DumpItem,
+    DumpQuery,
     EvalQuery,
     FieldValue,
     FunctionCall,
@@ -28,6 +32,8 @@ from typed_tables.parsing.query_parser import (
     SelectQuery,
     ShowTablesQuery,
     UseQuery,
+    VariableAssignmentQuery,
+    VariableReference,
 )
 from typed_tables.storage import StorageManager
 from typed_tables.types import (
@@ -35,6 +41,8 @@ from typed_tables.types import (
     ArrayTypeDefinition,
     CompositeTypeDefinition,
     FieldDefinition,
+    PrimitiveType,
+    PrimitiveTypeDefinition,
     TypeDefinition,
     TypeRegistry,
 )
@@ -78,12 +86,39 @@ class DropResult(QueryResult):
     path: str = ""
 
 
+@dataclass
+class DumpResult(QueryResult):
+    """Result of a DUMP query."""
+
+    script: str = ""
+    output_file: str | None = None
+
+
+@dataclass
+class VariableAssignmentResult(QueryResult):
+    """Result of a variable assignment."""
+
+    var_name: str = ""
+    type_name: str = ""
+    index: int | None = None
+
+
+@dataclass
+class CollectResult(QueryResult):
+    """Result of a collect query."""
+
+    var_name: str = ""
+    type_name: str = ""
+    count: int = 0
+
+
 class QueryExecutor:
     """Executes TTQ queries against storage."""
 
     def __init__(self, storage: StorageManager, registry: TypeRegistry) -> None:
         self.storage = storage
         self.registry = registry
+        self.variables: dict[str, tuple[str, int | list[int]]] = {}  # name → (type_name, index_or_indices)
 
     def execute(self, query: Query) -> QueryResult:
         """Execute a query and return results."""
@@ -107,6 +142,12 @@ class QueryExecutor:
             return self._execute_delete(query)
         elif isinstance(query, DropDatabaseQuery):
             return self._execute_drop_database(query)
+        elif isinstance(query, DumpQuery):
+            return self._execute_dump(query)
+        elif isinstance(query, VariableAssignmentQuery):
+            return self._execute_variable_assignment(query)
+        elif isinstance(query, CollectQuery):
+            return self._execute_collect(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -240,15 +281,44 @@ class QueryExecutor:
         )
 
     def _execute_create_type(self, query: CreateTypeQuery) -> CreateResult:
-        """Execute CREATE TYPE query."""
-        # Check if type already exists
-        if self.registry.get(query.name) is not None:
+        """Execute CREATE TYPE query.
+
+        Supports forward declarations and self-referential types:
+        - `create type B` (no fields) → forward declaration stub
+        - `create type B a:A` on an existing stub → populates the stub
+        - `create type Node children:Node[]` → self-referential (stub registered first)
+        """
+        existing = self.registry.get(query.name)
+
+        if existing is not None:
+            # Type already exists
+            if isinstance(existing, CompositeTypeDefinition) and not existing.fields and query.fields:
+                # Existing empty stub + query has fields → populate forward declaration
+                pass  # fall through to field resolution below
+            else:
+                return CreateResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Type '{query.name}' already exists",
+                    type_name=query.name,
+                )
+
+        # Forward declaration: no fields and no parent → register stub and return
+        if not query.fields and not query.parent:
+            if existing is None:
+                self.registry.register_stub(query.name)
+            # Save updated metadata
+            self.storage.save_metadata()
             return CreateResult(
-                columns=[],
-                rows=[],
-                message=f"Type '{query.name}' already exists",
+                columns=["type", "fields"],
+                rows=[{"type": query.name, "fields": 0}],
+                message=f"Created type '{query.name}' (forward declaration)",
                 type_name=query.name,
             )
+
+        # Register stub for self-reference support (idempotent if already exists)
+        if existing is None:
+            self.registry.register_stub(query.name)
 
         # Handle inheritance
         parent_fields: list[FieldDefinition] = []
@@ -307,9 +377,9 @@ class QueryExecutor:
 
             fields.append(FieldDefinition(name=field_def.name, type_def=field_type))
 
-        # Create and register the composite type
-        composite = CompositeTypeDefinition(name=query.name, fields=fields)
-        self.registry.register(composite)
+        # Mutate the stub in-place (Python object references propagate automatically)
+        stub = self.registry.get(query.name)
+        stub.fields = fields
 
         # Save updated metadata
         self.storage.save_metadata()
@@ -375,9 +445,134 @@ class QueryExecutor:
                 type_name=query.type_name,
             )
 
+    def _execute_variable_assignment(self, query: VariableAssignmentQuery) -> VariableAssignmentResult:
+        """Execute a variable assignment: $var = create Type(...)."""
+        if query.var_name in self.variables:
+            return VariableAssignmentResult(
+                columns=[],
+                rows=[],
+                message=f"Variable '${query.var_name}' is already bound (immutable)",
+            )
+        result = self._execute_create_instance(query.create_query)
+        if result.index is not None:
+            self.variables[query.var_name] = (query.create_query.type_name, result.index)
+        return VariableAssignmentResult(
+            columns=result.columns,
+            rows=result.rows,
+            message=result.message,
+            var_name=query.var_name,
+            type_name=query.create_query.type_name,
+            index=result.index,
+        )
+
+    def _execute_collect(self, query: CollectQuery) -> CollectResult:
+        """Execute a collect query: $var = collect source1 [where ...], source2 [where ...] [group by ...] [sort by ...] [offset N] [limit M]."""
+        if query.var_name in self.variables:
+            return CollectResult(
+                columns=[],
+                rows=[],
+                message=f"Variable '${query.var_name}' is already bound (immutable)",
+            )
+
+        # Resolve all sources, enforce same-type constraint, union records
+        resolved_type_name: str | None = None
+        all_records: list[dict[str, Any]] = []
+        seen_indices: set[int] = set()
+
+        for source in query.sources:
+            if source.variable:
+                # Variable source
+                if source.variable not in self.variables:
+                    return CollectResult(
+                        columns=[], rows=[],
+                        message=f"Undefined variable: ${source.variable}",
+                    )
+                src_type_name, ref = self.variables[source.variable]
+                src_type_def = self.registry.get(src_type_name)
+                if src_type_def is None:
+                    return CollectResult(
+                        columns=[], rows=[],
+                        message=f"Unknown type: {src_type_name}",
+                    )
+                if isinstance(ref, list):
+                    source_records = list(self._load_records_by_indices(src_type_name, src_type_def, ref))
+                else:
+                    source_records = list(self._load_records_by_indices(src_type_name, src_type_def, [ref]))
+            else:
+                # Table source
+                src_type_name = source.table
+                src_type_def = self.registry.get(src_type_name)
+                if src_type_def is None:
+                    return CollectResult(
+                        columns=[], rows=[],
+                        message=f"Unknown type: {src_type_name}",
+                    )
+                source_records = list(self._load_all_records(src_type_name, src_type_def))
+
+            # Enforce same-type constraint
+            if resolved_type_name is None:
+                resolved_type_name = src_type_name
+            elif src_type_name != resolved_type_name:
+                return CollectResult(
+                    columns=[], rows=[],
+                    message=f"Type mismatch in collect: '{resolved_type_name}' vs '{src_type_name}'. All sources must be the same type.",
+                )
+
+            # Apply per-source WHERE filter
+            if source.where:
+                source_records = [r for r in source_records if self._evaluate_condition(r, source.where)]
+
+            # Union with deduplication
+            for r in source_records:
+                idx = r["_index"]
+                if idx not in seen_indices:
+                    seen_indices.add(idx)
+                    all_records.append(r)
+
+        if resolved_type_name is None:
+            resolved_type_name = "unknown"
+
+        records = all_records
+
+        # Apply post-union GROUP BY
+        if query.group_by:
+            records = self._apply_group_by(records, query.group_by)
+
+        # Apply post-union SORT BY
+        if query.sort_by:
+            records = self._apply_sort_by(records, query.sort_by)
+
+        # Apply OFFSET and LIMIT
+        if query.offset:
+            records = records[query.offset:]
+        if query.limit is not None:
+            records = records[:query.limit]
+
+        # Extract indices
+        indices = [r["_index"] for r in records]
+
+        # Store in variables
+        self.variables[query.var_name] = (resolved_type_name, indices)
+
+        return CollectResult(
+            columns=["variable", "type", "count"],
+            rows=[{"variable": f"${query.var_name}", "type": resolved_type_name, "count": len(indices)}],
+            message=f"Collected {len(indices)} {resolved_type_name} record(s) into ${query.var_name}",
+            var_name=query.var_name,
+            type_name=resolved_type_name,
+            count=len(indices),
+        )
+
     def _resolve_instance_value(self, value: Any) -> Any:
-        """Resolve a value from CREATE instance, handling function calls, composite refs, and inline instances."""
-        if isinstance(value, FunctionCall):
+        """Resolve a value from CREATE instance, handling function calls, composite refs, inline instances, and variable refs."""
+        if isinstance(value, VariableReference):
+            if value.var_name not in self.variables:
+                raise ValueError(f"Undefined variable: ${value.var_name}")
+            type_name, ref = self.variables[value.var_name]
+            if isinstance(ref, list):
+                raise ValueError(f"Cannot use set variable ${value.var_name} as a single field value")
+            return ref
+        elif isinstance(value, FunctionCall):
             if value.name == "uuid":
                 # Generate a random UUID as uint128
                 return uuid_module.uuid4().int
@@ -419,6 +614,24 @@ class QueryExecutor:
                 # Convert string to character list if needed
                 if isinstance(field_value, str):
                     field_value = list(field_value)
+                # Handle composite array elements (InlineInstance or int refs)
+                elem_base = field_base.element_type.resolve_base_type()
+                if isinstance(elem_base, CompositeTypeDefinition):
+                    resolved = []
+                    for elem in field_value:
+                        if isinstance(elem, InlineInstance):
+                            inline_type = self.registry.get(elem.type_name)
+                            inline_base = inline_type.resolve_base_type()
+                            inline_values = {}
+                            for fv in elem.fields:
+                                inline_values[fv.name] = self._resolve_instance_value(fv.value)
+                            elem = self._build_field_references(inline_base, inline_values)
+                        elif isinstance(elem, int):
+                            elem_type_name = field_base.element_type.name
+                            ref_table = self.storage.get_table(elem_type_name)
+                            elem = ref_table.get(elem)
+                        resolved.append(elem)
+                    field_value = resolved
                 # Store array elements and get index into header table
                 array_table = self.storage.get_array_table_for_type(field.type_def)
                 array_index = array_table.insert(field_value)
@@ -529,18 +742,37 @@ class QueryExecutor:
 
     def _execute_select(self, query: SelectQuery) -> QueryResult:
         """Execute SELECT query."""
-        type_def = self.registry.get(query.table)
-        if type_def is None:
-            return QueryResult(
-                columns=[],
-                rows=[],
-                message=f"Unknown type: {query.table}",
-            )
+        # Resolve the source: either a variable or a table name
+        if query.source_var:
+            if query.source_var not in self.variables:
+                return QueryResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Undefined variable: ${query.source_var}",
+                )
+            type_name, ref = self.variables[query.source_var]
+            type_def = self.registry.get(type_name)
+            if type_def is None:
+                return QueryResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Unknown type: {type_name}",
+                )
+            if isinstance(ref, list):
+                records = list(self._load_records_by_indices(type_name, type_def, ref))
+            else:
+                records = list(self._load_records_by_indices(type_name, type_def, [ref]))
+        else:
+            type_def = self.registry.get(query.table)
+            if type_def is None:
+                return QueryResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Unknown type: {query.table}",
+                )
+            records = list(self._load_all_records(query.table, type_def))
 
         base = type_def.resolve_base_type()
-
-        # Get all records
-        records = list(self._load_all_records(query.table, type_def))
 
         # Apply WHERE filter
         if query.where:
@@ -548,7 +780,7 @@ class QueryExecutor:
 
         # Apply GROUP BY
         if query.group_by:
-            records = self._apply_group_by(records, query)
+            records = self._apply_group_by(records, query.group_by)
 
         # Apply SORT BY
         if query.sort_by:
@@ -622,6 +854,51 @@ class QueryExecutor:
                 value = table.get(i)
                 yield {"_index": i, "_value": value}
 
+    def _load_records_by_indices(
+        self, type_name: str, type_def: TypeDefinition, indices: list[int]
+    ) -> Iterator[dict[str, Any]]:
+        """Load specific records by index from a composite table."""
+        base = type_def.resolve_base_type()
+
+        if not isinstance(base, CompositeTypeDefinition):
+            return
+
+        table = self.storage.get_table(type_name)
+        for i in indices:
+            if i >= table.count:
+                continue
+            if table.is_deleted(i):
+                continue
+
+            record = table.get(i)
+            resolved = {"_index": i}
+
+            for field in base.fields:
+                ref = record[field.name]
+                field_base = field.type_def.resolve_base_type()
+
+                if isinstance(field_base, ArrayTypeDefinition):
+                    arr_table = self.storage.get_array_table_for_type(field.type_def)
+                    start_index, length = arr_table.get_header(ref)
+                    if length == 0:
+                        resolved[field.name] = []
+                    else:
+                        elements = [
+                            arr_table.element_table.get(start_index + j)
+                            for j in range(length)
+                        ]
+                        if all(isinstance(e, str) and len(e) == 1 for e in elements):
+                            resolved[field.name] = "".join(elements)
+                        else:
+                            resolved[field.name] = elements
+                elif isinstance(field_base, CompositeTypeDefinition):
+                    resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
+                else:
+                    field_table = self.storage.get_table(field.type_def.name)
+                    resolved[field.name] = field_table.get(ref)
+
+            yield resolved
+
     def _evaluate_condition(
         self, record: dict[str, Any], condition: Condition | CompoundCondition
     ) -> bool:
@@ -676,13 +953,13 @@ class QueryExecutor:
         return False
 
     def _apply_group_by(
-        self, records: list[dict[str, Any]], query: SelectQuery
+        self, records: list[dict[str, Any]], group_by: list[str]
     ) -> list[dict[str, Any]]:
         """Apply GROUP BY clause."""
         groups: dict[tuple, list[dict[str, Any]]] = {}
 
         for record in records:
-            key = tuple(record.get(f) for f in query.group_by)
+            key = tuple(record.get(f) for f in group_by)
             if key not in groups:
                 groups[key] = []
             groups[key].append(record)
@@ -1029,3 +1306,463 @@ class QueryExecutor:
                 end = str(idx.end) if idx.end is not None else ""
                 parts.append(f"{start}:{end}")
         return ", ".join(parts)
+
+    def _execute_dump(self, query: DumpQuery) -> DumpResult:
+        """Execute DUMP query — serialize database as TTQ script."""
+        from collections import defaultdict
+
+        # Resolve into dump_targets: dict[str, set[int] | None] | None
+        # None means full dump; {name: None} means all records of that type;
+        # {name: {1,3}} means specific indices
+        dump_targets: dict[str, set[int] | None] | None = None
+
+        if query.items is not None:
+            # Dump list: merge all items
+            dump_targets = {}
+            for item in query.items:
+                if item.variable:
+                    if item.variable not in self.variables:
+                        return DumpResult(
+                            columns=[], rows=[],
+                            message=f"Undefined variable: ${item.variable}",
+                        )
+                    type_name, ref = self.variables[item.variable]
+                    idx_set = set(ref) if isinstance(ref, list) else {ref}
+                    if type_name in dump_targets:
+                        existing = dump_targets[type_name]
+                        if existing is not None:
+                            dump_targets[type_name] = existing | idx_set
+                        # else already None (all), stays None
+                    else:
+                        dump_targets[type_name] = idx_set
+                elif item.table:
+                    if item.table in dump_targets:
+                        # Already present; if specific indices, upgrade to all
+                        dump_targets[item.table] = None
+                    else:
+                        dump_targets[item.table] = None
+        elif query.variable:
+            if query.variable not in self.variables:
+                return DumpResult(
+                    columns=[], rows=[],
+                    message=f"Undefined variable: ${query.variable}",
+                )
+            type_name, ref = self.variables[query.variable]
+            if isinstance(ref, list):
+                dump_targets = {type_name: set(ref)}
+            else:
+                dump_targets = {type_name: {ref}}
+        elif query.table:
+            dump_targets = {query.table: None}
+        # else: dump_targets stays None → full dump
+
+        lines: list[str] = []
+        lines.append("-- TTQ dump")
+
+        # Collect user-defined types (skip primitives and auto-generated array types)
+        aliases: list[tuple[str, AliasTypeDefinition]] = []
+        composites: list[tuple[str, CompositeTypeDefinition]] = []
+
+        for type_name in self.registry.list_types():
+            type_def = self.registry.get(type_name)
+            if type_def is None:
+                continue
+            if isinstance(type_def, PrimitiveTypeDefinition):
+                continue
+            if isinstance(type_def, ArrayTypeDefinition):
+                continue  # auto-generated array types
+            if isinstance(type_def, AliasTypeDefinition):
+                aliases.append((type_name, type_def))
+            elif isinstance(type_def, CompositeTypeDefinition):
+                composites.append((type_name, type_def))
+
+        # Sort composites in dependency order
+        sorted_composites, cycle_composites = self._sort_composites_by_dependency(composites)
+
+        # If dumping specific targets, compute transitive closure of dependencies
+        if dump_targets is not None:
+            needed: set[str] = set()
+            for tname in dump_targets:
+                needed |= self._transitive_type_closure(tname)
+            aliases = [(n, t) for n, t in aliases if n in needed]
+            sorted_composites = [(n, t) for n, t in sorted_composites if n in needed]
+            cycle_composites = [(n, t) for n, t in cycle_composites if n in needed]
+
+        # Recombine for record dumping (sorted first, then cycle types)
+        composites = sorted_composites + cycle_composites
+
+        # Emit aliases
+        for name, alias_def in aliases:
+            base_name = alias_def.base_type.name
+            lines.append(f"create alias {name} as {base_name};")
+
+        # Emit forward declarations for cycle types
+        for name, comp_def in cycle_composites:
+            lines.append(f"create type {name};")
+
+        # Emit non-cycle composite type definitions
+        for name, comp_def in sorted_composites:
+            field_strs = []
+            for f in comp_def.fields:
+                field_type_name = f.type_def.name
+                # Map character[] back to string
+                if field_type_name == "character[]":
+                    field_type_name = "string"
+                elif field_type_name.endswith("[]"):
+                    base_elem = field_type_name[:-2]
+                    field_type_name = f"{base_elem}[]"
+                field_strs.append(f"{f.name}:{field_type_name}")
+            fields_part = " ".join(field_strs)
+            lines.append(f"create type {name} {fields_part};")
+
+        # Emit full definitions for cycle types (populates the forward declarations)
+        for name, comp_def in cycle_composites:
+            field_strs = []
+            for f in comp_def.fields:
+                field_type_name = f.type_def.name
+                if field_type_name == "character[]":
+                    field_type_name = "string"
+                elif field_type_name.endswith("[]"):
+                    base_elem = field_type_name[:-2]
+                    field_type_name = f"{base_elem}[]"
+                field_strs.append(f"{f.name}:{field_type_name}")
+            fields_part = " ".join(field_strs)
+            lines.append(f"create type {name} {fields_part};")
+
+        # Determine which composites to dump records for
+        if dump_targets is not None:
+            types_to_dump = [(n, t) for n, t in composites if n in dump_targets]
+        else:
+            types_to_dump = composites
+
+        # Helper: should this record be included in the dump?
+        def _include_record(name: str, index: int) -> bool:
+            if dump_targets is None:
+                return True
+            if name not in dump_targets:
+                return False
+            indices = dump_targets[name]
+            return indices is None or index in indices
+
+        # Pass 1: Count composite references across all records
+        ref_counts: dict[tuple[str, int], int] = defaultdict(int)
+        for name, comp_def in types_to_dump:
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                continue
+            table = self.storage.get_table(name)
+            for i in range(table.count):
+                if table.is_deleted(i):
+                    continue
+                if not _include_record(name, i):
+                    continue
+                raw_record = table.get(i)
+                for f in comp_def.fields:
+                    ref = raw_record[f.name]
+                    field_base = f.type_def.resolve_base_type()
+                    if isinstance(field_base, CompositeTypeDefinition):
+                        ref_counts[(f.type_def.name, ref)] += 1
+                    elif isinstance(field_base, ArrayTypeDefinition):
+                        elem_base = field_base.element_type.resolve_base_type()
+                        if isinstance(elem_base, CompositeTypeDefinition):
+                            arr_table = self.storage.get_array_table_for_type(f.type_def)
+                            start_index, length = arr_table.get_header(ref)
+                            for j in range(length):
+                                elem = arr_table.element_table.get(start_index + j)
+                                if isinstance(elem, dict):
+                                    # Array element composites are stored inline,
+                                    # not as index references — skip for ref counting
+                                    pass
+
+        # Pass 2: Assign variable names to multiply-referenced composites
+        dump_vars: dict[tuple[str, int], str] = {}
+        for (type_name, index), count in ref_counts.items():
+            if count > 1:
+                dump_vars[(type_name, index)] = f"{type_name}_{index}"
+
+        # Pass 3: Emit variable assignments for shared refs (in dependency order)
+        emitted_vars: set[tuple[str, int]] = set()
+        for name, comp_def in composites:
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                continue
+            table = self.storage.get_table(name)
+            for i in range(table.count):
+                if table.is_deleted(i):
+                    continue
+                key = (name, i)
+                if key in dump_vars and key not in emitted_vars:
+                    raw_record = table.get(i)
+                    create_str = self._format_record_as_create(name, comp_def, raw_record, dump_vars)
+                    var_name = dump_vars[key]
+                    lines.append(f"${var_name} = {create_str};")
+                    emitted_vars.add(key)
+
+        # Pass 4: Emit remaining create statements using $var references
+        for name, comp_def in types_to_dump:
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                continue
+            table = self.storage.get_table(name)
+            for i in range(table.count):
+                if table.is_deleted(i):
+                    continue
+                if not _include_record(name, i):
+                    continue
+                # Skip records that were emitted as variable assignments
+                if (name, i) in dump_vars:
+                    continue
+                raw_record = table.get(i)
+                create_str = self._format_record_as_create(name, comp_def, raw_record, dump_vars)
+                lines.append(f"{create_str};")
+
+        return DumpResult(columns=[], rows=[], script="\n".join(lines), output_file=query.output_file)
+
+    def _sort_composites_by_dependency(
+        self, composites: list[tuple[str, CompositeTypeDefinition]]
+    ) -> tuple[list[tuple[str, CompositeTypeDefinition]], list[tuple[str, CompositeTypeDefinition]]]:
+        """Sort composite types so dependencies come first.
+
+        Returns (sorted_types, cycle_types) where cycle_types are types
+        involved in mutual references that couldn't be topologically sorted.
+        Self-references are not considered cycles (they're handled naturally).
+        """
+        remaining = dict(composites)
+        result: list[tuple[str, CompositeTypeDefinition]] = []
+        cycle_types: list[tuple[str, CompositeTypeDefinition]] = []
+        emitted: set[str] = set()
+
+        max_iterations = len(remaining) + 1
+        for _ in range(max_iterations):
+            if not remaining:
+                break
+            emitted_this_pass = []
+            for name, comp_def in remaining.items():
+                deps_met = True
+                for f in comp_def.fields:
+                    fb = f.type_def.resolve_base_type()
+                    if isinstance(fb, CompositeTypeDefinition) and fb.name != name:
+                        if fb.name not in emitted:
+                            deps_met = False
+                            break
+                    if isinstance(fb, ArrayTypeDefinition):
+                        elem_base = fb.element_type.resolve_base_type()
+                        if isinstance(elem_base, CompositeTypeDefinition) and elem_base.name != name:
+                            if elem_base.name not in emitted:
+                                deps_met = False
+                                break
+                if deps_met:
+                    result.append((name, comp_def))
+                    emitted.add(name)
+                    emitted_this_pass.append(name)
+            for name in emitted_this_pass:
+                del remaining[name]
+            if not emitted_this_pass:
+                # Remaining types form mutual reference cycles
+                cycle_types = list(remaining.items())
+                break
+
+        return result, cycle_types
+
+    def _transitive_type_closure(self, table_name: str) -> set[str]:
+        """Compute transitive closure of type dependencies for a table."""
+        needed: set[str] = set()
+        stack = [table_name]
+        while stack:
+            name = stack.pop()
+            if name in needed:
+                continue
+            needed.add(name)
+            type_def = self.registry.get(name)
+            if type_def is None:
+                continue
+            if isinstance(type_def, AliasTypeDefinition):
+                stack.append(type_def.base_type.name)
+            elif isinstance(type_def, CompositeTypeDefinition):
+                for f in type_def.fields:
+                    stack.append(f.type_def.name)
+                    fb = f.type_def.resolve_base_type()
+                    if isinstance(fb, ArrayTypeDefinition):
+                        stack.append(fb.element_type.name)
+            elif isinstance(type_def, ArrayTypeDefinition):
+                stack.append(type_def.element_type.name)
+        return needed
+
+    def _format_record_as_create(
+        self,
+        type_name: str,
+        composite_def: CompositeTypeDefinition,
+        raw_record: dict[str, Any],
+        dump_vars: dict[tuple[str, int], str] | None = None,
+    ) -> str:
+        """Format a raw composite record as a TTQ create statement with inline instances."""
+        formatting: set[tuple[str, int]] = set()
+        field_strs = []
+        for f in composite_def.fields:
+            ref = raw_record[f.name]
+            value_str = self._format_field_value(f, ref, dump_vars, formatting)
+            field_strs.append(f"{f.name}={value_str}")
+        return f"create {type_name}({', '.join(field_strs)})"
+
+    def _format_field_value(
+        self,
+        field: FieldDefinition,
+        ref: Any,
+        dump_vars: dict[tuple[str, int], str] | None = None,
+        formatting: set[tuple[str, int]] | None = None,
+    ) -> str:
+        """Format a single field's value for dump output.
+
+        The `formatting` set tracks the current recursion path to detect
+        data cycles in self/mutually-referential types.
+        """
+        if formatting is None:
+            formatting = set()
+
+        field_base = field.type_def.resolve_base_type()
+
+        if isinstance(field_base, ArrayTypeDefinition):
+            # Load array header and elements
+            arr_table = self.storage.get_array_table_for_type(field.type_def)
+            start_index, length = arr_table.get_header(ref)
+            if length == 0:
+                return "[]"
+
+            elem_base = field_base.element_type.resolve_base_type()
+
+            # Character array → string
+            if isinstance(elem_base, PrimitiveTypeDefinition) and elem_base.primitive == PrimitiveType.CHARACTER:
+                chars = [arr_table.element_table.get(start_index + j) for j in range(length)]
+                s = "".join(chars)
+                return self._format_ttq_string(s)
+
+            elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+
+            if isinstance(elem_base, CompositeTypeDefinition):
+                # Array of composites — format each as inline instance
+                elem_strs = []
+                for elem in elements:
+                    if isinstance(elem, dict):
+                        inline = self._format_inline_composite(field_base.element_type, elem_base, elem, dump_vars, formatting)
+                        elem_strs.append(inline)
+                    else:
+                        elem_strs.append(str(elem))
+                return f"[{', '.join(elem_strs)}]"
+            else:
+                # Primitive array
+                elem_strs = [self._format_ttq_value(e, elem_base) for e in elements]
+                return f"[{', '.join(elem_strs)}]"
+
+        elif isinstance(field_base, CompositeTypeDefinition):
+            # Check if this reference has a variable binding
+            if dump_vars:
+                key = (field.type_def.name, ref)
+                if key in dump_vars:
+                    return f"${dump_vars[key]}"
+            # Check for data cycle
+            cycle_key = (field.type_def.name, ref)
+            if cycle_key in formatting:
+                # Data cycle detected — emit CompositeRef syntax instead of recursing
+                return f"{field.type_def.name}({ref})"
+            # Mark this node as being formatted
+            formatting.add(cycle_key)
+            # Composite field — load and format as inline instance
+            comp_table = self.storage.get_table(field.type_def.name)
+            nested_record = comp_table.get(ref)
+            result = self._format_inline_composite(field.type_def, field_base, nested_record, dump_vars, formatting)
+            # Remove from path so sibling branches don't get false positives
+            formatting.discard(cycle_key)
+            return result
+
+        else:
+            # Primitive/alias field — load value from table
+            field_table = self.storage.get_table(field.type_def.name)
+            value = field_table.get(ref)
+            return self._format_ttq_value(value, field_base)
+
+    def _format_inline_composite(
+        self,
+        type_def: TypeDefinition,
+        composite_base: CompositeTypeDefinition,
+        raw_record: dict[str, Any],
+        dump_vars: dict[tuple[str, int], str] | None = None,
+        formatting: set[tuple[str, int]] | None = None,
+    ) -> str:
+        """Format a composite record as an inline instance string."""
+        if formatting is None:
+            formatting = set()
+        field_strs = []
+        for f in composite_base.fields:
+            ref = raw_record[f.name]
+            value_str = self._format_field_value(f, ref, dump_vars, formatting)
+            field_strs.append(f"{f.name}={value_str}")
+        return f"{type_def.name}({', '.join(field_strs)})"
+
+    def _format_ttq_value(self, value: Any, type_base: TypeDefinition) -> str:
+        """Format a primitive value as a TTQ literal."""
+        if isinstance(type_base, PrimitiveTypeDefinition):
+            if type_base.primitive == PrimitiveType.BIT:
+                return "1" if value else "0"
+            elif type_base.primitive == PrimitiveType.CHARACTER:
+                return self._format_ttq_string(value)
+            elif type_base.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+                return repr(value)
+            else:
+                return str(value)
+        return str(value)
+
+    def _format_ttq_string(self, value: str) -> str:
+        """Format a string as a TTQ string literal with proper escaping."""
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+
+    def _build_field_references(
+        self,
+        composite_type: CompositeTypeDefinition,
+        values: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build field references for a composite, storing sub-field values in their tables.
+
+        Same logic as _create_instance but returns the field_references dict
+        instead of inserting into the composite's own table.
+        """
+        field_references: dict[str, Any] = {}
+
+        for field in composite_type.fields:
+            field_value = values[field.name]
+            field_base = field.type_def.resolve_base_type()
+
+            if isinstance(field_base, ArrayTypeDefinition):
+                if isinstance(field_value, str):
+                    field_value = list(field_value)
+                if isinstance(field_base.element_type.resolve_base_type(), CompositeTypeDefinition):
+                    resolved = []
+                    for elem in field_value:
+                        if isinstance(elem, InlineInstance):
+                            inline_type = self.registry.get(elem.type_name)
+                            inline_base = inline_type.resolve_base_type()
+                            inline_values = {}
+                            for fv in elem.fields:
+                                inline_values[fv.name] = self._resolve_instance_value(fv.value)
+                            elem = self._build_field_references(inline_base, inline_values)
+                        elif isinstance(elem, int):
+                            elem_type_name = field_base.element_type.name
+                            ref_table = self.storage.get_table(elem_type_name)
+                            elem = ref_table.get(elem)
+                        resolved.append(elem)
+                    field_value = resolved
+                array_table = self.storage.get_array_table_for_type(field.type_def)
+                array_index = array_table.insert(field_value)
+                field_references[field.name] = array_index
+            elif isinstance(field_base, CompositeTypeDefinition):
+                if isinstance(field_value, int):
+                    field_references[field.name] = field_value
+                else:
+                    nested_index = self._create_instance(field.type_def, field_base, field_value)
+                    field_references[field.name] = nested_index
+            else:
+                field_table = self.storage.get_table(field.type_def.name)
+                ref_index = field_table.insert(field_value)
+                field_references[field.name] = ref_index
+
+        return field_references

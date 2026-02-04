@@ -113,6 +113,31 @@ create type Sensor
   readings: int8[]
 ```
 
+### Self-Referential Types
+
+Types can reference themselves, useful for tree and graph structures:
+```ttq
+create type Node value:uint8 children:Node[];
+create Node(value=0, children=[Node(value=1, children=[]), Node(value=2, children=[])]);
+```
+
+Direct self-reference (linked list):
+```ttq
+create type LinkedNode value:uint8 next:LinkedNode;
+create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)));
+```
+
+### Forward Declarations (Mutual References)
+
+For mutually referential types, use forward declarations:
+```ttq
+create type B;
+create type A value:uint8 b:B;
+create type B value:uint8 a:A;
+```
+
+The first `create type B` registers an empty stub. The third statement populates it with fields. This allows A and B to reference each other.
+
 ### Create Aliases
 
 ```ttq
@@ -135,6 +160,36 @@ With array values:
 create Sensor(name="temperature", readings=[25, 26, 24, 27])
 ```
 
+### Variable Bindings
+
+Variables are immutable bindings to created instances:
+```ttq
+$addr = create Address(street="123 Main", city="Springfield");
+create Person(name="Alice", address=$addr);
+create Person(name="Bob", address=$addr);
+```
+
+Variables can be used in array elements:
+```ttq
+$e1 = create Employee(name="Alice");
+$e2 = create Employee(name="Bob");
+create Team(members=[$e1, $e2]);
+```
+
+Variables can also collect sets of record indices:
+```ttq
+$seniors = collect Person where age >= 65;
+$top10 = collect Score sort by value limit 10;
+$all = collect Person;
+```
+
+Multi-source collect unions multiple sources (same type, deduplication built in):
+```ttq
+$combined = collect Person where age >= 65, Person where age = 30;
+$subset = collect $seniors where city = "Springfield";
+$union = collect $seniors, $young;
+```
+
 ### Delete Entry
 
 ```ttq
@@ -149,6 +204,13 @@ from Person select *
 ```
 
 This example will return all Person entries.
+
+A variable can also be used as the source:
+```ttq
+$seniors = collect Person where age >= 65;
+from $seniors select name, age sort by age;
+from $seniors select average(age);
+```
 
 ### Naming Fields
 
@@ -266,6 +328,20 @@ Execute queries from a file within the REPL:
 ```ttq
 execute setup.ttq
 execute "./path/to/script.ttq"
+```
+
+### Dump Database
+
+Serialize database contents as an executable TTQ script:
+```ttq
+dump              -- dump entire database
+dump Person       -- dump single table
+dump to "backup.ttq"          -- dump entire database to file
+dump Person to "person.ttq"   -- dump single table to file
+dump $var                     -- dump records referenced by a variable
+dump $var to "backup.ttq"     -- dump variable records to file
+dump [Person, $seniors, Employee]             -- dump a list of tables/variables
+dump [Person, $seniors, Employee] to "backup.ttq"  -- dump list to file
 ```
 
 To be determined, but here is a list of features that will be expected to be supported:

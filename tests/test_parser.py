@@ -207,3 +207,50 @@ class TestTypeParser:
         """)
 
         assert "Person" in registry
+
+    def test_self_referential_composite(self):
+        """Test DSL parser handles self-referential types like Node { children: Node[] }."""
+        parser = TypeParser()
+        registry = parser.parse("""
+        Node {
+            value: uint8
+            children: Node[]
+        }
+        """)
+
+        assert "Node" in registry
+        node_def = registry.get("Node")
+        assert isinstance(node_def, CompositeTypeDefinition)
+        assert len(node_def.fields) == 2
+        assert node_def.fields[0].name == "value"
+        assert node_def.fields[1].name == "children"
+        # The children field should be an array of Node
+        from typed_tables.types import ArrayTypeDefinition
+        children_type = node_def.fields[1].type_def
+        assert isinstance(children_type, ArrayTypeDefinition)
+        assert children_type.element_type is node_def
+
+    def test_mutual_reference_composites(self):
+        """Test DSL parser handles mutually referential types A↔B."""
+        parser = TypeParser()
+        registry = parser.parse("""
+        A {
+            value: uint8
+            b: B
+        }
+
+        B {
+            value: uint8
+            a: A
+        }
+        """)
+
+        assert "A" in registry
+        assert "B" in registry
+        a_def = registry.get("A")
+        b_def = registry.get("B")
+        assert isinstance(a_def, CompositeTypeDefinition)
+        assert isinstance(b_def, CompositeTypeDefinition)
+        # A.b should reference B and B.a should reference A
+        assert a_def.fields[1].type_def is b_def
+        assert b_def.fields[1].type_def is a_def
