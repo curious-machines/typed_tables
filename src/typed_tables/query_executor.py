@@ -2086,7 +2086,7 @@ class QueryExecutor:
             else:
                 lines.append("scope { " + " ".join(scope_statements) + " };")
 
-        return DumpResult(columns=[], rows=[], script="\n".join(lines), output_file=query.output_file)
+        return DumpResult(columns=[], rows=[], script="\n".join(lines) + "\n", output_file=query.output_file)
 
     def _sort_composites_by_dependency(
         self, composites: list[tuple[str, CompositeTypeDefinition]]
