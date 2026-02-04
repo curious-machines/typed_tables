@@ -382,7 +382,7 @@ This shows the type and all of its properties along with their types
 
 Execute queries from a file within the REPL:
 ```ttq
-execute setup.ttq
+execute "setup.ttq"
 execute "./path/to/script.ttq"
 ```
 
@@ -445,7 +445,7 @@ dump xml to "backup.xml"      -- dump XML to file
 Example XML output with cyclic references:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<database>
+<database name="mydb">
   <Nodes>
     <Node id="Node_0">
       <name>A</name>

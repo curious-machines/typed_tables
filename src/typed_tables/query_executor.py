@@ -2502,8 +2502,9 @@ class QueryExecutor:
                 return f"{ind}<{field_name}>{escape(str(val))}</{field_name}>"
 
         # Build the XML output
-        lines = ['<?xml version="1.0" encoding="UTF-8"?>']
-        lines.append(f"<database>{newline}")
+        db_name = escape(self.storage.data_dir.name)
+        lines = ['<?xml version="1.0" encoding="UTF-8"?>\n']
+        lines.append(f"<database name=\"{db_name}\">{newline}")
 
         for name, comp_def in types_to_dump:
             table_file = self.storage.data_dir / f"{name}.bin"

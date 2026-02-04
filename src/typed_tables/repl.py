@@ -306,8 +306,15 @@ def run_repl(data_dir: Path | None) -> int:
                 print("\033[2J\033[H", end="")
                 continue
             elif line.lower().startswith("execute "):
-                # Execute a script file
-                script_path = Path(line[8:].strip().strip('"').strip("'"))
+                # Execute a script file - requires quoted string
+                arg = line[8:].strip()
+                if not ((arg.startswith('"') and arg.endswith('"')) or
+                        (arg.startswith("'") and arg.endswith("'"))):
+                    print("Error: execute requires a quoted filename")
+                    print("  Example: execute \"script.ttq\"")
+                    print()
+                    continue
+                script_path = Path(arg[1:-1])  # Remove quotes
                 if not script_path.exists():
                     print(f"Error: File not found: {script_path}")
                     print()
@@ -652,7 +659,7 @@ OTHER:
   help                     Show this help
   exit, quit               Exit the REPL
   clear                    Clear the screen
-  execute <file>           Execute queries from a file
+  execute "file.ttq"       Execute queries from a file
 
 Queries can span multiple lines. End with semicolon or press Enter on empty line.
 """)
