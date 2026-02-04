@@ -1,5 +1,0 @@
--- TTQ dump
-create type Node name:string child:Node;
-$Node_1 = create Node(name="C", child=null);
-$Node_0 = create Node(name="D", child=Node(name="A", child=Node(name="B", child=$Node_1)));
-update $Node_1 set child=$Node_0;

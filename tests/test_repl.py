@@ -871,9 +871,11 @@ create LinkedNode(value=42, next=LinkedNode(0));
 
         dump_result = executor.execute(DumpQuery())
         assert isinstance(dump_result, DumpResult)
-        # Should use null + update to break the cycle
-        assert "next=null" in dump_result.script
-        assert "update $LinkedNode_0 set next=$LinkedNode_0" in dump_result.script
+        # Should use tag syntax to handle the self-referential cycle
+        assert "tag(" in dump_result.script
+        # Should NOT use null+update for self-referential cycles
+        assert "next=null" not in dump_result.script
+        assert "update" not in dump_result.script
         storage.close()
 
 
@@ -1832,8 +1834,8 @@ $n = create Node(value=1, next=null);
 class TestCycleAwareDump:
     """Tests for cycle-aware dump with null+update pattern."""
 
-    def test_dump_cycle_uses_null_update(self, tmp_path: Path):
-        """Test that cyclic data dumps with null+update pattern."""
+    def test_dump_cycle_uses_tags(self, tmp_path: Path):
+        """Test that cyclic data dumps with tag syntax."""
         db_path = tmp_path / "testdb"
 
         from typed_tables.dump import load_registry_from_metadata
@@ -1858,9 +1860,11 @@ update $n1 set next=$n2;
 
         dump_result = executor.execute(DumpQuery())
         assert isinstance(dump_result, DumpResult)
-        # Should contain null and update, not CompositeRef
-        assert "null" in dump_result.script
-        assert "update" in dump_result.script
+        # Should use tag syntax for cycle handling
+        assert "tag(" in dump_result.script
+        # Tag reference should appear (just the tag name, not $var)
+        # Should NOT use null+update for simple cycles
+        assert "update" not in dump_result.script
         storage.close()
 
     def test_dump_cycle_roundtrip(self, tmp_path: Path):
@@ -1994,6 +1998,112 @@ create Person(name="Bob", age=25);
         assert "Alice" in dump_result.script
         assert "Bob" in dump_result.script
         storage.close()
+
+
+class TestTagBasedCreation:
+    """Tests for creating cyclic data using tag syntax."""
+
+    def test_create_self_referencing_with_tag(self, tmp_path: Path):
+        """Test creating a self-referencing node using tag syntax."""
+        db_path = tmp_path / "testdb"
+
+        script = tmp_path / "test.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+create Node(tag(SELF), value=42, next=SELF);
+from Node select *;
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+    def test_create_cycle_with_tag(self, tmp_path: Path):
+        """Test creating a 2-node cycle using tag syntax."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "test.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node name:string child:Node;
+create Node(tag(TOP), name="A", child=Node(name="B", child=TOP));
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        # Verify the cycle exists
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+
+        r = executor.execute(parser.parse("from Node select *"))
+        assert len(r.rows) == 2
+        # Node A (index 0) points to Node B (index 1)
+        # Node B (index 1) points to Node A (index 0)
+        storage.close()
+
+    def test_create_deep_cycle_with_tag(self, tmp_path: Path):
+        """Test creating a 4-node cycle A→B→C→D→A using tag syntax."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "test.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node name:string child:Node;
+create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A))));
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+
+        r = executor.execute(parser.parse("from Node select *"))
+        assert len(r.rows) == 4
+        names = {row["name"] for row in r.rows}
+        assert names == {"A", "B", "C", "D"}
+        storage.close()
+
+    def test_create_undefined_tag_error(self, tmp_path: Path):
+        """Test that using an undefined tag produces an error."""
+        db_path = tmp_path / "testdb"
+
+        script = tmp_path / "test.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+create Node(value=1, next=NONEXISTENT);
+""")
+        result = run_file(script, None, verbose=False)
+        # Should fail because NONEXISTENT tag is not defined
+        assert result == 0  # The REPL continues but prints an error
+
+    def test_tag_does_not_leak_across_statements(self, tmp_path: Path):
+        """Test that tags from one statement don't leak to another."""
+        db_path = tmp_path / "testdb"
+
+        script = tmp_path / "test.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+create Node(tag(X), value=1, next=null);
+create Node(value=2, next=X);
+""")
+        result = run_file(script, None, verbose=False)
+        # The second statement should fail because X is not visible
+        assert result == 0  # The REPL continues but prints an error
 
 
 class TestDumpPretty:

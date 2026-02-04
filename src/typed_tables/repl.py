@@ -442,6 +442,8 @@ CREATE:
     field=OtherType(index)   - Reference an existing composite instance
     field=[1, 2, 3]          - Array literal
                              - Fields can span multiple lines (close paren to finish)
+  create <Type>(tag(NAME), ...)
+                           Declare a tag for cyclic references (see CYCLIC DATA)
 
 DELETE:
   delete <table> where ... Delete matching records (soft delete)
@@ -550,6 +552,20 @@ DUMP:
   dump pretty              Pretty-print with multi-line indented formatting
   dump pretty <table>      Pretty-print a single table
                            (pretty can be added to any dump variant above)
+
+CYCLIC DATA:
+  Tags allow creating cyclic data structures in a single create statement.
+  A tag declares a name for the record being created, which can be referenced
+  by nested records to form cycles.
+
+  Self-referencing (node points to itself):
+    create Node(tag(SELF), value=42, next=SELF)
+
+  Two-node cycle (A→B→A):
+    create Node(tag(A), name="A", child=Node(name="B", child=A))
+
+  The dump command is cycle-aware and automatically uses tag syntax when
+  serializing cyclic data, ensuring roundtrip fidelity.
 
 OTHER:
   help                     Show this help

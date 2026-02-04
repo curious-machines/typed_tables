@@ -2,15 +2,17 @@ create type Node
     name: string
     child: Node;
 
-$back = create Node(name="D", child=null);
-$top = create Node(
+create Node(
+    tag(A),
     name="A",
     child=Node(
         name="B",
         child=Node(
             name="C",
-            child=$back
+            child=Node(
+                name="D",
+                child=A
+            )
         )
     )
 );
-update $back set child=$top;

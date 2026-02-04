@@ -32,6 +32,7 @@ from typed_tables.parsing.query_parser import (
     SelectField,
     SelectQuery,
     ShowTablesQuery,
+    TagReference,
     UpdateQuery,
     UseQuery,
     VariableAssignmentQuery,
@@ -130,6 +131,9 @@ class QueryExecutor:
         self.storage = storage
         self.registry = registry
         self.variables: dict[str, tuple[str, int | list[int]]] = {}  # name → (type_name, index_or_indices)
+        # Tag bindings for cycle handling - statement-scoped, cleared at start of each create
+        self._tag_bindings: dict[str, tuple[str, int]] = {}  # tag_name → (type_name, index)
+        self._deferred_tag_patches: list[tuple[str, int, str, str]] = []  # (type_name, record_idx, field_name, tag_name)
 
     def execute(self, query: Query) -> QueryResult:
         """Execute a query and return results."""
@@ -406,6 +410,10 @@ class QueryExecutor:
 
     def _execute_create_instance(self, query: CreateInstanceQuery) -> CreateResult:
         """Execute CREATE instance query."""
+        # Clear tag state at start of statement
+        self._tag_bindings.clear()
+        self._deferred_tag_patches.clear()
+
         type_def = self.registry.get(query.type_name)
         if type_def is None:
             return CreateResult(
@@ -438,6 +446,22 @@ class QueryExecutor:
         # Create the instance using storage manager
         try:
             index = self._create_instance(type_def, base, values)
+
+            # Register tag if present
+            if query.tag:
+                self._tag_bindings[query.tag] = (query.type_name, index)
+
+            # Apply deferred tag patches (back-edges for cycles)
+            for patch_type, patch_idx, patch_field, tag_name in self._deferred_tag_patches:
+                if tag_name not in self._tag_bindings:
+                    raise ValueError(f"Undefined tag: {tag_name}")
+                target_type, target_idx = self._tag_bindings[tag_name]
+                # Update the record to set the field to the target index
+                patch_table = self.storage.get_table(patch_type)
+                record = patch_table.get(patch_idx)
+                record[patch_field] = target_idx
+                patch_table.update(patch_idx, record)
+
             return CreateResult(
                 columns=["type", "index"],
                 rows=[{"type": query.type_name, "index": index}],
@@ -452,6 +476,10 @@ class QueryExecutor:
                 message=f"Failed to create instance: {e}",
                 type_name=query.type_name,
             )
+        finally:
+            # Clear tag state at end of statement
+            self._tag_bindings.clear()
+            self._deferred_tag_patches.clear()
 
     def _execute_variable_assignment(self, query: VariableAssignmentQuery) -> VariableAssignmentResult:
         """Execute a variable assignment: $var = create Type(...)."""
@@ -663,9 +691,16 @@ class QueryExecutor:
         )
 
     def _resolve_instance_value(self, value: Any) -> Any:
-        """Resolve a value from CREATE instance, handling function calls, composite refs, inline instances, variable refs, and null."""
+        """Resolve a value from CREATE instance, handling function calls, composite refs, inline instances, variable refs, tag refs, and null."""
         if isinstance(value, NullValue):
             return None
+        elif isinstance(value, TagReference):
+            # Tag reference - check if already bound, otherwise return sentinel for deferred patching
+            if value.name in self._tag_bindings:
+                _, index = self._tag_bindings[value.name]
+                return index
+            # Return TagReference as-is - _create_instance will handle deferred patching
+            return value
         elif isinstance(value, VariableReference):
             if value.var_name not in self.variables:
                 raise ValueError(f"Undefined variable: ${value.var_name}")
@@ -695,7 +730,11 @@ class QueryExecutor:
             for fv in value.fields:
                 values[fv.name] = self._resolve_instance_value(fv.value)
             # Create the instance and return its index
-            return self._create_instance(type_def, base, values)
+            index = self._create_instance(type_def, base, values)
+            # Register tag if present
+            if value.tag:
+                self._tag_bindings[value.tag] = (value.type_name, index)
+            return index
         return value
 
     def _create_instance(
@@ -742,8 +781,11 @@ class QueryExecutor:
                 array_index = array_table.insert(field_value)
                 field_references[field.name] = array_index
             elif isinstance(field_base, CompositeTypeDefinition):
-                # Nested composite - either an index reference or dict for recursive create
-                if isinstance(field_value, int):
+                # Nested composite - either an index reference, dict for recursive create, or tag reference
+                if isinstance(field_value, TagReference):
+                    # Tag reference not yet bound - use NULL_REF and defer patching
+                    field_references[field.name] = NULL_REF
+                elif isinstance(field_value, int):
                     # Direct index reference: TypeName(index) syntax
                     field_references[field.name] = field_value
                 else:
@@ -758,7 +800,15 @@ class QueryExecutor:
 
         # Store the composite record
         table = self.storage.get_table(type_def.name)
-        return table.insert(field_references)
+        index = table.insert(field_references)
+
+        # Collect deferred tag patches for tag references that weren't bound yet
+        for field in composite_type.fields:
+            fv = values.get(field.name)
+            if isinstance(fv, TagReference):
+                self._deferred_tag_patches.append((type_def.name, index, field.name, fv.name))
+
+        return index
 
     def _execute_eval(self, query: EvalQuery) -> QueryResult:
         """Execute SELECT without FROM - evaluate expressions."""
@@ -1615,10 +1665,50 @@ class QueryExecutor:
             if count > 1:
                 dump_vars[(type_name, index)] = f"{type_name}_{index}"
 
-        # Pass 2.5: Detect data cycles and force involved records into dump_vars
+        # Pass 2.5: Detect data cycles and build tag mappings for cycle handling
         back_edges = self._detect_back_edges(composites, _include_record)
+
+        # Classify back-edges: taggable (use tag syntax) vs fallback (need null+update)
+        # Fallback: both source AND target are already in dump_vars (multi-referenced)
+        taggable_edges: list[tuple[str, int, str, str, int]] = []
+        fallback_edges: list[tuple[str, int, str, str, int]] = []
+
+        for edge in back_edges:
+            src_type, src_idx, field_name, tgt_type, tgt_idx = edge
+            src_key = (src_type, src_idx)
+            tgt_key = (tgt_type, tgt_idx)
+            if src_key in dump_vars and tgt_key in dump_vars:
+                # Both are multi-referenced → need null+update fallback
+                fallback_edges.append(edge)
+            else:
+                taggable_edges.append(edge)
+
+        # Build tag mappings for taggable edges
+        def _generate_tag_name(counter: int) -> str:
+            """Generate sequential tag names: A, B, ..., Z, AA, AB, ..."""
+            result = ""
+            n = counter
+            while True:
+                result = chr(ord('A') + n % 26) + result
+                n = n // 26 - 1
+                if n < 0:
+                    break
+            return result
+
+        record_tags: dict[tuple[str, int], str] = {}  # target → tag_name
+        back_edge_tags: dict[tuple[str, int, str], str] = {}  # (src_type, src_idx, field) → tag_name
+        tag_counter = 0
+
+        for src_type, src_idx, field_name, tgt_type, tgt_idx in taggable_edges:
+            tgt_key = (tgt_type, tgt_idx)
+            if tgt_key not in record_tags:
+                record_tags[tgt_key] = _generate_tag_name(tag_counter)
+                tag_counter += 1
+            back_edge_tags[(src_type, src_idx, field_name)] = record_tags[tgt_key]
+
+        # For fallback edges only: force both records into dump_vars
         back_edge_set: set[tuple[str, int, str]] = set()
-        for src_type, src_idx, field_name, tgt_type, tgt_idx in back_edges:
+        for src_type, src_idx, field_name, tgt_type, tgt_idx in fallback_edges:
             if (src_type, src_idx) not in dump_vars:
                 dump_vars[(src_type, src_idx)] = f"{src_type}_{src_idx}"
             if (tgt_type, tgt_idx) not in dump_vars:
@@ -1733,6 +1823,7 @@ class QueryExecutor:
                 name, comp_def, raw_record, dump_vars,
                 back_edge_set=back_edge_set, record_index=idx,
                 pretty=pretty,
+                record_tags=record_tags, back_edge_tags=back_edge_tags,
             )
             var_name = dump_vars[key]
             lines.append(f"${var_name} = {create_str};")
@@ -1754,6 +1845,64 @@ class QueryExecutor:
                 if key in dump_vars:
                     _emit_var(key)
 
+        # Pass 3.5: Collect all records that would be inlined by top-level creates
+        # This ensures records reachable via inline paths (including tag-based cycles)
+        # are not emitted as separate create statements.
+        def _collect_inlined(name: str, idx: int, visited: set[tuple[str, int]]) -> None:
+            """Recursively collect all records reachable via inline composite fields."""
+            key = (name, idx)
+            if key in visited:
+                return
+            visited.add(key)
+            comp_def = comp_map.get(name)
+            if comp_def is None:
+                return
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                return
+            table = self.storage.get_table(name)
+            if idx >= table.count or table.is_deleted(idx):
+                return
+            raw_record = table.get(idx)
+            for f in comp_def.fields:
+                ref = raw_record[f.name]
+                if ref == NULL_REF:
+                    continue
+                # Skip back-edges (they're emitted as tag refs, not inlined)
+                if back_edge_set and (name, idx, f.name) in back_edge_set:
+                    continue
+                if back_edge_tags and (name, idx, f.name) in back_edge_tags:
+                    continue
+                field_base = f.type_def.resolve_base_type()
+                if isinstance(field_base, CompositeTypeDefinition):
+                    dep_key = (f.type_def.name, ref)
+                    if dep_key in dump_vars:
+                        # This is a $var reference, not inlined
+                        continue
+                    _collect_inlined(f.type_def.name, ref, visited)
+
+        # Identify top-level records and collect their inlined children
+        for name, comp_def in types_to_dump:
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                continue
+            table = self.storage.get_table(name)
+            for i in range(table.count):
+                if table.is_deleted(i):
+                    continue
+                if not _include_record(name, i):
+                    continue
+                key = (name, i)
+                if key in dump_vars or key in inlined_records:
+                    continue
+                # This will be a top-level create — collect its inlined children
+                visited: set[tuple[str, int]] = set()
+                _collect_inlined(name, i, visited)
+                # Mark all visited records except the root as inlined
+                for v_key in visited:
+                    if v_key != key:
+                        inlined_records.add(v_key)
+
         # Pass 4: Emit remaining create statements using $var references
         for name, comp_def in types_to_dump:
             table_file = self.storage.data_dir / f"{name}.bin"
@@ -1766,7 +1915,7 @@ class QueryExecutor:
                 if not _include_record(name, i):
                     continue
                 # Skip records that were emitted as variable assignments
-                # or inlined into a dump_var's create statement
+                # or inlined into another record's create statement
                 if (name, i) in dump_vars or (name, i) in inlined_records:
                     continue
                 raw_record = table.get(i)
@@ -1774,11 +1923,12 @@ class QueryExecutor:
                     name, comp_def, raw_record, dump_vars,
                     back_edge_set=back_edge_set, record_index=i,
                     pretty=pretty,
+                    record_tags=record_tags, back_edge_tags=back_edge_tags,
                 )
                 lines.append(f"{create_str};")
 
-        # Pass 5: Emit update statements for back-edge fields
-        for src_type, src_idx, field_name, tgt_type, tgt_idx in sorted(back_edges):
+        # Pass 5: Emit update statements only for fallback edges (mutual dump_var cycles)
+        for src_type, src_idx, field_name, tgt_type, tgt_idx in sorted(fallback_edges):
             src_var = dump_vars[(src_type, src_idx)]
             tgt_var = dump_vars[(tgt_type, tgt_idx)]
             lines.append(f"update ${src_var} set {field_name}=${tgt_var};")
@@ -1929,18 +2079,39 @@ class QueryExecutor:
         record_index: int | None = None,
         pretty: bool = False,
         indent: int = 0,
+        record_tags: dict[tuple[str, int], str] | None = None,
+        back_edge_tags: dict[tuple[str, int, str], str] | None = None,
     ) -> str:
         """Format a raw composite record as a TTQ create statement with inline instances."""
         formatting: set[tuple[str, int]] = set()
         field_strs = []
+
+        # Check if this record needs a tag declaration
+        tag_name = None
+        if record_tags and record_index is not None:
+            key = (type_name, record_index)
+            if key in record_tags:
+                tag_name = record_tags[key]
+
         for f in composite_def.fields:
             ref = raw_record[f.name]
-            # If this field is a back-edge, emit null instead
+            # If this field is a fallback back-edge, emit null instead
             if back_edge_set and record_index is not None and (type_name, record_index, f.name) in back_edge_set:
                 value_str = "null"
+            # If this field is a taggable back-edge, emit tag reference
+            elif back_edge_tags and record_index is not None and (type_name, record_index, f.name) in back_edge_tags:
+                value_str = back_edge_tags[(type_name, record_index, f.name)]
             else:
-                value_str = self._format_field_value(f, ref, dump_vars, formatting, pretty=pretty, indent=indent + 4)
+                value_str = self._format_field_value(
+                    f, ref, dump_vars, formatting, pretty=pretty, indent=indent + 4,
+                    record_tags=record_tags, back_edge_tags=back_edge_tags,
+                )
             field_strs.append(f"{f.name}={value_str}")
+
+        # Prepend tag declaration if needed
+        if tag_name:
+            field_strs.insert(0, f"tag({tag_name})")
+
         if pretty:
             inner_indent = " " * (indent + 4)
             close_indent = " " * indent
@@ -1956,6 +2127,8 @@ class QueryExecutor:
         formatting: set[tuple[str, int]] | None = None,
         pretty: bool = False,
         indent: int = 0,
+        record_tags: dict[tuple[str, int], str] | None = None,
+        back_edge_tags: dict[tuple[str, int, str], str] | None = None,
     ) -> str:
         """Format a single field's value for dump output.
 
@@ -1992,7 +2165,11 @@ class QueryExecutor:
                 elem_strs = []
                 for elem in elements:
                     if isinstance(elem, dict):
-                        inline = self._format_inline_composite(field_base.element_type, elem_base, elem, dump_vars, formatting, pretty=pretty, indent=indent + 4)
+                        inline = self._format_inline_composite(
+                            field_base.element_type, elem_base, elem, dump_vars, formatting,
+                            pretty=pretty, indent=indent + 4,
+                            record_tags=record_tags, back_edge_tags=back_edge_tags,
+                        )
                         elem_strs.append(inline)
                     else:
                         elem_strs.append(str(elem))
@@ -2023,7 +2200,11 @@ class QueryExecutor:
             # Composite field — load and format as inline instance
             comp_table = self.storage.get_table(field.type_def.name)
             nested_record = comp_table.get(ref)
-            result = self._format_inline_composite(field.type_def, field_base, nested_record, dump_vars, formatting, pretty=pretty, indent=indent)
+            result = self._format_inline_composite(
+                field.type_def, field_base, nested_record, dump_vars, formatting,
+                pretty=pretty, indent=indent,
+                record_index=ref, record_tags=record_tags, back_edge_tags=back_edge_tags,
+            )
             # Remove from path so sibling branches don't get false positives
             formatting.discard(cycle_key)
             return result
@@ -2043,15 +2224,38 @@ class QueryExecutor:
         formatting: set[tuple[str, int]] | None = None,
         pretty: bool = False,
         indent: int = 0,
+        record_index: int | None = None,
+        record_tags: dict[tuple[str, int], str] | None = None,
+        back_edge_tags: dict[tuple[str, int, str], str] | None = None,
     ) -> str:
         """Format a composite record as an inline instance string."""
         if formatting is None:
             formatting = set()
+
+        # Check if this record needs a tag declaration
+        tag_name = None
+        if record_tags and record_index is not None:
+            key = (type_def.name, record_index)
+            if key in record_tags:
+                tag_name = record_tags[key]
+
         field_strs = []
         for f in composite_base.fields:
             ref = raw_record[f.name]
-            value_str = self._format_field_value(f, ref, dump_vars, formatting, pretty=pretty, indent=indent + 4)
+            # If this field is a taggable back-edge, emit tag reference
+            if back_edge_tags and record_index is not None and (type_def.name, record_index, f.name) in back_edge_tags:
+                value_str = back_edge_tags[(type_def.name, record_index, f.name)]
+            else:
+                value_str = self._format_field_value(
+                    f, ref, dump_vars, formatting, pretty=pretty, indent=indent + 4,
+                    record_tags=record_tags, back_edge_tags=back_edge_tags,
+                )
             field_strs.append(f"{f.name}={value_str}")
+
+        # Prepend tag declaration if needed
+        if tag_name:
+            field_strs.insert(0, f"tag({tag_name})")
+
         if pretty:
             inner_indent = " " * (indent + 4)
             close_indent = " " * indent

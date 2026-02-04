@@ -25,6 +25,7 @@ from typed_tables.parsing.query_parser import (
     QueryParser,
     SelectQuery,
     ShowTablesQuery,
+    TagReference,
     UpdateQuery,
     UseQuery,
     VariableAssignmentQuery,
@@ -1093,3 +1094,93 @@ class TestQueryParser:
         assert query.pretty is True
         assert query.items is not None
         assert len(query.items) == 2
+
+    def test_parse_create_with_tag(self):
+        """Test parsing create with tag declaration."""
+        parser = QueryParser()
+        query = parser.parse('create Node(tag(X), name="A")')
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.type_name == "Node"
+        assert query.tag == "X"
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "name"
+        assert query.fields[0].value == "A"
+
+    def test_parse_tag_reference_in_field(self):
+        """Test parsing tag reference as field value."""
+        parser = QueryParser()
+        query = parser.parse('create Node(name="A", child=X)')
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.type_name == "Node"
+        assert len(query.fields) == 2
+        assert query.fields[0].name == "name"
+        assert query.fields[1].name == "child"
+        assert isinstance(query.fields[1].value, TagReference)
+        assert query.fields[1].value.name == "X"
+
+    def test_parse_nested_with_tag_reference(self):
+        """Test parsing nested inline instance with tag back-reference."""
+        parser = QueryParser()
+        query = parser.parse('create Node(tag(A), name="A", child=Node(name="B", child=A))')
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.tag == "A"
+        assert len(query.fields) == 2
+        # The child field is an InlineInstance
+        child = query.fields[1].value
+        assert isinstance(child, InlineInstance)
+        assert child.type_name == "Node"
+        # Child's child field is a TagReference
+        child_child = child.fields[1].value
+        assert isinstance(child_child, TagReference)
+        assert child_child.name == "A"
+
+    def test_parse_variable_assignment_with_tag(self):
+        """Test parsing variable assignment with tag."""
+        parser = QueryParser()
+        query = parser.parse('$n = create Node(tag(X), name="test")')
+
+        assert isinstance(query, VariableAssignmentQuery)
+        assert query.var_name == "n"
+        assert query.create_query.tag == "X"
+        assert query.create_query.type_name == "Node"
+
+    def test_parse_inline_instance_with_tag(self):
+        """Test parsing inline instance with tag in value position."""
+        parser = QueryParser()
+        query = parser.parse('create Parent(child=Node(tag(Y), name="B"))')
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.type_name == "Parent"
+        child = query.fields[0].value
+        assert isinstance(child, InlineInstance)
+        assert child.tag == "Y"
+        assert child.type_name == "Node"
+
+    def test_parse_create_without_tag_unchanged(self):
+        """Test that create without tag still works (regression test)."""
+        parser = QueryParser()
+        query = parser.parse('create Node(name="A", value=1)')
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.tag is None
+        assert len(query.fields) == 2
+
+    def test_parse_tag_reference_in_array(self):
+        """Test parsing tag reference as array element."""
+        parser = QueryParser()
+        query = parser.parse('create Node(tag(A), children=[Node(name="B"), A])')
+
+        assert isinstance(query, CreateInstanceQuery)
+        assert query.tag == "A"
+        # There's only 1 field (children) - tag is not a field
+        assert len(query.fields) == 1
+        # children field should be an array with two elements
+        children = query.fields[0].value
+        assert isinstance(children, list)
+        assert len(children) == 2
+        assert isinstance(children[0], InlineInstance)
+        assert isinstance(children[1], TagReference)
+        assert children[1].name == "A"

@@ -220,19 +220,35 @@ update $n set value=10, next=null
 
 ### Cyclic Data Structures
 
-Cycles in composite references (e.g., linked lists, graphs) are supported using `null` + `update`:
+Cycles in composite references (e.g., linked lists, graphs) are supported using **tag syntax**. Tags allow creating cycles within a single create statement by declaring a name for the record being created that nested records can reference.
 
+Self-referencing (node points to itself):
 ```ttq
 create type Node value:uint8 next:Node;
-$n1 = create Node(value=1, next=null);
-$n2 = create Node(value=2, next=null);
-$n3 = create Node(value=3, next=$n1);
-update $n1 set next=$n2;
-update $n2 set next=$n3;
--- Now: n1 -> n2 -> n3 -> n1 (cycle)
+create Node(tag(SELF), value=42, next=SELF);
 ```
 
-The `dump` command is cycle-aware: it detects back-edges via DFS, emits them as `null` in create statements, then appends `update` statements to patch the back-edge fields. This ensures dump output is a valid executable script that reconstructs cycles.
+Two-node cycle (A→B→A):
+```ttq
+create type Node name:string child:Node;
+create Node(tag(A), name="A", child=Node(name="B", child=A));
+```
+
+Four-node cycle (A→B→C→D→A):
+```ttq
+create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A))));
+```
+
+Tags are statement-scoped: they only exist within the create statement where they're declared. Use the `update` command for more complex scenarios requiring multiple statements:
+
+```ttq
+$n1 = create Node(value=1, next=null);
+$n2 = create Node(value=2, next=$n1);
+update $n1 set next=$n2;
+-- Now: n1 -> n2 -> n1 (cycle)
+```
+
+The `dump` command is cycle-aware: it automatically uses tag syntax when serializing cyclic data, ensuring roundtrip fidelity.
 
 ### Selection
 The query language, TTQ, requires a `from` clause followed by a `select` clause:

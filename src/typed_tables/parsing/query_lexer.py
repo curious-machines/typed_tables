@@ -46,6 +46,7 @@ class QueryLexer:
         "update": "UPDATE",
         "set": "SET",
         "pretty": "PRETTY",
+        "tag": "TAG",
     }
 
     # Token list

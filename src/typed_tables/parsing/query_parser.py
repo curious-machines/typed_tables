@@ -135,6 +135,7 @@ class InlineInstance:
 
     type_name: str
     fields: list[FieldValue]
+    tag: str | None = None
 
 
 @dataclass
@@ -159,6 +160,7 @@ class CreateInstanceQuery:
 
     type_name: str
     fields: list[FieldValue] = field(default_factory=list)
+    tag: str | None = None
 
 
 @dataclass
@@ -207,6 +209,13 @@ class NullValue:
     """The null literal value."""
 
     pass
+
+
+@dataclass
+class TagReference:
+    """A reference to a declared tag used as a field value."""
+
+    name: str
 
 
 @dataclass
@@ -416,12 +425,13 @@ class QueryParser:
         p[0] = DropDatabaseQuery(path=p[2])
 
     def p_query_variable_assignment(self, p: yacc.YaccProduction) -> None:
-        """query : VARIABLE EQ CREATE IDENTIFIER LPAREN instance_field_list RPAREN
+        """query : VARIABLE EQ CREATE IDENTIFIER LPAREN tagged_instance_field_list RPAREN
                  | VARIABLE EQ CREATE IDENTIFIER LPAREN RPAREN"""
         if len(p) == 8:
+            tag_name, fields = p[6]
             p[0] = VariableAssignmentQuery(
                 var_name=p[1],
-                create_query=CreateInstanceQuery(type_name=p[4], fields=p[6]),
+                create_query=CreateInstanceQuery(type_name=p[4], fields=fields, tag=tag_name),
             )
         else:
             p[0] = VariableAssignmentQuery(
@@ -430,8 +440,9 @@ class QueryParser:
             )
 
     def p_query_create_instance(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE IDENTIFIER LPAREN instance_field_list RPAREN"""
-        p[0] = CreateInstanceQuery(type_name=p[2], fields=p[4])
+        """query : CREATE IDENTIFIER LPAREN tagged_instance_field_list RPAREN"""
+        tag_name, fields = p[4]
+        p[0] = CreateInstanceQuery(type_name=p[2], fields=fields, tag=tag_name)
 
     def p_query_create_instance_empty(self, p: yacc.YaccProduction) -> None:
         """query : CREATE IDENTIFIER LPAREN RPAREN"""
@@ -483,6 +494,14 @@ class QueryParser:
         """instance_field : IDENTIFIER EQ instance_value"""
         p[0] = FieldValue(name=p[1], value=p[3])
 
+    def p_tagged_instance_field_list_with_tag(self, p: yacc.YaccProduction) -> None:
+        """tagged_instance_field_list : TAG LPAREN IDENTIFIER RPAREN COMMA instance_field_list"""
+        p[0] = (p[3], p[6])  # (tag_name, field_list)
+
+    def p_tagged_instance_field_list_no_tag(self, p: yacc.YaccProduction) -> None:
+        """tagged_instance_field_list : instance_field_list"""
+        p[0] = (None, p[1])
+
     def p_instance_value_literal(self, p: yacc.YaccProduction) -> None:
         """instance_value : STRING
                           | INTEGER
@@ -499,8 +518,13 @@ class QueryParser:
         p[0] = CompositeRef(type_name=p[1], index=p[3])
 
     def p_instance_value_inline_instance(self, p: yacc.YaccProduction) -> None:
-        """instance_value : IDENTIFIER LPAREN instance_field_list RPAREN"""
-        p[0] = InlineInstance(type_name=p[1], fields=p[3])
+        """instance_value : IDENTIFIER LPAREN tagged_instance_field_list RPAREN"""
+        tag_name, fields = p[3]
+        p[0] = InlineInstance(type_name=p[1], fields=fields, tag=tag_name)
+
+    def p_instance_value_tag_reference(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER"""
+        p[0] = TagReference(name=p[1])
 
     def p_instance_value_null(self, p: yacc.YaccProduction) -> None:
         """instance_value : NULL"""
@@ -533,8 +557,13 @@ class QueryParser:
         p[0] = p[1]
 
     def p_array_element_inline_instance(self, p: yacc.YaccProduction) -> None:
-        """array_element : IDENTIFIER LPAREN instance_field_list RPAREN"""
-        p[0] = InlineInstance(type_name=p[1], fields=p[3])
+        """array_element : IDENTIFIER LPAREN tagged_instance_field_list RPAREN"""
+        tag_name, fields = p[3]
+        p[0] = InlineInstance(type_name=p[1], fields=fields, tag=tag_name)
+
+    def p_array_element_tag_reference(self, p: yacc.YaccProduction) -> None:
+        """array_element : IDENTIFIER"""
+        p[0] = TagReference(name=p[1])
 
     def p_array_element_null(self, p: yacc.YaccProduction) -> None:
         """array_element : NULL"""
