@@ -621,6 +621,9 @@ DUMP:
   dump yaml                Dump as YAML (uses anchors/aliases for references)
   dump yaml pretty         Pretty-print YAML output
                            (yaml can be combined with other dump options)
+  dump json                Dump as JSON (uses $id/$ref for references)
+  dump json pretty         Pretty-print JSON output
+                           (json can be combined with other dump options)
 
 CYCLIC DATA:
   Tags allow creating cyclic data structures. Tags must be used within a

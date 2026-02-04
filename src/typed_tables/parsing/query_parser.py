@@ -209,7 +209,7 @@ class DumpQuery:
     variable: str | None = None
     items: list[DumpItem] | None = None
     pretty: bool = False
-    format: str = "ttq"  # "ttq" or "yaml"
+    format: str = "ttq"  # "ttq", "yaml", or "json"
 
 
 @dataclass
@@ -365,11 +365,19 @@ class QueryParser:
                        | DUMP PRETTY
                        | DUMP YAML
                        | DUMP YAML PRETTY
-                       | DUMP PRETTY YAML"""
+                       | DUMP PRETTY YAML
+                       | DUMP JSON
+                       | DUMP JSON PRETTY
+                       | DUMP PRETTY JSON"""
         # Returns (pretty: bool, format: str)
         tokens = [p[i].lower() if isinstance(p[i], str) else p[i] for i in range(1, len(p))]
         pretty = "pretty" in tokens
-        fmt = "yaml" if "yaml" in tokens else "ttq"
+        if "yaml" in tokens:
+            fmt = "yaml"
+        elif "json" in tokens:
+            fmt = "json"
+        else:
+            fmt = "ttq"
         p[0] = (pretty, fmt)
 
     def p_query_dump(self, p: yacc.YaccProduction) -> None:

@@ -1719,6 +1719,10 @@ class QueryExecutor:
             return self._execute_dump_yaml(
                 query, dump_targets, aliases, composites, sorted_composites, cycle_composites
             )
+        elif query.format == "json":
+            return self._execute_dump_json(
+                query, dump_targets, aliases, composites, sorted_composites, cycle_composites
+            )
 
         # TTQ format output
         # Emit aliases
@@ -2251,6 +2255,137 @@ class QueryExecutor:
                     lines.append("")
 
         return DumpResult(columns=[], rows=[], script="\n".join(lines) + "\n", output_file=query.output_file)
+
+    def _execute_dump_json(
+        self,
+        query: DumpQuery,
+        dump_targets: dict[str, set[int] | None] | None,
+        aliases: list[tuple[str, AliasTypeDefinition]],
+        composites: list[tuple[str, CompositeTypeDefinition]],
+        sorted_composites: list[tuple[str, CompositeTypeDefinition]],
+        cycle_composites: list[tuple[str, CompositeTypeDefinition]],
+    ) -> DumpResult:
+        """Execute DUMP query with JSON output format.
+
+        Uses $id/$ref convention for references:
+        - Each record has "$id": "Type_idx" for identification
+        - References use {"$ref": "Type_idx"}
+        """
+        import json
+
+        pretty = query.pretty
+
+        # Determine which composites to dump records for
+        if dump_targets is not None:
+            types_to_dump = [(n, t) for n, t in composites if n in dump_targets]
+        else:
+            types_to_dump = composites
+
+        # Helper: filter records by dump_targets
+        def _include_record(name: str, idx: int) -> bool:
+            if dump_targets is None:
+                return True
+            if name not in dump_targets:
+                return False
+            allowed = dump_targets[name]
+            return allowed is None or idx in allowed
+
+        # Generate ID for a record
+        def record_id(type_name: str, idx: int) -> str:
+            return f"{type_name}_{idx}"
+
+        # Helper to format a primitive value for JSON
+        def fmt_primitive(val: Any, prim_type: PrimitiveTypeDefinition) -> Any:
+            if prim_type.primitive == PrimitiveType.CHARACTER:
+                return chr(val) if isinstance(val, int) else val
+            elif prim_type.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+                return float(val)
+            elif prim_type.primitive in (
+                PrimitiveType.INT8, PrimitiveType.INT16, PrimitiveType.INT32, PrimitiveType.INT64,
+                PrimitiveType.UINT8, PrimitiveType.UINT16, PrimitiveType.UINT32, PrimitiveType.UINT64,
+                PrimitiveType.INT128, PrimitiveType.UINT128,
+            ):
+                return int(val)
+            else:
+                return val
+
+        # Helper to format a field value for JSON
+        def fmt_value(val: Any, field_type: TypeDefinition) -> Any:
+            base = field_type.resolve_base_type()
+
+            if val is None or val == NULL_REF:
+                return None
+            elif isinstance(base, PrimitiveTypeDefinition):
+                return fmt_primitive(val, base)
+            elif isinstance(base, CompositeTypeDefinition):
+                # Reference to another record
+                return {"$ref": record_id(field_type.name, val)}
+            elif isinstance(base, ArrayTypeDefinition):
+                arr_table = self.storage.get_array_table_for_type(field_type)
+                start_idx, length = arr_table.get_header(val)
+
+                if length == 0:
+                    return []
+
+                elem_base = base.element_type.resolve_base_type()
+
+                # Character array → string
+                if isinstance(elem_base, PrimitiveTypeDefinition) and elem_base.primitive == PrimitiveType.CHARACTER:
+                    chars = [arr_table.element_table.get(start_idx + j) for j in range(length)]
+                    return "".join(chars)
+
+                elements = [arr_table.element_table.get(start_idx + j) for j in range(length)]
+
+                if isinstance(elem_base, CompositeTypeDefinition):
+                    # Composite array - return references
+                    result = []
+                    for elem_ref in elements:
+                        if elem_ref == NULL_REF:
+                            result.append(None)
+                        else:
+                            result.append({"$ref": record_id(elem_base.name, elem_ref)})
+                    return result
+                else:
+                    # Primitive array
+                    return [fmt_primitive(e, elem_base) for e in elements]
+            elif isinstance(base, AliasTypeDefinition):
+                return fmt_value(val, base.base_type)
+            else:
+                return val
+
+        # Build the JSON structure
+        output: dict[str, list[dict[str, Any]]] = {}
+
+        for name, comp_def in types_to_dump:
+            table_file = self.storage.data_dir / f"{name}.bin"
+            if not table_file.exists():
+                continue
+            table = self.storage.get_table(name)
+
+            records = []
+            for i in range(table.count):
+                if table.is_deleted(i) or not _include_record(name, i):
+                    continue
+
+                raw = table.get(i)
+                record: dict[str, Any] = {"$id": record_id(name, i)}
+
+                for f in comp_def.fields:
+                    val = raw[f.name]
+                    record[f.name] = fmt_value(val, f.type_def)
+
+                records.append(record)
+
+            if records:
+                output[name] = records
+
+        # Serialize to JSON
+        if pretty:
+            script = json.dumps(output, indent=2) + "\n"
+        else:
+            script = json.dumps(output) + "\n"
+
+        return DumpResult(columns=[], rows=[], script=script, output_file=query.output_file)
 
     def _sort_composites_by_dependency(
         self, composites: list[tuple[str, CompositeTypeDefinition]]

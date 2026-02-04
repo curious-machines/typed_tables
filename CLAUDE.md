@@ -418,6 +418,23 @@ Node:
     child: *Node_0
 ```
 
+JSON format is supported using `$id` and `$ref` for references:
+```ttq
+dump json                     -- dump as JSON
+dump json pretty              -- pretty-print JSON
+dump json to "backup.json"    -- dump JSON to file
+```
+
+Example JSON output with cyclic references:
+```json
+{
+  "Node": [
+    {"$id": "Node_0", "name": "A", "child": {"$ref": "Node_1"}},
+    {"$id": "Node_1", "name": "B", "child": {"$ref": "Node_0"}}
+  ]
+}
+```
+
 To be determined, but here is a list of features that will be expected to be supported:
 
 

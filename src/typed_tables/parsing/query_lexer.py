@@ -50,6 +50,7 @@ class QueryLexer:
         "scope": "SCOPE",
         "forward": "FORWARD",
         "yaml": "YAML",
+        "json": "JSON",
     }
 
     # Token list
