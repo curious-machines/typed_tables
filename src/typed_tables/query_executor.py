@@ -1470,6 +1470,8 @@ class QueryExecutor:
             dump_targets = {query.table: None}
         # else: dump_targets stays None → full dump
 
+        pretty = query.pretty
+
         lines: list[str] = []
         lines.append("-- TTQ dump")
 
@@ -1526,8 +1528,17 @@ class QueryExecutor:
                     base_elem = field_type_name[:-2]
                     field_type_name = f"{base_elem}[]"
                 field_strs.append(f"{f.name}:{field_type_name}")
-            fields_part = " ".join(field_strs)
-            lines.append(f"create type {name} {fields_part};")
+            if pretty:
+                lines.append(f"create type {name}")
+                for i, fs in enumerate(field_strs):
+                    # Add space after colon for pretty: "name:string" -> "name: string"
+                    fs_with_space = fs.replace(":", ": ", 1)
+                    suffix = ";" if i == len(field_strs) - 1 else ""
+                    lines.append(f"    {fs_with_space}{suffix}")
+                lines.append("")  # blank line between type blocks
+            else:
+                fields_part = " ".join(field_strs)
+                lines.append(f"create type {name} {fields_part};")
 
         # Emit full definitions for cycle types (populates the forward declarations)
         for name, comp_def in cycle_composites:
@@ -1540,8 +1551,16 @@ class QueryExecutor:
                     base_elem = field_type_name[:-2]
                     field_type_name = f"{base_elem}[]"
                 field_strs.append(f"{f.name}:{field_type_name}")
-            fields_part = " ".join(field_strs)
-            lines.append(f"create type {name} {fields_part};")
+            if pretty:
+                lines.append(f"create type {name}")
+                for i, fs in enumerate(field_strs):
+                    fs_with_space = fs.replace(":", ": ", 1)
+                    suffix = ";" if i == len(field_strs) - 1 else ""
+                    lines.append(f"    {fs_with_space}{suffix}")
+                lines.append("")  # blank line between type blocks
+            else:
+                fields_part = " ".join(field_strs)
+                lines.append(f"create type {name} {fields_part};")
 
         # Determine which composites to dump records for
         if dump_targets is not None:
@@ -1713,6 +1732,7 @@ class QueryExecutor:
             create_str = self._format_record_as_create(
                 name, comp_def, raw_record, dump_vars,
                 back_edge_set=back_edge_set, record_index=idx,
+                pretty=pretty,
             )
             var_name = dump_vars[key]
             lines.append(f"${var_name} = {create_str};")
@@ -1753,6 +1773,7 @@ class QueryExecutor:
                 create_str = self._format_record_as_create(
                     name, comp_def, raw_record, dump_vars,
                     back_edge_set=back_edge_set, record_index=i,
+                    pretty=pretty,
                 )
                 lines.append(f"{create_str};")
 
@@ -1906,6 +1927,8 @@ class QueryExecutor:
         dump_vars: dict[tuple[str, int], str] | None = None,
         back_edge_set: set[tuple[str, int, str]] | None = None,
         record_index: int | None = None,
+        pretty: bool = False,
+        indent: int = 0,
     ) -> str:
         """Format a raw composite record as a TTQ create statement with inline instances."""
         formatting: set[tuple[str, int]] = set()
@@ -1916,8 +1939,13 @@ class QueryExecutor:
             if back_edge_set and record_index is not None and (type_name, record_index, f.name) in back_edge_set:
                 value_str = "null"
             else:
-                value_str = self._format_field_value(f, ref, dump_vars, formatting)
+                value_str = self._format_field_value(f, ref, dump_vars, formatting, pretty=pretty, indent=indent + 4)
             field_strs.append(f"{f.name}={value_str}")
+        if pretty:
+            inner_indent = " " * (indent + 4)
+            close_indent = " " * indent
+            fields_joined = (",\n" + inner_indent).join(field_strs)
+            return f"create {type_name}(\n{inner_indent}{fields_joined}\n{close_indent})"
         return f"create {type_name}({', '.join(field_strs)})"
 
     def _format_field_value(
@@ -1926,6 +1954,8 @@ class QueryExecutor:
         ref: Any,
         dump_vars: dict[tuple[str, int], str] | None = None,
         formatting: set[tuple[str, int]] | None = None,
+        pretty: bool = False,
+        indent: int = 0,
     ) -> str:
         """Format a single field's value for dump output.
 
@@ -1962,10 +1992,15 @@ class QueryExecutor:
                 elem_strs = []
                 for elem in elements:
                     if isinstance(elem, dict):
-                        inline = self._format_inline_composite(field_base.element_type, elem_base, elem, dump_vars, formatting)
+                        inline = self._format_inline_composite(field_base.element_type, elem_base, elem, dump_vars, formatting, pretty=pretty, indent=indent + 4)
                         elem_strs.append(inline)
                     else:
                         elem_strs.append(str(elem))
+                if pretty:
+                    inner_indent = " " * (indent + 4)
+                    close_indent = " " * indent
+                    elems_joined = (",\n" + inner_indent).join(elem_strs)
+                    return f"[\n{inner_indent}{elems_joined}\n{close_indent}]"
                 return f"[{', '.join(elem_strs)}]"
             else:
                 # Primitive array
@@ -1988,7 +2023,7 @@ class QueryExecutor:
             # Composite field — load and format as inline instance
             comp_table = self.storage.get_table(field.type_def.name)
             nested_record = comp_table.get(ref)
-            result = self._format_inline_composite(field.type_def, field_base, nested_record, dump_vars, formatting)
+            result = self._format_inline_composite(field.type_def, field_base, nested_record, dump_vars, formatting, pretty=pretty, indent=indent)
             # Remove from path so sibling branches don't get false positives
             formatting.discard(cycle_key)
             return result
@@ -2006,6 +2041,8 @@ class QueryExecutor:
         raw_record: dict[str, Any],
         dump_vars: dict[tuple[str, int], str] | None = None,
         formatting: set[tuple[str, int]] | None = None,
+        pretty: bool = False,
+        indent: int = 0,
     ) -> str:
         """Format a composite record as an inline instance string."""
         if formatting is None:
@@ -2013,8 +2050,13 @@ class QueryExecutor:
         field_strs = []
         for f in composite_base.fields:
             ref = raw_record[f.name]
-            value_str = self._format_field_value(f, ref, dump_vars, formatting)
+            value_str = self._format_field_value(f, ref, dump_vars, formatting, pretty=pretty, indent=indent + 4)
             field_strs.append(f"{f.name}={value_str}")
+        if pretty:
+            inner_indent = " " * (indent + 4)
+            close_indent = " " * indent
+            fields_joined = (",\n" + inner_indent).join(field_strs)
+            return f"{type_def.name}(\n{inner_indent}{fields_joined}\n{close_indent})"
         return f"{type_def.name}({', '.join(field_strs)})"
 
     def _format_ttq_value(self, value: Any, type_base: TypeDefinition) -> str:

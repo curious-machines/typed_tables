@@ -1019,3 +1019,77 @@ class TestQueryParser:
         assert query.fields[0].value == 1
         assert query.fields[1].name == "b"
         assert query.fields[1].value == "hello"
+
+    def test_parse_dump_pretty(self):
+        """Test parsing dump pretty."""
+        parser = QueryParser()
+        query = parser.parse("dump pretty")
+
+        assert isinstance(query, DumpQuery)
+        assert query.pretty is True
+        assert query.table is None
+        assert query.output_file is None
+
+    def test_parse_dump_pretty_table(self):
+        """Test parsing dump pretty with table name."""
+        parser = QueryParser()
+        query = parser.parse("dump pretty Person")
+
+        assert isinstance(query, DumpQuery)
+        assert query.pretty is True
+        assert query.table == "Person"
+
+    def test_parse_dump_pretty_to_file(self):
+        """Test parsing dump pretty with output file."""
+        parser = QueryParser()
+        query = parser.parse('dump pretty to "f.ttq"')
+
+        assert isinstance(query, DumpQuery)
+        assert query.pretty is True
+        assert query.table is None
+        assert query.output_file == "f.ttq"
+
+    def test_parse_dump_pretty_table_to_file(self):
+        """Test parsing dump pretty with table and output file."""
+        parser = QueryParser()
+        query = parser.parse('dump pretty Person to "p.ttq"')
+
+        assert isinstance(query, DumpQuery)
+        assert query.pretty is True
+        assert query.table == "Person"
+        assert query.output_file == "p.ttq"
+
+    def test_parse_dump_not_pretty_by_default(self):
+        """Test that regular dump has pretty=False."""
+        parser = QueryParser()
+        query = parser.parse("dump")
+
+        assert isinstance(query, DumpQuery)
+        assert query.pretty is False
+
+    def test_parse_dump_table_not_pretty_by_default(self):
+        """Test that regular dump table has pretty=False."""
+        parser = QueryParser()
+        query = parser.parse("dump Person")
+
+        assert isinstance(query, DumpQuery)
+        assert query.pretty is False
+
+    def test_parse_dump_pretty_variable(self):
+        """Test parsing dump pretty with variable."""
+        parser = QueryParser()
+        query = parser.parse("dump pretty $var")
+
+        assert isinstance(query, DumpQuery)
+        assert query.pretty is True
+        assert query.variable == "var"
+
+    def test_parse_dump_pretty_list(self):
+        """Test parsing dump pretty with list."""
+        parser = QueryParser()
+        query = parser.parse("dump pretty [Person, $var]")
+
+        assert isinstance(query, DumpQuery)
+        assert query.pretty is True
+        assert query.items is not None
+        assert len(query.items) == 2

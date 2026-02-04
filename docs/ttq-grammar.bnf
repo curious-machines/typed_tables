@@ -338,24 +338,30 @@ array_element   ::= STRING | INTEGER | FLOAT
 (*
  * Serialize database contents as an executable TTQ script.
  * Use "to" to write output to a file instead of stdout.
+ * Use "pretty" for multi-line indented formatting.
  *
  * Examples:
  *   dump                     -- dump entire database
  *   dump Person              -- dump single table
  *   dump to "backup.ttq"     -- dump entire database to file
  *   dump Person to "p.ttq"   -- dump single table to file
+ *   dump pretty              -- pretty-print entire database
+ *   dump pretty Person       -- pretty-print single table
  *)
 
-dump_query      ::= "dump"
-                  | "dump" IDENTIFIER
-                  | "dump" STRING
-                  | "dump" "to" STRING
-                  | "dump" IDENTIFIER "to" STRING
-                  | "dump" STRING "to" STRING
-                  | "dump" VARIABLE
-                  | "dump" VARIABLE "to" STRING
-                  | "dump" "[" dump_item_list "]"
-                  | "dump" "[" dump_item_list "]" "to" STRING
+dump_prefix     ::= "dump"
+                  | "dump" "pretty"
+
+dump_query      ::= dump_prefix
+                  | dump_prefix IDENTIFIER
+                  | dump_prefix STRING
+                  | dump_prefix "to" STRING
+                  | dump_prefix IDENTIFIER "to" STRING
+                  | dump_prefix STRING "to" STRING
+                  | dump_prefix VARIABLE
+                  | dump_prefix VARIABLE "to" STRING
+                  | dump_prefix "[" dump_item_list "]"
+                  | dump_prefix "[" dump_item_list "]" "to" STRING
 
 dump_item_list  ::= dump_item
                   | dump_item_list "," dump_item
@@ -461,7 +467,7 @@ SEMICOLON       ::= ";"
  * and, or, not, starts, with, matches, show, tables,
  * describe, count, average, sum, product, use, create,
  * type, uuid, delete, as, alias, drop, dump, to, collect,
- * null, update, set
+ * null, update, set, pretty
  *)
 
 

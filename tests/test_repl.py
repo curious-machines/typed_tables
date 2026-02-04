@@ -1994,3 +1994,178 @@ create Person(name="Bob", age=25);
         assert "Alice" in dump_result.script
         assert "Bob" in dump_result.script
         storage.close()
+
+
+class TestDumpPretty:
+    """Tests for the dump pretty command."""
+
+    def test_dump_pretty_type_formatting(self, tmp_path: Path):
+        """Test that pretty dump formats type definitions with 4-space indent."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Person name:string age:uint8;
+create Person(name="Alice", age=30);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery(pretty=True))
+        assert isinstance(dump_result, DumpResult)
+        # Type definition should be multi-line with 4-space indent
+        assert "create type Person\n    name: string\n    age: uint8;" in dump_result.script
+        storage.close()
+
+    def test_dump_pretty_instance_formatting(self, tmp_path: Path):
+        """Test that pretty dump formats instances with 4-space indented fields."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Person name:string age:uint8;
+create Person(name="Alice", age=30);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery(pretty=True))
+        assert isinstance(dump_result, DumpResult)
+        # Instance should be multi-line with 4-space indent
+        assert 'create Person(\n    name="Alice",\n    age=30\n)' in dump_result.script
+        storage.close()
+
+    def test_dump_pretty_nested_composites(self, tmp_path: Path):
+        """Test that pretty dump increases indent for nested inline composites."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Address street:string city:string;
+create type Person name:string address:Address;
+create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery(pretty=True))
+        assert isinstance(dump_result, DumpResult)
+        # Nested composite should have increased indent (8 spaces for nested fields, 4 for close paren)
+        assert 'Address(\n        street="123 Main",\n        city="Springfield"\n    )' in dump_result.script
+        storage.close()
+
+    def test_dump_pretty_roundtrip(self, tmp_path: Path):
+        """Test that pretty dump output can be parsed and recreates the database."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Person name:string age:uint8;
+create Person(name="Alice", age=30);
+create Person(name="Bob", age=25);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        # Get pretty dump output
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery(pretty=True))
+        assert isinstance(dump_result, DumpResult)
+        dump_script = dump_result.script
+        storage.close()
+
+        # Recreate database from pretty dump
+        db_path2 = tmp_path / "testdb2"
+        restore_script = tmp_path / "restore.ttq"
+        restore_script.write_text(f"use {db_path2};\n{dump_script}\n")
+
+        result = run_file(restore_script, None, verbose=False)
+        assert result == 0
+
+        # Verify round-trip: compact dump of both databases should match
+        registry2 = load_registry_from_metadata(db_path2)
+        storage2 = StorageManager(db_path2, registry2)
+        executor2 = QueryExecutor(storage2, registry2)
+
+        dump2 = executor2.execute(DumpQuery(pretty=False))
+        assert isinstance(dump2, DumpResult)
+
+        registry_orig = load_registry_from_metadata(db_path)
+        storage_orig = StorageManager(db_path, registry_orig)
+        executor_orig = QueryExecutor(storage_orig, registry_orig)
+
+        dump_orig = executor_orig.execute(DumpQuery(pretty=False))
+        assert isinstance(dump_orig, DumpResult)
+
+        assert dump2.script == dump_orig.script
+        storage2.close()
+        storage_orig.close()
+
+    def test_dump_not_pretty_unchanged(self, tmp_path: Path):
+        """Regression: regular dump output is unchanged (not pretty-formatted)."""
+        db_path = tmp_path / "testdb"
+
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import DumpResult, QueryExecutor
+        from typed_tables.parsing.query_parser import DumpQuery
+        from typed_tables.storage import StorageManager
+
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Person name:string age:uint8;
+create Person(name="Alice", age=30);
+""")
+        result = run_file(script, None, verbose=False)
+        assert result == 0
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+
+        dump_result = executor.execute(DumpQuery(pretty=False))
+        assert isinstance(dump_result, DumpResult)
+        # Compact type definition: all on one line
+        assert "create type Person name:string age:uint8;" in dump_result.script
+        # Compact instance: all on one line
+        assert 'create Person(name="Alice", age=30);' in dump_result.script
+        storage.close()

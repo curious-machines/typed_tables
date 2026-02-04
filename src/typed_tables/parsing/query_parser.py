@@ -199,6 +199,7 @@ class DumpQuery:
     output_file: str | None = None
     variable: str | None = None
     items: list[DumpItem] | None = None
+    pretty: bool = False
 
 
 @dataclass
@@ -331,39 +332,44 @@ class QueryParser:
         """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER"""
         p[0] = CreateTypeQuery(name=p[3], fields=[], parent=p[5])
 
+    def p_dump_prefix(self, p: yacc.YaccProduction) -> None:
+        """dump_prefix : DUMP
+                       | DUMP PRETTY"""
+        p[0] = len(p) > 2
+
     def p_query_dump(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP"""
-        p[0] = DumpQuery()
+        """query : dump_prefix"""
+        p[0] = DumpQuery(pretty=p[1])
 
     def p_query_dump_table(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP IDENTIFIER
-                 | DUMP STRING"""
-        p[0] = DumpQuery(table=p[2])
+        """query : dump_prefix IDENTIFIER
+                 | dump_prefix STRING"""
+        p[0] = DumpQuery(table=p[2], pretty=p[1])
 
     def p_query_dump_to(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP TO STRING"""
-        p[0] = DumpQuery(output_file=p[3])
+        """query : dump_prefix TO STRING"""
+        p[0] = DumpQuery(output_file=p[3], pretty=p[1])
 
     def p_query_dump_table_to(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP IDENTIFIER TO STRING
-                 | DUMP STRING TO STRING"""
-        p[0] = DumpQuery(table=p[2], output_file=p[4])
+        """query : dump_prefix IDENTIFIER TO STRING
+                 | dump_prefix STRING TO STRING"""
+        p[0] = DumpQuery(table=p[2], output_file=p[4], pretty=p[1])
 
     def p_query_dump_variable(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP VARIABLE"""
-        p[0] = DumpQuery(variable=p[2])
+        """query : dump_prefix VARIABLE"""
+        p[0] = DumpQuery(variable=p[2], pretty=p[1])
 
     def p_query_dump_variable_to(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP VARIABLE TO STRING"""
-        p[0] = DumpQuery(variable=p[2], output_file=p[4])
+        """query : dump_prefix VARIABLE TO STRING"""
+        p[0] = DumpQuery(variable=p[2], output_file=p[4], pretty=p[1])
 
     def p_query_dump_list(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP LBRACKET dump_item_list RBRACKET"""
-        p[0] = DumpQuery(items=p[3])
+        """query : dump_prefix LBRACKET dump_item_list RBRACKET"""
+        p[0] = DumpQuery(items=p[3], pretty=p[1])
 
     def p_query_dump_list_to(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP LBRACKET dump_item_list RBRACKET TO STRING"""
-        p[0] = DumpQuery(items=p[3], output_file=p[6])
+        """query : dump_prefix LBRACKET dump_item_list RBRACKET TO STRING"""
+        p[0] = DumpQuery(items=p[3], output_file=p[6], pretty=p[1])
 
     def p_dump_item_list_single(self, p: yacc.YaccProduction) -> None:
         """dump_item_list : dump_item"""

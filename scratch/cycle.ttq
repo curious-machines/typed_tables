@@ -1,6 +1,6 @@
 create type Node
-  name: string
-  child: Node;
+    name: string
+    child: Node;
 
 $back = create Node(name="D", child=null);
 $top = create Node(

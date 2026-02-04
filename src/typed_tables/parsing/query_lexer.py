@@ -45,6 +45,7 @@ class QueryLexer:
         "null": "NULL",
         "update": "UPDATE",
         "set": "SET",
+        "pretty": "PRETTY",
     }
 
     # Token list

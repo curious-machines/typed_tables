@@ -547,6 +547,9 @@ DUMP:
                            Dump a list of tables and/or variables
   dump [...] to "file"     Dump list to a file
                            Shared references are emitted as $var bindings
+  dump pretty              Pretty-print with multi-line indented formatting
+  dump pretty <table>      Pretty-print a single table
+                           (pretty can be added to any dump variant above)
 
 OTHER:
   help                     Show this help
