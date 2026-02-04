@@ -11,9 +11,75 @@ from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import DropDatabaseQuery, QueryParser, UseQuery
-from typed_tables.query_executor import CollectResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, UpdateResult, UseResult, VariableAssignmentResult
+from typed_tables.query_executor import CollectResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult
 from typed_tables.storage import StorageManager
 from typed_tables.types import TypeRegistry
+
+
+def _split_statements(content: str) -> list[str]:
+    """Split content into statements on semicolons, respecting brace nesting.
+
+    Scope blocks contain semicolons inside braces, so we need to track
+    brace depth and only split on semicolons at depth 0.
+
+    Also handles string literals to avoid matching braces/semicolons inside them.
+    """
+    statements = []
+    current = []
+    brace_depth = 0
+    in_string = False
+    escape_next = False
+    i = 0
+
+    while i < len(content):
+        ch = content[i]
+
+        if escape_next:
+            current.append(ch)
+            escape_next = False
+            i += 1
+            continue
+
+        if ch == '\\' and in_string:
+            current.append(ch)
+            escape_next = True
+            i += 1
+            continue
+
+        if ch == '"':
+            in_string = not in_string
+            current.append(ch)
+            i += 1
+            continue
+
+        if in_string:
+            current.append(ch)
+            i += 1
+            continue
+
+        # Not in string
+        if ch == '{':
+            brace_depth += 1
+            current.append(ch)
+        elif ch == '}':
+            brace_depth = max(0, brace_depth - 1)
+            current.append(ch)
+        elif ch == ';' and brace_depth == 0:
+            # End of statement at top level
+            stmt = ''.join(current).strip()
+            if stmt:
+                statements.append(stmt)
+            current = []
+        else:
+            current.append(ch)
+        i += 1
+
+    # Handle any remaining content
+    stmt = ''.join(current).strip()
+    if stmt:
+        statements.append(stmt)
+
+    return statements
 
 
 def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
@@ -85,8 +151,8 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
             print(result.script)
         return
 
-    # Special handling for UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult)):
+    # Special handling for UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, ScopeResult - show message as success, not error
+    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -554,18 +620,24 @@ DUMP:
                            (pretty can be added to any dump variant above)
 
 CYCLIC DATA:
-  Tags allow creating cyclic data structures in a single create statement.
-  A tag declares a name for the record being created, which can be referenced
-  by nested records to form cycles.
+  Tags allow creating cyclic data structures. Tags must be used within a
+  scope block. A tag declares a name for the record being created, which
+  can be referenced by nested records to form cycles.
+
+  Scope block syntax:
+    scope { <statements> };
 
   Self-referencing (node points to itself):
-    create Node(tag(SELF), value=42, next=SELF)
+    scope { create Node(tag(SELF), value=42, next=SELF); };
 
   Two-node cycle (A→B→A):
-    create Node(tag(A), name="A", child=Node(name="B", child=A))
+    scope { create Node(tag(A), name="A", child=Node(name="B", child=A)); };
 
-  The dump command is cycle-aware and automatically uses tag syntax when
-  serializing cyclic data, ensuring roundtrip fidelity.
+  Tags and variables declared inside a scope are destroyed when the scope
+  exits. Tags cannot be redefined within a scope.
+
+  The dump command is cycle-aware and automatically emits scope blocks with
+  tag syntax when serializing cyclic data, ensuring roundtrip fidelity.
 
 OTHER:
   help                     Show this help
@@ -606,9 +678,8 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
         lines.append(line)
     content = "\n".join(lines)
 
-    # Split on semicolons to get individual queries
-    parts = content.split(";")
-    queries = [part.strip() for part in parts if part.strip()]
+    # Split on semicolons to get individual queries (brace-aware)
+    queries = _split_statements(content)
 
     if not queries:
         print("No queries found in file", file=sys.stderr)

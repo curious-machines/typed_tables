@@ -264,7 +264,18 @@ class UpdateQuery:
     fields: list[FieldValue] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery
+@dataclass
+class ScopeBlock:
+    """A scope block containing statements with shared tag/variable namespace.
+
+    Tags and variables declared within a scope are destroyed when the scope exits.
+    Tags can only be used within a scope block.
+    """
+
+    statements: list[Any] = field(default_factory=list)
+
+
+Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -465,6 +476,22 @@ class QueryParser:
     def p_query_update_ref(self, p: yacc.YaccProduction) -> None:
         """query : UPDATE IDENTIFIER LPAREN INTEGER RPAREN SET instance_field_list"""
         p[0] = UpdateQuery(type_name=p[2], index=p[4], fields=p[7])
+
+    def p_query_scope(self, p: yacc.YaccProduction) -> None:
+        """query : SCOPE LBRACE scope_statement_list RBRACE"""
+        p[0] = ScopeBlock(statements=p[3])
+
+    def p_scope_statement_list_single(self, p: yacc.YaccProduction) -> None:
+        """scope_statement_list : scope_statement"""
+        p[0] = [p[1]]
+
+    def p_scope_statement_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """scope_statement_list : scope_statement_list scope_statement"""
+        p[0] = p[1] + [p[2]]
+
+    def p_scope_statement(self, p: yacc.YaccProduction) -> None:
+        """scope_statement : query SEMICOLON"""
+        p[0] = p[1]
 
     def p_type_field_list_single(self, p: yacc.YaccProduction) -> None:
         """type_field_list : type_field_def"""

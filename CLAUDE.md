@@ -220,26 +220,28 @@ update $n set value=10, next=null
 
 ### Cyclic Data Structures
 
-Cycles in composite references (e.g., linked lists, graphs) are supported using **tag syntax**. Tags allow creating cycles within a single create statement by declaring a name for the record being created that nested records can reference.
+Cycles in composite references (e.g., linked lists, graphs) are supported using **tag syntax** within **scope blocks**. Tags allow creating cycles by declaring a name for the record being created that nested records can reference.
 
 Self-referencing (node points to itself):
 ```ttq
 create type Node value:uint8 next:Node;
-create Node(tag(SELF), value=42, next=SELF);
+scope { create Node(tag(SELF), value=42, next=SELF); };
 ```
 
 Two-node cycle (A→B→A):
 ```ttq
 create type Node name:string child:Node;
-create Node(tag(A), name="A", child=Node(name="B", child=A));
+scope { create Node(tag(A), name="A", child=Node(name="B", child=A)); };
 ```
 
 Four-node cycle (A→B→C→D→A):
 ```ttq
-create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A))));
+scope { create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A)))); };
 ```
 
-Tags are statement-scoped: they only exist within the create statement where they're declared. Use the `update` command for more complex scenarios requiring multiple statements:
+Tags require a scope block and are scoped to that block. Tags and variables declared inside a scope are destroyed when the scope exits. Tags cannot be redefined within a scope.
+
+For multi-statement cycles, use `null` + `update`:
 
 ```ttq
 $n1 = create Node(value=1, next=null);
@@ -248,7 +250,7 @@ update $n1 set next=$n2;
 -- Now: n1 -> n2 -> n1 (cycle)
 ```
 
-The `dump` command is cycle-aware: it automatically uses tag syntax when serializing cyclic data, ensuring roundtrip fidelity.
+The `dump` command is cycle-aware: it automatically emits scope blocks with tag syntax when serializing cyclic data, ensuring roundtrip fidelity.
 
 ### Selection
 The query language, TTQ, requires a `from` clause followed by a `select` clause:

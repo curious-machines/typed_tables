@@ -29,6 +29,7 @@ from typed_tables.parsing.query_parser import (
     InlineInstance,
     NullValue,
     Query,
+    ScopeBlock,
     SelectField,
     SelectQuery,
     ShowTablesQuery,
@@ -124,16 +125,36 @@ class UpdateResult(QueryResult):
     index: int | None = None
 
 
+@dataclass
+class ScopeResult(QueryResult):
+    """Result of executing a scope block."""
+
+    statement_count: int = 0
+
+
+@dataclass
+class ScopeState:
+    """State for a single scope level.
+
+    Holds tags and variables declared within the scope.
+    Destroyed when the scope exits.
+    """
+
+    tag_bindings: dict[str, tuple[str, int]]  # tag_name → (type_name, index)
+    deferred_patches: list[tuple[str, int, str, str]]  # (type_name, record_idx, field_name, tag_name)
+    variables: dict[str, tuple[str, int | list[int]]]  # var_name → (type_name, index_or_indices)
+
+
 class QueryExecutor:
     """Executes TTQ queries against storage."""
 
     def __init__(self, storage: StorageManager, registry: TypeRegistry) -> None:
         self.storage = storage
         self.registry = registry
+        # Session-level variables (outside any scope)
         self.variables: dict[str, tuple[str, int | list[int]]] = {}  # name → (type_name, index_or_indices)
-        # Tag bindings for cycle handling - statement-scoped, cleared at start of each create
-        self._tag_bindings: dict[str, tuple[str, int]] = {}  # tag_name → (type_name, index)
-        self._deferred_tag_patches: list[tuple[str, int, str, str]] = []  # (type_name, record_idx, field_name, tag_name)
+        # Scope stack for tags and scoped variables
+        self._scope_stack: list[ScopeState] = []
 
     def execute(self, query: Query) -> QueryResult:
         """Execute a query and return results."""
@@ -165,8 +186,130 @@ class QueryExecutor:
             return self._execute_collect(query)
         elif isinstance(query, UpdateQuery):
             return self._execute_update(query)
+        elif isinstance(query, ScopeBlock):
+            return self._execute_scope_block(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
+
+    # --- Scope management ---
+
+    def _in_scope(self) -> bool:
+        """Return True if currently inside a scope block."""
+        return len(self._scope_stack) > 0
+
+    def _current_scope(self) -> ScopeState | None:
+        """Return the current (innermost) scope, or None if not in a scope."""
+        return self._scope_stack[-1] if self._scope_stack else None
+
+    def _push_scope(self) -> None:
+        """Enter a new scope."""
+        self._scope_stack.append(ScopeState(
+            tag_bindings={},
+            deferred_patches=[],
+            variables={},
+        ))
+
+    def _pop_scope(self) -> ScopeState:
+        """Exit the current scope and return its state."""
+        return self._scope_stack.pop()
+
+    def _lookup_variable(self, var_name: str) -> tuple[str, int | list[int]] | None:
+        """Look up a variable, checking scopes from innermost to outermost, then session."""
+        # Check scope stack from innermost to outermost
+        for scope in reversed(self._scope_stack):
+            if var_name in scope.variables:
+                return scope.variables[var_name]
+        # Check session-level variables
+        return self.variables.get(var_name)
+
+    def _define_variable(self, var_name: str, type_name: str, index: int | list[int]) -> None:
+        """Define a variable in the current scope (or session if not in a scope)."""
+        if self._in_scope():
+            self._current_scope().variables[var_name] = (type_name, index)
+        else:
+            self.variables[var_name] = (type_name, index)
+
+    def _lookup_tag(self, tag_name: str) -> tuple[str, int] | None:
+        """Look up a tag in the current scope stack."""
+        for scope in reversed(self._scope_stack):
+            if tag_name in scope.tag_bindings:
+                return scope.tag_bindings[tag_name]
+        return None
+
+    def _define_tag(self, tag_name: str, type_name: str, index: int) -> None:
+        """Define a tag in the current scope. Error if not in a scope or if redefined."""
+        if not self._in_scope():
+            raise ValueError("Tags can only be used within a scope block")
+        scope = self._current_scope()
+        if tag_name in scope.tag_bindings:
+            raise ValueError(f"Tag '{tag_name}' already defined in this scope")
+        scope.tag_bindings[tag_name] = (type_name, index)
+
+    def _add_deferred_patch(self, type_name: str, record_idx: int, field_name: str, tag_name: str) -> None:
+        """Add a deferred patch for a forward tag reference."""
+        if not self._in_scope():
+            raise ValueError("Tags can only be used within a scope block")
+        self._current_scope().deferred_patches.append((type_name, record_idx, field_name, tag_name))
+
+    def _apply_deferred_patches(self) -> list[str]:
+        """Apply all deferred patches in the current scope. Returns list of errors for unresolved tags."""
+        if not self._in_scope():
+            return []
+
+        scope = self._current_scope()
+        errors = []
+
+        for type_name, record_idx, field_name, tag_name in scope.deferred_patches:
+            tag_binding = self._lookup_tag(tag_name)
+            if tag_binding is None:
+                errors.append(f"Undefined tag: {tag_name}")
+                continue
+
+            target_type, target_idx = tag_binding
+            # Patch the record
+            table = self.storage.get_table(type_name)
+            record = table.get(record_idx)
+            record[field_name] = target_idx
+            table.update(record_idx, record)
+
+        return errors
+
+    def _execute_scope_block(self, query: ScopeBlock) -> QueryResult:
+        """Execute a scope block - enter scope, execute statements, exit scope."""
+        self._push_scope()
+
+        results = []
+        errors = []
+
+        try:
+            for stmt in query.statements:
+                result = self.execute(stmt)
+                results.append(result)
+                if result.message and "error" in result.message.lower():
+                    errors.append(result.message)
+
+            # Apply deferred patches at scope end
+            patch_errors = self._apply_deferred_patches()
+            errors.extend(patch_errors)
+
+        finally:
+            # Always pop scope, even on error
+            self._pop_scope()
+
+        if errors:
+            return ScopeResult(
+                columns=[],
+                rows=[],
+                message=f"Scope completed with errors: {'; '.join(errors)}",
+                statement_count=len(results),
+            )
+
+        return ScopeResult(
+            columns=[],
+            rows=[],
+            message=f"Scope completed: {len(results)} statement(s) executed",
+            statement_count=len(results),
+        )
 
     def _execute_show_tables(self) -> QueryResult:
         """Execute SHOW TABLES query."""
@@ -410,9 +553,14 @@ class QueryExecutor:
 
     def _execute_create_instance(self, query: CreateInstanceQuery) -> CreateResult:
         """Execute CREATE instance query."""
-        # Clear tag state at start of statement
-        self._tag_bindings.clear()
-        self._deferred_tag_patches.clear()
+        # Check if tag is used outside a scope
+        if query.tag and not self._in_scope():
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message="Tags can only be used within a scope block",
+                type_name=query.type_name,
+            )
 
         type_def = self.registry.get(query.type_name)
         if type_def is None:
@@ -447,20 +595,9 @@ class QueryExecutor:
         try:
             index = self._create_instance(type_def, base, values)
 
-            # Register tag if present
+            # Register tag if present (must be in a scope)
             if query.tag:
-                self._tag_bindings[query.tag] = (query.type_name, index)
-
-            # Apply deferred tag patches (back-edges for cycles)
-            for patch_type, patch_idx, patch_field, tag_name in self._deferred_tag_patches:
-                if tag_name not in self._tag_bindings:
-                    raise ValueError(f"Undefined tag: {tag_name}")
-                target_type, target_idx = self._tag_bindings[tag_name]
-                # Update the record to set the field to the target index
-                patch_table = self.storage.get_table(patch_type)
-                record = patch_table.get(patch_idx)
-                record[patch_field] = target_idx
-                patch_table.update(patch_idx, record)
+                self._define_tag(query.tag, query.type_name, index)
 
             return CreateResult(
                 columns=["type", "index"],
@@ -476,14 +613,10 @@ class QueryExecutor:
                 message=f"Failed to create instance: {e}",
                 type_name=query.type_name,
             )
-        finally:
-            # Clear tag state at end of statement
-            self._tag_bindings.clear()
-            self._deferred_tag_patches.clear()
 
     def _execute_variable_assignment(self, query: VariableAssignmentQuery) -> VariableAssignmentResult:
         """Execute a variable assignment: $var = create Type(...)."""
-        if query.var_name in self.variables:
+        if self._lookup_variable(query.var_name) is not None:
             return VariableAssignmentResult(
                 columns=[],
                 rows=[],
@@ -491,7 +624,7 @@ class QueryExecutor:
             )
         result = self._execute_create_instance(query.create_query)
         if result.index is not None:
-            self.variables[query.var_name] = (query.create_query.type_name, result.index)
+            self._define_variable(query.var_name, query.create_query.type_name, result.index)
         return VariableAssignmentResult(
             columns=result.columns,
             rows=result.rows,
@@ -503,7 +636,7 @@ class QueryExecutor:
 
     def _execute_collect(self, query: CollectQuery) -> CollectResult:
         """Execute a collect query: $var = collect source1 [where ...], source2 [where ...] [group by ...] [sort by ...] [offset N] [limit M]."""
-        if query.var_name in self.variables:
+        if self._lookup_variable(query.var_name) is not None:
             return CollectResult(
                 columns=[],
                 rows=[],
@@ -518,12 +651,13 @@ class QueryExecutor:
         for source in query.sources:
             if source.variable:
                 # Variable source
-                if source.variable not in self.variables:
+                var_binding = self._lookup_variable(source.variable)
+                if var_binding is None:
                     return CollectResult(
                         columns=[], rows=[],
                         message=f"Undefined variable: ${source.variable}",
                     )
-                src_type_name, ref = self.variables[source.variable]
+                src_type_name, ref = var_binding
                 src_type_def = self.registry.get(src_type_name)
                 if src_type_def is None:
                     return CollectResult(
@@ -587,8 +721,8 @@ class QueryExecutor:
         # Extract indices
         indices = [r["_index"] for r in records]
 
-        # Store in variables
-        self.variables[query.var_name] = (resolved_type_name, indices)
+        # Store in variables (scope-aware)
+        self._define_variable(query.var_name, resolved_type_name, indices)
 
         return CollectResult(
             columns=["variable", "type", "count"],
@@ -603,12 +737,13 @@ class QueryExecutor:
         """Execute UPDATE query — modify fields on an existing record."""
         # Resolve target: variable or direct Type(index)
         if query.var_name:
-            if query.var_name not in self.variables:
+            var_binding = self._lookup_variable(query.var_name)
+            if var_binding is None:
                 return UpdateResult(
                     columns=[], rows=[],
                     message=f"Undefined variable: ${query.var_name}",
                 )
-            type_name, ref = self.variables[query.var_name]
+            type_name, ref = var_binding
             if isinstance(ref, list):
                 return UpdateResult(
                     columns=[], rows=[],
@@ -695,16 +830,21 @@ class QueryExecutor:
         if isinstance(value, NullValue):
             return None
         elif isinstance(value, TagReference):
+            # Tag references require a scope
+            if not self._in_scope():
+                raise ValueError("Tags can only be used within a scope block")
             # Tag reference - check if already bound, otherwise return sentinel for deferred patching
-            if value.name in self._tag_bindings:
-                _, index = self._tag_bindings[value.name]
+            tag_binding = self._lookup_tag(value.name)
+            if tag_binding is not None:
+                _, index = tag_binding
                 return index
             # Return TagReference as-is - _create_instance will handle deferred patching
             return value
         elif isinstance(value, VariableReference):
-            if value.var_name not in self.variables:
+            var_binding = self._lookup_variable(value.var_name)
+            if var_binding is None:
                 raise ValueError(f"Undefined variable: ${value.var_name}")
-            type_name, ref = self.variables[value.var_name]
+            type_name, ref = var_binding
             if isinstance(ref, list):
                 raise ValueError(f"Cannot use set variable ${value.var_name} as a single field value")
             return ref
@@ -725,15 +865,18 @@ class QueryExecutor:
             base = type_def.resolve_base_type()
             if not isinstance(base, CompositeTypeDefinition):
                 raise ValueError(f"Not a composite type: {value.type_name}")
+            # Check if tag is used outside a scope
+            if value.tag and not self._in_scope():
+                raise ValueError("Tags can only be used within a scope block")
             # Recursively resolve field values (handles nested InlineInstances)
             values: dict[str, Any] = {}
             for fv in value.fields:
                 values[fv.name] = self._resolve_instance_value(fv.value)
             # Create the instance and return its index
             index = self._create_instance(type_def, base, values)
-            # Register tag if present
+            # Register tag if present (must be in a scope, already checked)
             if value.tag:
-                self._tag_bindings[value.tag] = (value.type_name, index)
+                self._define_tag(value.tag, value.type_name, index)
             return index
         return value
 
@@ -806,7 +949,7 @@ class QueryExecutor:
         for field in composite_type.fields:
             fv = values.get(field.name)
             if isinstance(fv, TagReference):
-                self._deferred_tag_patches.append((type_def.name, index, field.name, fv.name))
+                self._add_deferred_patch(type_def.name, index, field.name, fv.name)
 
         return index
 
@@ -899,13 +1042,14 @@ class QueryExecutor:
         """Execute SELECT query."""
         # Resolve the source: either a variable or a table name
         if query.source_var:
-            if query.source_var not in self.variables:
+            var_binding = self._lookup_variable(query.source_var)
+            if var_binding is None:
                 return QueryResult(
                     columns=[],
                     rows=[],
                     message=f"Undefined variable: ${query.source_var}",
                 )
-            type_name, ref = self.variables[query.source_var]
+            type_name, ref = var_binding
             type_def = self.registry.get(type_name)
             if type_def is None:
                 return QueryResult(
@@ -1485,12 +1629,13 @@ class QueryExecutor:
             dump_targets = {}
             for item in query.items:
                 if item.variable:
-                    if item.variable not in self.variables:
+                    var_binding = self._lookup_variable(item.variable)
+                    if var_binding is None:
                         return DumpResult(
                             columns=[], rows=[],
                             message=f"Undefined variable: ${item.variable}",
                         )
-                    type_name, ref = self.variables[item.variable]
+                    type_name, ref = var_binding
                     idx_set = set(ref) if isinstance(ref, list) else {ref}
                     if type_name in dump_targets:
                         existing = dump_targets[type_name]
@@ -1506,12 +1651,13 @@ class QueryExecutor:
                     else:
                         dump_targets[item.table] = None
         elif query.variable:
-            if query.variable not in self.variables:
+            var_binding = self._lookup_variable(query.variable)
+            if var_binding is None:
                 return DumpResult(
                     columns=[], rows=[],
                     message=f"Undefined variable: ${query.variable}",
                 )
-            type_name, ref = self.variables[query.variable]
+            type_name, ref = var_binding
             if isinstance(ref, list):
                 dump_targets = {type_name: set(ref)}
             else:
@@ -1668,22 +1814,7 @@ class QueryExecutor:
         # Pass 2.5: Detect data cycles and build tag mappings for cycle handling
         back_edges = self._detect_back_edges(composites, _include_record)
 
-        # Classify back-edges: taggable (use tag syntax) vs fallback (need null+update)
-        # Fallback: both source AND target are already in dump_vars (multi-referenced)
-        taggable_edges: list[tuple[str, int, str, str, int]] = []
-        fallback_edges: list[tuple[str, int, str, str, int]] = []
-
-        for edge in back_edges:
-            src_type, src_idx, field_name, tgt_type, tgt_idx = edge
-            src_key = (src_type, src_idx)
-            tgt_key = (tgt_type, tgt_idx)
-            if src_key in dump_vars and tgt_key in dump_vars:
-                # Both are multi-referenced → need null+update fallback
-                fallback_edges.append(edge)
-            else:
-                taggable_edges.append(edge)
-
-        # Build tag mappings for taggable edges
+        # Build tag mappings for all back-edges (scope-scoped tags handle all cycles)
         def _generate_tag_name(counter: int) -> str:
             """Generate sequential tag names: A, B, ..., Z, AA, AB, ..."""
             result = ""
@@ -1699,21 +1830,15 @@ class QueryExecutor:
         back_edge_tags: dict[tuple[str, int, str], str] = {}  # (src_type, src_idx, field) → tag_name
         tag_counter = 0
 
-        for src_type, src_idx, field_name, tgt_type, tgt_idx in taggable_edges:
+        for src_type, src_idx, field_name, tgt_type, tgt_idx in back_edges:
             tgt_key = (tgt_type, tgt_idx)
             if tgt_key not in record_tags:
                 record_tags[tgt_key] = _generate_tag_name(tag_counter)
                 tag_counter += 1
             back_edge_tags[(src_type, src_idx, field_name)] = record_tags[tgt_key]
 
-        # For fallback edges only: force both records into dump_vars
-        back_edge_set: set[tuple[str, int, str]] = set()
-        for src_type, src_idx, field_name, tgt_type, tgt_idx in fallback_edges:
-            if (src_type, src_idx) not in dump_vars:
-                dump_vars[(src_type, src_idx)] = f"{src_type}_{src_idx}"
-            if (tgt_type, tgt_idx) not in dump_vars:
-                dump_vars[(tgt_type, tgt_idx)] = f"{tgt_type}_{tgt_idx}"
-            back_edge_set.add((src_type, src_idx, field_name))
+        # Determine if we need a scope block (when there are tags for cycles)
+        needs_scope = bool(record_tags)
 
         # Pass 3: Emit variable assignments for shared refs
         # Build a dependency-ordered emit list for dump_vars. After removing
@@ -1722,6 +1847,10 @@ class QueryExecutor:
         # Track all records consumed (inlined) during Pass 3 so Pass 4 skips them
         inlined_records: set[tuple[str, int]] = set()
         comp_map = dict(composites)
+
+        # Collect statements for scope block if needed
+        scope_statements: list[str] = []
+        statement_target = scope_statements if needs_scope else lines
 
         def _collect_dump_var_deps(name: str, idx: int, visited: set[tuple[str, int]]) -> None:
             """Recursively find all dump_var keys that a record depends on
@@ -1744,7 +1873,7 @@ class QueryExecutor:
                 ref = raw_record[f.name]
                 if ref == NULL_REF:
                     continue
-                if back_edge_set and (name, idx, f.name) in back_edge_set:
+                if (name, idx, f.name) in back_edge_tags:
                     continue
                 field_base = f.type_def.resolve_base_type()
                 if isinstance(field_base, CompositeTypeDefinition):
@@ -1782,7 +1911,7 @@ class QueryExecutor:
                     ref = raw_record_v[f.name]
                     if ref == NULL_REF:
                         continue
-                    if back_edge_set and (v_name, v_idx, f.name) in back_edge_set:
+                    if (v_name, v_idx, f.name) in back_edge_tags:
                         continue
                     field_base = f.type_def.resolve_base_type()
                     if isinstance(field_base, CompositeTypeDefinition):
@@ -1801,7 +1930,7 @@ class QueryExecutor:
                             ref = raw_record[f.name]
                             if ref == NULL_REF:
                                 continue
-                            if back_edge_set and (name, idx, f.name) in back_edge_set:
+                            if (name, idx, f.name) in back_edge_tags:
                                 continue
                             field_base = f.type_def.resolve_base_type()
                             if isinstance(field_base, CompositeTypeDefinition):
@@ -1821,12 +1950,12 @@ class QueryExecutor:
             raw_record = table.get(idx)
             create_str = self._format_record_as_create(
                 name, comp_def, raw_record, dump_vars,
-                back_edge_set=back_edge_set, record_index=idx,
+                record_index=idx,
                 pretty=pretty,
                 record_tags=record_tags, back_edge_tags=back_edge_tags,
             )
             var_name = dump_vars[key]
-            lines.append(f"${var_name} = {create_str};")
+            statement_target.append(f"${var_name} = {create_str};")
             emitted_vars.add(key)
             # Mark inlined records so Pass 4 skips them
             for v_key in visited:
@@ -1869,7 +1998,7 @@ class QueryExecutor:
                 if ref == NULL_REF:
                     continue
                 # Skip back-edges (they're emitted as tag refs, not inlined)
-                if back_edge_set and (name, idx, f.name) in back_edge_set:
+                if (name, idx, f.name) in back_edge_tags:
                     continue
                 if back_edge_tags and (name, idx, f.name) in back_edge_tags:
                     continue
@@ -1921,17 +2050,24 @@ class QueryExecutor:
                 raw_record = table.get(i)
                 create_str = self._format_record_as_create(
                     name, comp_def, raw_record, dump_vars,
-                    back_edge_set=back_edge_set, record_index=i,
+                    record_index=i,
                     pretty=pretty,
                     record_tags=record_tags, back_edge_tags=back_edge_tags,
                 )
-                lines.append(f"{create_str};")
+                statement_target.append(f"{create_str};")
 
-        # Pass 5: Emit update statements only for fallback edges (mutual dump_var cycles)
-        for src_type, src_idx, field_name, tgt_type, tgt_idx in sorted(fallback_edges):
-            src_var = dump_vars[(src_type, src_idx)]
-            tgt_var = dump_vars[(tgt_type, tgt_idx)]
-            lines.append(f"update ${src_var} set {field_name}=${tgt_var};")
+        # If we collected statements for a scope block, wrap them
+        if needs_scope and scope_statements:
+            if pretty:
+                # Pretty-print scope with indented statements
+                lines.append("scope {")
+                for stmt in scope_statements:
+                    # Indent each line of the statement
+                    for line in stmt.split('\n'):
+                        lines.append(f"    {line}")
+                lines.append("};")
+            else:
+                lines.append("scope { " + " ".join(scope_statements) + " };")
 
         return DumpResult(columns=[], rows=[], script="\n".join(lines), output_file=query.output_file)
 
@@ -2075,7 +2211,6 @@ class QueryExecutor:
         composite_def: CompositeTypeDefinition,
         raw_record: dict[str, Any],
         dump_vars: dict[tuple[str, int], str] | None = None,
-        back_edge_set: set[tuple[str, int, str]] | None = None,
         record_index: int | None = None,
         pretty: bool = False,
         indent: int = 0,
@@ -2095,11 +2230,8 @@ class QueryExecutor:
 
         for f in composite_def.fields:
             ref = raw_record[f.name]
-            # If this field is a fallback back-edge, emit null instead
-            if back_edge_set and record_index is not None and (type_name, record_index, f.name) in back_edge_set:
-                value_str = "null"
-            # If this field is a taggable back-edge, emit tag reference
-            elif back_edge_tags and record_index is not None and (type_name, record_index, f.name) in back_edge_tags:
+            # If this field is a back-edge, emit tag reference
+            if back_edge_tags and record_index is not None and (type_name, record_index, f.name) in back_edge_tags:
                 value_str = back_edge_tags[(type_name, record_index, f.name)]
             else:
                 value_str = self._format_field_value(

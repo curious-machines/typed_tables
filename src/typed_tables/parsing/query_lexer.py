@@ -47,6 +47,7 @@ class QueryLexer:
         "set": "SET",
         "pretty": "PRETTY",
         "tag": "TAG",
+        "scope": "SCOPE",
     }
 
     # Token list
@@ -66,6 +67,8 @@ class QueryLexer:
         "RPAREN",
         "LBRACKET",
         "RBRACKET",
+        "LBRACE",
+        "RBRACE",
         "EQ",
         "NEQ",
         "LT",
@@ -84,6 +87,8 @@ class QueryLexer:
     t_RPAREN = r"\)"
     t_LBRACKET = r"\["
     t_RBRACKET = r"\]"
+    t_LBRACE = r"\{"
+    t_RBRACE = r"\}"
     t_EQ = r"="
     t_NEQ = r"!="
     t_LTE = r"<="

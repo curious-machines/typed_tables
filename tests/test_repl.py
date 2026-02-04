@@ -2001,24 +2001,26 @@ create Person(name="Bob", age=25);
 
 
 class TestTagBasedCreation:
-    """Tests for creating cyclic data using tag syntax."""
+    """Tests for creating cyclic data using tag syntax within scope blocks."""
 
     def test_create_self_referencing_with_tag(self, tmp_path: Path):
-        """Test creating a self-referencing node using tag syntax."""
+        """Test creating a self-referencing node using tag syntax in a scope."""
         db_path = tmp_path / "testdb"
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
 create type Node value:uint8 next:Node;
-create Node(tag(SELF), value=42, next=SELF);
+scope {{
+    create Node(tag(SELF), value=42, next=SELF);
+}};
 from Node select *;
 """)
         result = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_create_cycle_with_tag(self, tmp_path: Path):
-        """Test creating a 2-node cycle using tag syntax."""
+        """Test creating a 2-node cycle using tag syntax in a scope."""
         db_path = tmp_path / "testdb"
 
         from typed_tables.dump import load_registry_from_metadata
@@ -2030,7 +2032,9 @@ from Node select *;
         script.write_text(f"""
 use {db_path};
 create type Node name:string child:Node;
-create Node(tag(TOP), name="A", child=Node(name="B", child=TOP));
+scope {{
+    create Node(tag(TOP), name="A", child=Node(name="B", child=TOP));
+}};
 """)
         result = run_file(script, None, verbose=False)
         assert result == 0
@@ -2048,7 +2052,7 @@ create Node(tag(TOP), name="A", child=Node(name="B", child=TOP));
         storage.close()
 
     def test_create_deep_cycle_with_tag(self, tmp_path: Path):
-        """Test creating a 4-node cycle A→B→C→D→A using tag syntax."""
+        """Test creating a 4-node cycle A→B→C→D→A using tag syntax in a scope."""
         db_path = tmp_path / "testdb"
 
         from typed_tables.dump import load_registry_from_metadata
@@ -2060,7 +2064,9 @@ create Node(tag(TOP), name="A", child=Node(name="B", child=TOP));
         script.write_text(f"""
 use {db_path};
 create type Node name:string child:Node;
-create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A))));
+scope {{
+    create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A))));
+}};
 """)
         result = run_file(script, None, verbose=False)
         assert result == 0
@@ -2077,21 +2083,42 @@ create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=No
         storage.close()
 
     def test_create_undefined_tag_error(self, tmp_path: Path):
-        """Test that using an undefined tag produces an error."""
+        """Test that using an undefined tag within a scope produces an error."""
         db_path = tmp_path / "testdb"
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
 create type Node value:uint8 next:Node;
-create Node(value=1, next=NONEXISTENT);
+scope {{
+    create Node(value=1, next=NONEXISTENT);
+}};
 """)
         result = run_file(script, None, verbose=False)
         # Should fail because NONEXISTENT tag is not defined
         assert result == 0  # The REPL continues but prints an error
 
-    def test_tag_does_not_leak_across_statements(self, tmp_path: Path):
-        """Test that tags from one statement don't leak to another."""
+    def test_tag_does_not_leak_across_scopes(self, tmp_path: Path):
+        """Test that tags from one scope don't leak to another."""
+        db_path = tmp_path / "testdb"
+
+        script = tmp_path / "test.ttq"
+        script.write_text(f"""
+use {db_path};
+create type Node value:uint8 next:Node;
+scope {{
+    create Node(tag(X), value=1, next=null);
+}};
+scope {{
+    create Node(value=2, next=X);
+}};
+""")
+        result = run_file(script, None, verbose=False)
+        # The second scope should fail because X is not visible
+        assert result == 0  # The REPL continues but prints an error
+
+    def test_tag_requires_scope(self, tmp_path: Path):
+        """Test that using tags outside a scope produces an error."""
         db_path = tmp_path / "testdb"
 
         script = tmp_path / "test.ttq"
@@ -2099,10 +2126,9 @@ create Node(value=1, next=NONEXISTENT);
 use {db_path};
 create type Node value:uint8 next:Node;
 create Node(tag(X), value=1, next=null);
-create Node(value=2, next=X);
 """)
         result = run_file(script, None, verbose=False)
-        # The second statement should fail because X is not visible
+        # Should fail because tags require a scope
         assert result == 0  # The REPL continues but prints an error
 
 

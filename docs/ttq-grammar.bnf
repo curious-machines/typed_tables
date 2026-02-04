@@ -36,6 +36,7 @@ query           ::= select_query
                   | delete_query
                   | dump_query
                   | update_query
+                  | scope_block
 
 
 (* ========== SELECT Query (with FROM) ========== *)
@@ -303,10 +304,15 @@ type_ref        ::= IDENTIFIER
  *   create Person(id=uuid(), name="Bob", age=25)
  *   create Contact(name="John", address=Address(0))  -- reference existing composite
  *   create Person(name="Alice", address=Address(street="123 Main", city="Springfield"))  -- inline instance
+ *
+ * With tag (for cyclic data, must be inside a scope block):
+ *   scope { create Node(tag(A), value=1, next=A); };
  *)
 
 create_instance_query ::= "create" IDENTIFIER "(" instance_field_list ")"
                         | "create" IDENTIFIER "(" ")"
+                        | "create" IDENTIFIER "(" "tag" "(" IDENTIFIER ")" "," instance_field_list ")"
+                        | "create" IDENTIFIER "(" "tag" "(" IDENTIFIER ")" ")"
 
 instance_field_list ::= instance_field
                       | instance_field_list "," instance_field
@@ -320,10 +326,12 @@ instance_value  ::= STRING
                   | "uuid" "(" ")"
                   | IDENTIFIER "(" INTEGER ")"              (* composite reference: TypeName(index) *)
                   | IDENTIFIER "(" instance_field_list ")"  (* inline instance creation *)
+                  | IDENTIFIER "(" "tag" "(" IDENTIFIER ")" "," instance_field_list ")"  (* inline instance with tag *)
                   | "[" "]"                                 (* empty array *)
                   | "[" array_elements "]"                  (* array literal *)
                   | VARIABLE                                (* variable reference: $var *)
                   | "null"                                  (* null reference *)
+                  | IDENTIFIER                              (* tag reference: bare NAME *)
 
 array_elements  ::= array_element
                   | array_elements "," array_element
@@ -403,10 +411,15 @@ collect_source  ::= IDENTIFIER where_clause    (* table source *)
  *   $addr = create Address(street="123 Main", city="Springfield")
  *   create Person(name="Alice", address=$addr)
  *   create Team(members=[$e1, $e2])
+ *
+ * With tag (for cyclic data, must be inside a scope block):
+ *   scope { $n = create Node(tag(A), value=1, next=A); };
  *)
 
 variable_assignment_query ::= VARIABLE "=" "create" IDENTIFIER "(" instance_field_list ")"
                             | VARIABLE "=" "create" IDENTIFIER "(" ")"
+                            | VARIABLE "=" "create" IDENTIFIER "(" "tag" "(" IDENTIFIER ")" "," instance_field_list ")"
+                            | VARIABLE "=" "create" IDENTIFIER "(" "tag" "(" IDENTIFIER ")" ")"
 
 
 (* ========== DELETE Query ========== *)
@@ -440,6 +453,67 @@ update_query    ::= "update" VARIABLE "set" instance_field_list
                   | "update" IDENTIFIER "(" INTEGER ")" "set" instance_field_list
 
 
+(* ========== Scope Block ========== *)
+(*
+ * A scope block groups statements together, providing a namespace for
+ * tags and variables. Tags declared inside a scope are only visible
+ * within that scope.
+ *
+ * Scope blocks are required for using tags (cyclic data references).
+ *
+ * Examples:
+ *   scope { create Node(tag(SELF), value=42, next=SELF); };
+ *   scope { create Node(tag(A), name="A", child=Node(name="B", child=A)); };
+ *)
+
+scope_block     ::= "scope" "{" scope_statement_list "}"
+
+scope_statement_list ::= scope_statement
+                       | scope_statement_list scope_statement
+
+scope_statement ::= query ";"
+
+
+(* ========== Tag Syntax (Cyclic Data) ========== *)
+(*
+ * Tags allow creating cyclic data structures within a scope block.
+ * A tag declares a name for the record being created that nested
+ * records can reference.
+ *
+ * Tag declaration in create:
+ *   create Type(tag(NAME), field=value, ...)
+ *
+ * Tag reference as field value:
+ *   create Type(field=NAME)    -- NAME refers to a tagged record
+ *
+ * Tags must be used within a scope block. Tags cannot be redefined
+ * within the same scope.
+ *
+ * Examples:
+ *   -- Self-referencing node (points to itself):
+ *   scope { create Node(tag(SELF), value=42, next=SELF); };
+ *
+ *   -- Two-node cycle (A→B→A):
+ *   scope { create Node(tag(A), name="A", child=Node(name="B", child=A)); };
+ *
+ *   -- Four-node cycle (A→B→C→D→A):
+ *   scope { create Node(tag(A), name="A",
+ *                       child=Node(name="B",
+ *                                  child=Node(name="C",
+ *                                             child=Node(name="D", child=A)))); };
+ *)
+
+(* Tag declaration appears as first argument in create *)
+tagged_field_list ::= "tag" "(" IDENTIFIER ")" "," instance_field_list
+                    | instance_field_list
+
+(* Tag reference - a bare IDENTIFIER as instance_value refers to a tag *)
+(* This is distinguished from function calls by lookahead:
+ *   IDENTIFIER "(" ... ")" is a function call or composite reference
+ *   IDENTIFIER alone is a tag reference
+ *)
+
+
 (* ========== Lexical Elements ========== *)
 
 VARIABLE        ::= "$" [a-zA-Z_][a-zA-Z0-9_]*
@@ -467,7 +541,7 @@ SEMICOLON       ::= ";"
  * and, or, not, starts, with, matches, show, tables,
  * describe, count, average, sum, product, use, create,
  * type, uuid, delete, as, alias, drop, dump, to, collect,
- * null, update, set, pretty
+ * null, update, set, pretty, tag, scope
  *)
 
 
@@ -520,4 +594,17 @@ SEMICOLON       ::= ";"
  *   quantity: uint32;
  * create Product(name="Widget", price=9.99, quantity=100);
  * from Product select *
+ *
+ * -- Cyclic data structures using scope blocks and tags:
+ *
+ * create type Node value:uint8 next:Node;
+ *
+ * -- Self-referencing (node points to itself):
+ * scope { create Node(tag(SELF), value=42, next=SELF); };
+ *
+ * -- Two-node cycle (A→B→A):
+ * scope { create Node(tag(A), value=1, next=Node(value=2, next=A)); };
+ *
+ * -- Variables can also be used inside scopes:
+ * scope { $n = create Node(tag(X), value=1, next=X); };
  *)
