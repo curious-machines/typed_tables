@@ -1,0 +1,33 @@
+# YAML dump
+Node:
+  - &Node_0
+    name: "D"
+    child: *Node_3
+  - &Node_1
+    name: "C"
+    child: *Node_0
+  - &Node_2
+    name: "B"
+    child: *Node_1
+  - &Node_3
+    name: "A"
+    child: *Node_2
+  - &Node_4
+    name: "AA"
+    child: *Node_5
+  - &Node_5
+    name: "BB"
+    child: *Node_4
+  - &Node_6
+    name: "XX"
+    child: *Node_4
+  - &Node_7
+    name: "YY"
+    child: *Node_4
+  - &Node_8
+    name: "WW"
+    child: *Node_5
+  - &Node_9
+    name: "ZZ"
+    child: *Node_5
+

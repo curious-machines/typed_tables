@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<database name="cycle_db">
+  <Nodes>
+    <Node id="Node_0">
+      <name>D</name>
+      <child ref="#Node_3"/>
+    </Node>
+    <Node id="Node_1">
+      <name>C</name>
+      <child ref="#Node_0"/>
+    </Node>
+    <Node id="Node_2">
+      <name>B</name>
+      <child ref="#Node_1"/>
+    </Node>
+    <Node id="Node_3">
+      <name>A</name>
+      <child ref="#Node_2"/>
+    </Node>
+    <Node id="Node_4">
+      <name>AA</name>
+      <child ref="#Node_5"/>
+    </Node>
+    <Node id="Node_5">
+      <name>BB</name>
+      <child ref="#Node_4"/>
+    </Node>
+    <Node id="Node_6">
+      <name>XX</name>
+      <child ref="#Node_4"/>
+    </Node>
+    <Node id="Node_7">
+      <name>YY</name>
+      <child ref="#Node_4"/>
+    </Node>
+    <Node id="Node_8">
+      <name>WW</name>
+      <child ref="#Node_5"/>
+    </Node>
+    <Node id="Node_9">
+      <name>ZZ</name>
+      <child ref="#Node_5"/>
+    </Node>
+  </Nodes>
+</database>

@@ -1,0 +1,74 @@
+{
+  "Node": [
+    {
+      "$id": "Node_0",
+      "name": "D",
+      "child": {
+        "$ref": "Node_3"
+      }
+    },
+    {
+      "$id": "Node_1",
+      "name": "C",
+      "child": {
+        "$ref": "Node_0"
+      }
+    },
+    {
+      "$id": "Node_2",
+      "name": "B",
+      "child": {
+        "$ref": "Node_1"
+      }
+    },
+    {
+      "$id": "Node_3",
+      "name": "A",
+      "child": {
+        "$ref": "Node_2"
+      }
+    },
+    {
+      "$id": "Node_4",
+      "name": "AA",
+      "child": {
+        "$ref": "Node_5"
+      }
+    },
+    {
+      "$id": "Node_5",
+      "name": "BB",
+      "child": {
+        "$ref": "Node_4"
+      }
+    },
+    {
+      "$id": "Node_6",
+      "name": "XX",
+      "child": {
+        "$ref": "Node_4"
+      }
+    },
+    {
+      "$id": "Node_7",
+      "name": "YY",
+      "child": {
+        "$ref": "Node_4"
+      }
+    },
+    {
+      "$id": "Node_8",
+      "name": "WW",
+      "child": {
+        "$ref": "Node_5"
+      }
+    },
+    {
+      "$id": "Node_9",
+      "name": "ZZ",
+      "child": {
+        "$ref": "Node_5"
+      }
+    }
+  ]
+}
