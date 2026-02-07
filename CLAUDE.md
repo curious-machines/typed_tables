@@ -54,6 +54,7 @@ Each composite type is stored in its own table as a `.bin` file. A table is an a
 - **Primitive/alias-to-primitive fields**: actual value stored inline (1–16 bytes depending on type). No separate table is created for primitive fields.
 - **Array fields**: `(start_index, length)` stored inline (8 bytes) — `start_index` is a uint32 index into the element table, `length` is a uint32 element count.
 - **Composite ref fields**: uint32 index (4 bytes) into the referenced type's table.
+- **Enum fields**: stored inline. C-style: discriminant only (1/2/4 bytes based on max value). Swift-style: discriminant + variant payload padded to largest variant's size. Variant payloads serialize fields identically to composite field data.
 
 Array elements are stored in element tables (e.g., `name_elements.bin`). The composite record directly contains the `(start_index, length)` pair needed to locate the elements.
 
@@ -160,6 +161,65 @@ NULL values display as `NULL` in select results and as `null` in dump output.
 
 ```ttq
 create alias uuid as uint128
+```
+
+### Create Enumerations
+
+Enumerations use a unified syntax that covers both C-style (bare variants) and Swift-style (variants with associated values).
+
+C-style enums with auto-assigned discriminants:
+```ttq
+create enum Color { red, green, blue }
+```
+
+C-style enums with explicit backing values:
+```ttq
+create enum HttpStatus { ok = 200, not_found = 404, internal_error = 500 }
+```
+
+Swift-style enums with associated values:
+```ttq
+create enum Shape {
+    none,
+    line(x1: float32, y1: float32, x2: float32, y2: float32),
+    circle(cx: float32, cy: float32, r: float32)
+}
+```
+
+**Restriction:** Explicit integer discriminants (`= 200`) and associated values (`(x: float32)`) cannot coexist in the same enum.
+
+Enum values are used in instance creation with dot notation:
+```ttq
+create type Pixel { x: uint16, y: uint16, color: Color }
+create Pixel(x=0, y=0, color=Color.red)
+
+create type Canvas { name: string, bg: Shape }
+create Canvas(name="test", bg=Shape.circle(cx=50, cy=50, r=25))
+```
+
+When the enum type can be inferred from the field, a shorthand form is available using a leading dot:
+```ttq
+create Pixel(x=0, y=0, color=.red)
+create Canvas(name="test", bg=.circle(cx=50, cy=50, r=25))
+create Canvas(name="empty", bg=.none)
+```
+
+Both forms can be mixed freely. The `dump` command always outputs the fully-qualified form.
+
+**Storage:** Enums are stored inline in composite records. C-style enums store only the discriminant (1/2/4 bytes). Swift-style enums store discriminant + variant payload padded to the largest variant's size.
+
+**Querying enums:**
+```ttq
+-- Overview: shows _variant column, no WHERE allowed
+from Shape select *
+
+-- Variant-specific: associated values as columns, WHERE allowed
+from Shape.circle select *
+from Shape.circle select cx, cy where r > 10
+
+-- Describe enum
+describe Shape
+describe Shape.circle
 ```
 
 ### Create Entry

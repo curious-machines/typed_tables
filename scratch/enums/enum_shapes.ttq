@@ -1,0 +1,58 @@
+-- Swift-style enumerations with associated values
+
+use /tmp/ttq_enum_shapes
+
+create enum Shape {
+    none,
+    point(x: float32, y: float32),
+    line(x1: float32, y1: float32, x2: float32, y2: float32),
+    circle(cx: float32, cy: float32, r: float32),
+    rect(x: float32, y: float32, w: float32, h: float32)
+}
+
+create enum Color { red, green, blue, black, white }
+
+create type Drawing {
+    name: string,
+    shape: Shape,
+    color: Color
+}
+
+-- A drawing with no shape
+create Drawing(name="empty", shape=.none, color=.white)
+
+-- A single point
+create Drawing(name="dot", shape=.point(x=50, y=50), color=.black)
+
+-- A line segment
+create Drawing(name="slash", shape=.line(x1=0, y1=0, x2=100, y2=100), color=.red)
+
+-- A circle
+create Drawing(name="ring", shape=.circle(cx=50, cy=50, r=25), color=.blue)
+
+-- A rectangle
+create Drawing(name="box", shape=.rect(x=10, y=10, w=80, h=60), color=.green)
+
+-- Another circle
+create Drawing(name="sun", shape=.circle(cx=200, cy=200, r=100), color=.red)
+
+-- Show all drawings
+from Drawing select *
+
+-- Enum overview: shows variant for each usage
+from Shape select *
+
+-- Variant-specific queries: only circles, with associated values as columns
+from Shape.circle select *
+
+-- Filter circles by radius
+from Shape.circle select * where r > 30
+
+-- Show all rects
+from Shape.rect select *
+
+-- Describe the enum and a specific variant
+describe Shape
+describe Shape.circle
+
+dump

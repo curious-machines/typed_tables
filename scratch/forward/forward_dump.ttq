@@ -1,12 +1,7 @@
 -- TTQ dump
-forward type A;
-create type B
-    name: string
-    link: A;
-
-create type A
-    name: string
-    link: B;
+forward type A
+create type B { name: string, link: A }
+create type A { name: string, link: B }
 
 scope {
     create B(
@@ -16,5 +11,5 @@ scope {
             name="One",
             link=A
         )
-    );
-};
+    )
+}

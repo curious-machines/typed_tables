@@ -11,6 +11,8 @@ from typing import Any
 from typed_tables.types import (
     ArrayTypeDefinition,
     CompositeTypeDefinition,
+    EnumTypeDefinition,
+    EnumValue,
     PrimitiveType,
     PrimitiveTypeDefinition,
     TypeDefinition,
@@ -261,10 +263,13 @@ class Table:
 
         - Array fields: (start_index, length) as 8 bytes
         - Composite ref fields: uint32 index as 4 bytes
+        - Enum fields: discriminant + payload inline
         - Primitive/alias-to-primitive fields: actual value bytes (inline)
         """
         base = type_def.resolve_base_type()
-        if isinstance(base, ArrayTypeDefinition):
+        if isinstance(base, EnumTypeDefinition):
+            return self._serialize_enum_value(value, base)
+        elif isinstance(base, ArrayTypeDefinition):
             return struct.pack("<II", value[0], value[1])
         elif isinstance(base, CompositeTypeDefinition):
             return struct.pack("<I", value)
@@ -272,6 +277,34 @@ class Table:
             return self._serialize_primitive(value, base.primitive)
         else:
             raise TypeError(f"Cannot serialize field type: {type_def.name}")
+
+    def _serialize_enum_value(self, value: EnumValue, enum_def: EnumTypeDefinition) -> bytes:
+        """Serialize an enum value: discriminant + variant payload + padding."""
+        disc_size = enum_def.discriminant_size
+        max_payload = enum_def.max_payload_size
+
+        # Serialize discriminant
+        if disc_size == 1:
+            data = struct.pack("<B", value.discriminant)
+        elif disc_size == 2:
+            data = struct.pack("<H", value.discriminant)
+        else:
+            data = struct.pack("<I", value.discriminant)
+
+        # Serialize variant fields
+        variant = enum_def.get_variant_by_discriminant(value.discriminant)
+        payload = b""
+        if variant and variant.fields:
+            for f in variant.fields:
+                fval = value.fields.get(f.name)
+                if fval is None:
+                    payload += b"\x00" * f.type_def.reference_size
+                else:
+                    payload += self._serialize_field_data(fval, f.type_def)
+
+        # Pad to max_payload_size
+        payload += b"\x00" * (max_payload - len(payload))
+        return data + payload
 
     def _deserialize(self, data: bytes) -> Any:
         """Deserialize bytes to a value."""
@@ -342,7 +375,9 @@ class Table:
                 continue
 
             field_base = field.type_def.resolve_base_type()
-            if isinstance(field_base, ArrayTypeDefinition):
+            if isinstance(field_base, EnumTypeDefinition):
+                result[field.name] = self._deserialize_enum_value(field_data, field_base)
+            elif isinstance(field_base, ArrayTypeDefinition):
                 result[field.name] = struct.unpack("<II", field_data)
             elif isinstance(field_base, CompositeTypeDefinition):
                 result[field.name] = struct.unpack("<I", field_data)[0]
@@ -353,6 +388,41 @@ class Table:
             offset += field_ref_size
 
         return result
+
+    def _deserialize_enum_value(self, data: bytes, enum_def: EnumTypeDefinition) -> EnumValue:
+        """Deserialize an enum value from bytes."""
+        disc_size = enum_def.discriminant_size
+
+        # Read discriminant
+        if disc_size == 1:
+            disc = struct.unpack("<B", data[:1])[0]
+        elif disc_size == 2:
+            disc = struct.unpack("<H", data[:2])[0]
+        else:
+            disc = struct.unpack("<I", data[:4])[0]
+
+        variant = enum_def.get_variant_by_discriminant(disc)
+        if variant is None:
+            return EnumValue(variant_name="?", discriminant=disc)
+
+        # Deserialize variant fields
+        fields: dict[str, Any] = {}
+        payload_offset = disc_size
+        for f in variant.fields:
+            f_size = f.type_def.reference_size
+            f_data = data[payload_offset:payload_offset + f_size]
+            f_base = f.type_def.resolve_base_type()
+            if isinstance(f_base, EnumTypeDefinition):
+                fields[f.name] = self._deserialize_enum_value(f_data, f_base)
+            elif isinstance(f_base, ArrayTypeDefinition):
+                fields[f.name] = struct.unpack("<II", f_data)
+            elif isinstance(f_base, CompositeTypeDefinition):
+                fields[f.name] = struct.unpack("<I", f_data)[0]
+            elif isinstance(f_base, PrimitiveTypeDefinition):
+                fields[f.name] = self._deserialize_primitive(f_data, f_base.primitive)
+            payload_offset += f_size
+
+        return EnumValue(variant_name=variant.name, discriminant=disc, fields=fields)
 
     def close(self) -> None:
         """Close the table file."""

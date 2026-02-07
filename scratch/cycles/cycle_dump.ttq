@@ -1,18 +1,16 @@
 -- TTQ dump
-create type Node
-    name: string
-    child: Node;
+create type Node { name: string, child: Node }
 
 scope {
     $Node_5 = create Node(
         name="BB",
         child=A
-    );
+    )
     $Node_4 = create Node(
         tag(A),
         name="AA",
         child=$Node_5
-    );
+    )
     create Node(
         tag(B),
         name="D",
@@ -26,21 +24,21 @@ scope {
                 )
             )
         )
-    );
+    )
     create Node(
         name="XX",
         child=$Node_4
-    );
+    )
     create Node(
         name="YY",
         child=$Node_4
-    );
+    )
     create Node(
         name="WW",
         child=$Node_5
-    );
+    )
     create Node(
         name="ZZ",
         child=$Node_5
-    );
-};
+    )
+}

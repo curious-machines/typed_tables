@@ -10,17 +10,22 @@ class TypeLexer:
     reserved = {
         "define": "DEFINE",
         "as": "AS",
+        "enum": "ENUM",
     }
 
     # Token list
     tokens = [
         "IDENTIFIER",
+        "INTEGER",
         "LBRACE",
         "RBRACE",
         "LBRACKET",
         "RBRACKET",
+        "LPAREN",
+        "RPAREN",
         "COLON",
         "COMMA",
+        "EQUALS",
     ] + list(reserved.values())
 
     # Simple tokens
@@ -28,8 +33,11 @@ class TypeLexer:
     t_RBRACE = r"\}"
     t_LBRACKET = r"\["
     t_RBRACKET = r"\]"
+    t_LPAREN = r"\("
+    t_RPAREN = r"\)"
     t_COLON = r":"
     t_COMMA = r","
+    t_EQUALS = r"="
 
     # Ignored characters (spaces, tabs, and newlines)
     t_ignore = " \t"
@@ -39,6 +47,11 @@ class TypeLexer:
 
     def __init__(self) -> None:
         self.lexer: lex.LexToken = None  # type: ignore
+
+    def t_INTEGER(self, t: lex.LexToken) -> lex.LexToken:
+        r"-?\d+"
+        t.value = int(t.value)
+        return t
 
     def t_IDENTIFIER(self, t: lex.LexToken) -> lex.LexToken:
         r"[a-zA-Z_][a-zA-Z0-9_]*"

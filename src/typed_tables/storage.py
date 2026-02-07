@@ -12,6 +12,7 @@ from typed_tables.types import (
     AliasTypeDefinition,
     ArrayTypeDefinition,
     CompositeTypeDefinition,
+    EnumTypeDefinition,
     PrimitiveTypeDefinition,
     StringTypeDefinition,
     TypeDefinition,
@@ -89,6 +90,18 @@ class StorageManager:
             return {
                 "kind": "array",
                 "element_type": type_def.element_type.name,
+            }
+        elif isinstance(type_def, EnumTypeDefinition):
+            variants = []
+            for v in type_def.variants:
+                vspec: dict[str, Any] = {"name": v.name, "discriminant": v.discriminant}
+                if v.fields:
+                    vspec["fields"] = [{"name": f.name, "type": f.type_def.name} for f in v.fields]
+                variants.append(vspec)
+            return {
+                "kind": "enum",
+                "variants": variants,
+                "has_explicit_values": type_def.has_explicit_values,
             }
         elif isinstance(type_def, CompositeTypeDefinition):
             return {

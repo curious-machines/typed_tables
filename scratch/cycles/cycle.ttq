@@ -1,0 +1,30 @@
+create type Node {
+    name: string,
+    child: Node
+}
+
+scope {
+    create Node(
+        tag(A),
+        name="A",
+        child=Node(
+            name="B",
+            child=Node(
+                name="C",
+                child=Node(
+                    name="D",
+                    child=A
+                )
+            )
+        )
+    )
+}
+
+scope {
+    create Node(tag(A), name="AA", child=B)
+    create Node(tag(B), name="BB", child=A)
+    create Node(name="XX", child=A)
+    create Node(name="YY", child=A)
+    create Node(name="WW", child=B)
+    create Node(name="ZZ", child=B)
+}

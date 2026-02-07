@@ -73,6 +73,7 @@ class SelectQuery:
     offset: int = 0
     limit: int | None = None
     source_var: str | None = None
+    variant: str | None = None  # For enum variant queries: from Shape.line select *
 
 
 @dataclass
@@ -273,6 +274,36 @@ class UpdateQuery:
 
 
 @dataclass
+class EnumVariantSpec:
+    """Specification for an enum variant in CREATE ENUM."""
+
+    name: str
+    explicit_value: int | None = None         # C-style: `ok = 200`
+    fields: list[FieldDef] | None = None      # Swift-style: `(x: float32, ...)`
+
+
+@dataclass
+class CreateEnumQuery:
+    """A CREATE ENUM query."""
+
+    name: str
+    variants: list[EnumVariantSpec] = field(default_factory=list)
+
+
+@dataclass
+class EnumValueExpr:
+    """Enum value in instance creation: Color.red or Shape.circle(cx=50, ...).
+
+    When enum_name is None, the shorthand form was used (.red, .circle(cx=50))
+    and the enum type must be inferred from the field type at execution time.
+    """
+
+    enum_name: str | None
+    variant_name: str
+    args: list[FieldValue] | None = None  # None for C-style
+
+
+@dataclass
 class ScopeBlock:
     """A scope block containing statements with shared tag/variable namespace.
 
@@ -283,7 +314,7 @@ class ScopeBlock:
     statements: list[Any] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
+Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -341,6 +372,10 @@ class QueryParser:
                  | DESCRIBE STRING"""
         p[0] = DescribeQuery(table=p[2])
 
+    def p_query_describe_variant(self, p: yacc.YaccProduction) -> None:
+        """query : DESCRIBE IDENTIFIER DOT IDENTIFIER"""
+        p[0] = DescribeQuery(table=f"{p[2]}.{p[4]}")
+
     def p_query_use_none(self, p: yacc.YaccProduction) -> None:
         """query : USE"""
         p[0] = UseQuery(path="")
@@ -379,6 +414,36 @@ class QueryParser:
     def p_query_create_type_inherit_empty(self, p: yacc.YaccProduction) -> None:
         """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER"""
         p[0] = CreateTypeQuery(name=p[3], fields=[], parent=p[5])
+
+    def p_query_create_enum(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE ENUM IDENTIFIER LBRACE enum_variant_list RBRACE
+                 | CREATE ENUM IDENTIFIER LBRACE enum_variant_list COMMA RBRACE"""
+        p[0] = CreateEnumQuery(name=p[3], variants=p[5])
+
+    def p_enum_variant_list_single(self, p: yacc.YaccProduction) -> None:
+        """enum_variant_list : enum_variant"""
+        p[0] = [p[1]]
+
+    def p_enum_variant_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """enum_variant_list : enum_variant_list COMMA enum_variant"""
+        p[0] = p[1] + [p[3]]
+
+    def p_enum_variant_bare(self, p: yacc.YaccProduction) -> None:
+        """enum_variant : IDENTIFIER"""
+        p[0] = EnumVariantSpec(name=p[1])
+
+    def p_enum_variant_value(self, p: yacc.YaccProduction) -> None:
+        """enum_variant : IDENTIFIER EQ INTEGER"""
+        p[0] = EnumVariantSpec(name=p[1], explicit_value=p[3])
+
+    def p_enum_variant_fields(self, p: yacc.YaccProduction) -> None:
+        """enum_variant : IDENTIFIER LPAREN type_field_items RPAREN
+                        | IDENTIFIER LPAREN type_field_items COMMA RPAREN"""
+        p[0] = EnumVariantSpec(name=p[1], fields=p[3])
+
+    def p_enum_variant_empty_fields(self, p: yacc.YaccProduction) -> None:
+        """enum_variant : IDENTIFIER LPAREN RPAREN"""
+        p[0] = EnumVariantSpec(name=p[1], fields=[])
 
     def p_dump_prefix(self, p: yacc.YaccProduction) -> None:
         """dump_prefix : DUMP
@@ -615,6 +680,30 @@ class QueryParser:
         tag_name, fields = p[3]
         p[0] = InlineInstance(type_name=p[1], fields=fields, tag=tag_name)
 
+    def p_instance_value_enum_bare(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER DOT IDENTIFIER"""
+        p[0] = EnumValueExpr(enum_name=p[1], variant_name=p[3])
+
+    def p_instance_value_enum_with_args(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER DOT IDENTIFIER LPAREN instance_field_list RPAREN"""
+        p[0] = EnumValueExpr(enum_name=p[1], variant_name=p[3], args=p[5])
+
+    def p_instance_value_enum_with_args_empty(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER DOT IDENTIFIER LPAREN RPAREN"""
+        p[0] = EnumValueExpr(enum_name=p[1], variant_name=p[3], args=[])
+
+    def p_instance_value_enum_shorthand_bare(self, p: yacc.YaccProduction) -> None:
+        """instance_value : DOT IDENTIFIER"""
+        p[0] = EnumValueExpr(enum_name=None, variant_name=p[2])
+
+    def p_instance_value_enum_shorthand_with_args(self, p: yacc.YaccProduction) -> None:
+        """instance_value : DOT IDENTIFIER LPAREN instance_field_list RPAREN"""
+        p[0] = EnumValueExpr(enum_name=None, variant_name=p[2], args=p[4])
+
+    def p_instance_value_enum_shorthand_with_args_empty(self, p: yacc.YaccProduction) -> None:
+        """instance_value : DOT IDENTIFIER LPAREN RPAREN"""
+        p[0] = EnumValueExpr(enum_name=None, variant_name=p[2], args=[])
+
     def p_instance_value_tag_reference(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER"""
         p[0] = TagReference(name=p[1])
@@ -710,6 +799,19 @@ class QueryParser:
                 offset=p[6],
                 limit=p[7],
             )
+        elif isinstance(from_val, tuple):
+            # Variant query: from Type.variant select ...
+            type_name, variant_name = from_val
+            p[0] = SelectQuery(
+                table=type_name,
+                variant=variant_name,
+                fields=p[2],
+                where=p[3],
+                group_by=p[4],
+                sort_by=p[5],
+                offset=p[6],
+                limit=p[7],
+            )
         else:
             p[0] = SelectQuery(
                 table=from_val,
@@ -725,6 +827,10 @@ class QueryParser:
         """from_clause : FROM IDENTIFIER
                        | FROM STRING"""
         p[0] = p[2]
+
+    def p_from_clause_variant(self, p: yacc.YaccProduction) -> None:
+        """from_clause : FROM IDENTIFIER DOT IDENTIFIER"""
+        p[0] = (p[2], p[4])  # (type_name, variant_name) tuple
 
     def p_from_clause_variable(self, p: yacc.YaccProduction) -> None:
         """from_clause : FROM VARIABLE"""

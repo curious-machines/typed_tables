@@ -13,7 +13,7 @@ from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import DropDatabaseQuery, QueryParser, UseQuery
 from typed_tables.query_executor import CollectResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult
 from typed_tables.storage import StorageManager
-from typed_tables.types import TypeRegistry
+from typed_tables.types import EnumValue, TypeRegistry
 
 
 def _balance_counts(text: str) -> tuple[int, int]:
@@ -67,6 +67,11 @@ def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
         if len(value) > max_width:
             return repr(value[:max_width - 3] + "...")
         return repr(value)
+    elif isinstance(value, EnumValue):
+        if value.fields:
+            field_strs = [f"{k}={format_value(v, max_items, max_width)}" for k, v in value.fields.items()]
+            return f"{value.variant_name}({', '.join(field_strs)})"
+        return value.variant_name
     elif isinstance(value, list):
         # Format each element
         formatted = []

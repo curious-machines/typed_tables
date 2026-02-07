@@ -1,0 +1,47 @@
+-- Enum shorthand syntax: use .variant instead of EnumName.variant
+-- when the enum type can be inferred from the field type
+
+use /tmp/ttq_enum_shorthand
+
+create enum Color { red, green, blue, black, white }
+
+create enum Shape {
+    none,
+    point(x: float32, y: float32),
+    circle(cx: float32, cy: float32, r: float32),
+    rect(x: float32, y: float32, w: float32, h: float32)
+}
+
+create type Pixel {
+    x: uint16,
+    y: uint16,
+    color: Color
+}
+
+create type Drawing {
+    name: string,
+    shape: Shape,
+    color: Color
+}
+
+-- Shorthand: .red instead of Color.red
+create Pixel(x=0, y=0, color=.red)
+create Pixel(x=1, y=0, color=.green)
+create Pixel(x=2, y=0, color=.blue)
+
+-- Shorthand with associated values: .circle(...) instead of Shape.circle(...)
+create Drawing(name="ring", shape=.circle(cx=50, cy=50, r=25), color=.blue)
+create Drawing(name="box", shape=.rect(x=10, y=10, w=80, h=60), color=.green)
+create Drawing(name="empty", shape=.none, color=.white)
+
+-- Both forms can be mixed freely
+create Drawing(name="dot", shape=Shape.point(x=100, y=200), color=.red)
+
+from Pixel select *
+from Drawing select *
+
+-- Variant queries still work the same
+from Shape.circle select *
+
+-- Dump preserves fully-qualified form
+dump

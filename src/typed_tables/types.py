@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     pass
@@ -99,6 +99,11 @@ class TypeDefinition:
     @property
     def is_composite(self) -> bool:
         """Return whether this type is a composite type."""
+        return False
+
+    @property
+    def is_enum(self) -> bool:
+        """Return whether this type is an enum type."""
         return False
 
     def resolve_base_type(self) -> TypeDefinition:
@@ -240,6 +245,77 @@ class CompositeTypeDefinition(TypeDefinition):
         raise KeyError(f"Field '{name}' not found in type '{self.name}'")
 
 
+@dataclass
+class EnumVariantDefinition:
+    """A single variant within an enum type."""
+
+    name: str
+    discriminant: int
+    fields: list[FieldDefinition] = field(default_factory=list)  # empty for C-style
+
+
+@dataclass
+class EnumValue:
+    """Runtime representation of an enum value (returned by deserialization)."""
+
+    variant_name: str
+    discriminant: int
+    fields: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class EnumTypeDefinition(TypeDefinition):
+    """Enum type definition — covers both C-style and Swift-style."""
+
+    variants: list[EnumVariantDefinition] = field(default_factory=list)
+    has_explicit_values: bool = False  # True for C-style with `= N`
+
+    @property
+    def discriminant_size(self) -> int:
+        """Size of discriminant in bytes."""
+        max_disc = max(v.discriminant for v in self.variants) if self.variants else 0
+        if max_disc <= 0xFF:
+            return 1
+        if max_disc <= 0xFFFF:
+            return 2
+        return 4
+
+    @property
+    def max_payload_size(self) -> int:
+        """Size of largest variant payload."""
+        if not self.variants:
+            return 0
+        return max(
+            sum(f.type_def.reference_size for f in v.fields)
+            for v in self.variants
+        )
+
+    @property
+    def size_bytes(self) -> int:
+        return self.discriminant_size + self.max_payload_size
+
+    @property
+    def reference_size(self) -> int:
+        """Enums stored inline (like primitives)."""
+        return self.size_bytes
+
+    @property
+    def is_enum(self) -> bool:
+        return True
+
+    def get_variant(self, name: str) -> EnumVariantDefinition | None:
+        for v in self.variants:
+            if v.name == name:
+                return v
+        return None
+
+    def get_variant_by_discriminant(self, disc: int) -> EnumVariantDefinition | None:
+        for v in self.variants:
+            if v.discriminant == disc:
+                return v
+        return None
+
+
 class TypeRegistry:
     """Registry of all defined types."""
 
@@ -285,6 +361,26 @@ class TypeRegistry:
         array_type = ArrayTypeDefinition(name=array_name, element_type=element_type)
         self._types[array_name] = array_type
         return array_type
+
+    def register_enum_stub(self, name: str) -> EnumTypeDefinition:
+        """Pre-register an empty enum for forward-declaration support.
+
+        Idempotent: returns existing stub if name is already an empty enum.
+        Raises ValueError if name is registered with a non-empty type.
+        """
+        existing = self._types.get(name)
+        if existing is not None:
+            if isinstance(existing, EnumTypeDefinition) and not existing.variants:
+                return existing
+            raise ValueError(f"Type '{name}' is already defined")
+        stub = EnumTypeDefinition(name=name, variants=[])
+        self._types[name] = stub
+        return stub
+
+    def is_enum_stub(self, name: str) -> bool:
+        """Check if a type is registered as an unpopulated enum stub."""
+        td = self._types.get(name)
+        return isinstance(td, EnumTypeDefinition) and not td.variants
 
     def register_stub(self, name: str) -> CompositeTypeDefinition:
         """Pre-register an empty composite for forward/self-references.
@@ -336,6 +432,37 @@ class TypeRegistry:
                     and field_base.name == target_base.name
                 ):
                     results.append((name, f.name, td))
+        return results
+
+    def find_enum_variants_with_field_type(
+        self, type_name: str
+    ) -> list[tuple[str, str, str, str, "CompositeTypeDefinition"]]:
+        """Find composite fields that are enums whose variants contain a given type.
+
+        Returns list of (comp_name, enum_field_name, variant_name, variant_field_name, comp_def)
+        for type-based queries that traverse into enum variant payloads.
+        """
+        target = self._types.get(type_name)
+        if target is None:
+            return []
+        target_base = target.resolve_base_type()
+
+        results: list[tuple[str, str, str, str, CompositeTypeDefinition]] = []
+        for name, td in self._types.items():
+            if not isinstance(td, CompositeTypeDefinition):
+                continue
+            for f in td.fields:
+                field_base = f.type_def.resolve_base_type()
+                if not isinstance(field_base, EnumTypeDefinition):
+                    continue
+                for variant in field_base.variants:
+                    for vf in variant.fields:
+                        vf_base = vf.type_def.resolve_base_type()
+                        if vf.type_def.name == type_name or (
+                            type(vf_base) is type(target_base)
+                            and vf_base.name == target_base.name
+                        ):
+                            results.append((name, f.name, variant.name, vf.name, td))
         return results
 
     def __contains__(self, name: str) -> bool:

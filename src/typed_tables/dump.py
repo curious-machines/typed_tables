@@ -13,6 +13,10 @@ from typed_tables.types import (
     AliasTypeDefinition,
     ArrayTypeDefinition,
     CompositeTypeDefinition,
+    EnumTypeDefinition,
+    EnumValue,
+    EnumVariantDefinition,
+    FieldDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
     StringTypeDefinition,
@@ -39,19 +43,22 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
     registry = TypeRegistry()
     types_data = metadata.get("types", {})
 
-    # Phase 1: Pre-register stubs for all composite types
+    # Phase 1: Pre-register stubs for all composite and enum types
     for name, spec in types_data.items():
-        if name not in registry and spec.get("kind") == "composite":
-            registry.register_stub(name)
+        if name not in registry:
+            if spec.get("kind") == "composite":
+                registry.register_stub(name)
+            elif spec.get("kind") == "enum":
+                registry.register_enum_stub(name)
 
     # Phase 2: Collect non-primitive specs to resolve
     to_resolve = {}
     for name, spec in types_data.items():
         if name not in registry:
-            # Not yet registered (non-composite, non-primitive)
+            # Not yet registered (non-composite, non-primitive, non-enum)
             to_resolve[name] = spec
-        elif registry.is_stub(name):
-            # Composite stub that needs field population
+        elif registry.is_stub(name) or registry.is_enum_stub(name):
+            # Composite/enum stub that needs field population
             to_resolve[name] = spec
 
     # Iteratively resolve
@@ -65,6 +72,9 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
             try:
                 if spec.get("kind") == "composite":
                     _populate_composite_from_spec(name, spec, registry)
+                    resolved_this_pass.append(name)
+                elif spec.get("kind") == "enum":
+                    _populate_enum_from_spec(name, spec, registry)
                     resolved_this_pass.append(name)
                 else:
                     type_def = _create_type_from_spec(name, spec, registry)
@@ -133,6 +143,36 @@ def _populate_composite_from_spec(
     stub.fields = fields
 
 
+def _populate_enum_from_spec(
+    name: str, spec: dict[str, Any], registry: TypeRegistry
+) -> None:
+    """Populate a pre-registered enum stub with its variants.
+
+    Gets the existing stub via registry.get() and sets stub.variants.
+    Skips if already populated (idempotent).
+    """
+    stub = registry.get(name)
+    if not isinstance(stub, EnumTypeDefinition):
+        return
+    # Skip if already populated
+    if stub.variants:
+        return
+
+    variants = []
+    for vspec in spec["variants"]:
+        vfields = []
+        for fspec in vspec.get("fields", []):
+            ftype = registry.get_or_raise(fspec["type"])
+            vfields.append(FieldDefinition(name=fspec["name"], type_def=ftype))
+        variants.append(EnumVariantDefinition(
+            name=vspec["name"],
+            discriminant=vspec["discriminant"],
+            fields=vfields,
+        ))
+    stub.variants = variants
+    stub.has_explicit_values = spec.get("has_explicit_values", False)
+
+
 def format_value(value: Any, type_def: TypeDefinition) -> str:
     """Format a value for display."""
     base = type_def.resolve_base_type()
@@ -157,6 +197,13 @@ def format_value(value: Any, type_def: TypeDefinition) -> str:
             if is_string_type(type_def):
                 return repr("".join(value))
             return str(value)
+    elif isinstance(base, EnumTypeDefinition):
+        if isinstance(value, EnumValue):
+            if value.fields:
+                field_strs = [f"{k}={v}" for k, v in value.fields.items()]
+                return f"{base.name}.{value.variant_name}({', '.join(field_strs)})"
+            return f"{base.name}.{value.variant_name}"
+        return str(value)
     elif isinstance(base, CompositeTypeDefinition):
         return str(value)
 

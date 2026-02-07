@@ -1,0 +1,51 @@
+-- C-style enumerations with explicit backing values
+
+use /tmp/ttq_enum_explicit
+
+create enum HttpStatus {
+    ok = 200,
+    created = 201,
+    bad_request = 400,
+    unauthorized = 401,
+    not_found = 404,
+    internal_error = 500
+}
+
+create enum LogLevel {
+    trace = 0,
+    debug = 10,
+    info = 20,
+    warn = 30,
+    error = 40,
+    fatal = 50
+}
+
+create type ApiResponse {
+    endpoint: string,
+    status: HttpStatus
+}
+
+create type LogEntry {
+    message: string,
+    level: LogLevel
+}
+
+create ApiResponse(endpoint="/users", status=.ok)
+create ApiResponse(endpoint="/users/999", status=.not_found)
+create ApiResponse(endpoint="/admin", status=.unauthorized)
+create ApiResponse(endpoint="/crash", status=.internal_error)
+
+create LogEntry(message="Server started", level=.info)
+create LogEntry(message="Connection pool exhausted", level=.warn)
+create LogEntry(message="Unhandled exception", level=.fatal)
+
+from ApiResponse select *
+from LogEntry select *
+
+-- Type-based queries
+from HttpStatus select *
+from LogLevel select *
+
+describe HttpStatus
+
+dump

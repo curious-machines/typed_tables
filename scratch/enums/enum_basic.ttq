@@ -1,0 +1,30 @@
+-- Basic C-style enumerations
+
+use /tmp/ttq_enum_basic
+
+create enum Color { red, green, blue }
+
+create enum Direction { north, south, east, west }
+
+create type Pixel {
+    x: uint16,
+    y: uint16,
+    color: Color
+}
+
+create Pixel(x=0, y=0, color=.red)
+create Pixel(x=1, y=0, color=.green)
+create Pixel(x=2, y=0, color=.blue)
+create Pixel(x=0, y=1, color=.red)
+
+-- Show all pixels
+from Pixel select *
+
+-- Type-based query: find all Color usages across the database
+from Color select *
+
+-- Describe the enum
+describe Color
+
+-- Dump the database
+dump

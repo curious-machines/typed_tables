@@ -49,6 +49,7 @@ class QueryLexer:
         "tag": "TAG",
         "scope": "SCOPE",
         "forward": "FORWARD",
+        "enum": "ENUM",
         "yaml": "YAML",
         "json": "JSON",
         "xml": "XML",

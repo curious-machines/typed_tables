@@ -16,9 +16,11 @@ from typed_tables.parsing.query_parser import (
     CompositeRef,
     Condition,
     CreateAliasQuery,
+    CreateEnumQuery,
     CreateInstanceQuery,
     CreateTypeQuery,
     DeleteQuery,
+    EnumValueExpr,
     ForwardTypeQuery,
     DescribeQuery,
     DropDatabaseQuery,
@@ -45,6 +47,9 @@ from typed_tables.types import (
     AliasTypeDefinition,
     ArrayTypeDefinition,
     CompositeTypeDefinition,
+    EnumTypeDefinition,
+    EnumValue,
+    EnumVariantDefinition,
     FieldDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
@@ -174,6 +179,8 @@ class QueryExecutor:
             return self._execute_forward_type(query)
         elif isinstance(query, CreateAliasQuery):
             return self._execute_create_alias(query)
+        elif isinstance(query, CreateEnumQuery):
+            return self._execute_create_enum(query)
         elif isinstance(query, CreateInstanceQuery):
             return self._execute_create_instance(query)
         elif isinstance(query, EvalQuery):
@@ -354,6 +361,28 @@ class QueryExecutor:
 
     def _execute_describe(self, query: DescribeQuery) -> QueryResult:
         """Execute DESCRIBE query."""
+        # Handle variant-specific describe: describe Shape.circle
+        if "." in query.table:
+            parts = query.table.split(".", 1)
+            enum_name, variant_name = parts[0], parts[1]
+            enum_def = self.registry.get(enum_name)
+            if enum_def is None:
+                return QueryResult(columns=[], rows=[], message=f"Unknown type: {enum_name}")
+            enum_base = enum_def.resolve_base_type()
+            if not isinstance(enum_base, EnumTypeDefinition):
+                return QueryResult(columns=[], rows=[], message=f"Not an enum type: {enum_name}")
+            variant = enum_base.get_variant(variant_name)
+            if variant is None:
+                return QueryResult(columns=[], rows=[], message=f"Unknown variant '{variant_name}' on enum '{enum_name}'")
+            rows = [{
+                "property": "(variant)",
+                "type": f"{enum_name}.{variant_name}",
+                "size": sum(f.type_def.reference_size for f in variant.fields),
+            }]
+            for f in variant.fields:
+                rows.append({"property": f.name, "type": f.type_def.name, "size": f.type_def.reference_size})
+            return QueryResult(columns=["property", "type", "size"], rows=rows)
+
         type_def = self.registry.get(query.table)
         if type_def is None:
             return QueryResult(
@@ -379,7 +408,22 @@ class QueryExecutor:
                 "size": type_def.base_type.size_bytes,
             })
 
-        if isinstance(base, CompositeTypeDefinition):
+        if isinstance(base, EnumTypeDefinition):
+            for variant in base.variants:
+                if variant.fields:
+                    field_strs = [f"{f.name}: {f.type_def.name}" for f in variant.fields]
+                    rows.append({
+                        "property": variant.name,
+                        "type": f"({', '.join(field_strs)})",
+                        "size": sum(f.type_def.reference_size for f in variant.fields),
+                    })
+                else:
+                    rows.append({
+                        "property": variant.name,
+                        "type": f"= {variant.discriminant}",
+                        "size": 0,
+                    })
+        elif isinstance(base, CompositeTypeDefinition):
             for field in base.fields:
                 field_base = field.type_def.resolve_base_type()
                 rows.append({
@@ -564,6 +608,77 @@ class QueryExecutor:
             columns=["type", "fields"],
             rows=[{"type": query.name, "fields": 0}],
             message=f"Forward declared type '{query.name}'",
+            type_name=query.name,
+        )
+
+    def _execute_create_enum(self, query: CreateEnumQuery) -> CreateResult:
+        """Execute CREATE ENUM query."""
+        existing = self.registry.get(query.name)
+        if existing is not None:
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Type '{query.name}' already exists",
+                type_name=query.name,
+            )
+
+        # Validate: no mixing of explicit values and associated values
+        has_explicit = any(v.explicit_value is not None for v in query.variants)
+        has_fields = any(v.fields is not None and len(v.fields) > 0 for v in query.variants)
+        if has_explicit and has_fields:
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Enum '{query.name}': explicit discriminant values and associated values cannot coexist",
+                type_name=query.name,
+            )
+
+        # Build variants
+        from typed_tables.types import EnumVariantDefinition as EVD
+
+        variants: list[EVD] = []
+        auto_disc = 0
+        for vspec in query.variants:
+            if vspec.explicit_value is not None:
+                disc = vspec.explicit_value
+                auto_disc = disc + 1
+            else:
+                disc = auto_disc
+                auto_disc += 1
+
+            fields: list[FieldDefinition] = []
+            if vspec.fields:
+                for fdef in vspec.fields:
+                    type_name = fdef.type_name
+                    if type_name.endswith("[]"):
+                        base_name = type_name[:-2]
+                        field_type = self.registry.get_array_type(base_name)
+                    else:
+                        field_type = self.registry.get(type_name)
+                        if field_type is None:
+                            return CreateResult(
+                                columns=[],
+                                rows=[],
+                                message=f"Unknown type: {type_name}",
+                                type_name=query.name,
+                            )
+                    fields.append(FieldDefinition(name=fdef.name, type_def=field_type))
+
+            variants.append(EVD(name=vspec.name, discriminant=disc, fields=fields))
+
+        # Create and register the enum type
+        enum_def = EnumTypeDefinition(
+            name=query.name,
+            variants=variants,
+            has_explicit_values=has_explicit,
+        )
+        self.registry.register(enum_def)
+        self.storage.save_metadata()
+
+        return CreateResult(
+            columns=["type", "variants"],
+            rows=[{"type": query.name, "variants": len(variants)}],
+            message=f"Created enum '{query.name}' with {len(variants)} variant(s)",
             type_name=query.name,
         )
 
@@ -813,6 +928,9 @@ class QueryExecutor:
 
             if resolved_value is None:
                 raw_record[fv.name] = None
+            elif isinstance(field_base, EnumTypeDefinition):
+                # Enum field — resolved_value should be an EnumValue
+                raw_record[fv.name] = resolved_value
             elif isinstance(field_base, ArrayTypeDefinition):
                 if isinstance(resolved_value, str):
                     resolved_value = list(resolved_value)
@@ -871,6 +989,12 @@ class QueryExecutor:
         elif isinstance(value, CompositeRef):
             # Return the index directly - the type will be validated during instance creation
             return value.index
+        elif isinstance(value, EnumValueExpr):
+            # Shorthand form (.red, .circle(cx=50)) — defer to _create_instance
+            if value.enum_name is None:
+                return value
+            # Fully-qualified form: Color.red or Shape.circle(cx=50, ...)
+            return self._resolve_enum_value_expr(value)
         elif isinstance(value, InlineInstance):
             # Inline instance creation: resolve fields and create the instance
             type_def = self.registry.get(value.type_name)
@@ -893,6 +1017,48 @@ class QueryExecutor:
                 self._define_tag(value.tag, value.type_name, index)
             return index
         return value
+
+    def _resolve_enum_value_expr(
+        self, value: EnumValueExpr, enum_name: str | None = None,
+    ) -> EnumValue:
+        """Resolve an EnumValueExpr to an EnumValue.
+
+        If enum_name is provided, it overrides value.enum_name (for shorthand resolution).
+        """
+        name = enum_name or value.enum_name
+        enum_type = self.registry.get(name)
+        if enum_type is None:
+            raise ValueError(f"Unknown type: {name}")
+        enum_base = enum_type.resolve_base_type()
+        if not isinstance(enum_base, EnumTypeDefinition):
+            raise ValueError(f"Not an enum type: {name}")
+        variant = enum_base.get_variant(value.variant_name)
+        if variant is None:
+            raise ValueError(f"Unknown variant '{value.variant_name}' on enum '{name}'")
+        # Resolve associated value fields
+        fields_dict: dict[str, Any] = {}
+        if value.args:
+            for fv in value.args:
+                fields_dict[fv.name] = self._resolve_instance_value(fv.value)
+        # For fields with array values, store them and convert to (start, length)
+        for vf in variant.fields:
+            if vf.name in fields_dict:
+                fval = fields_dict[vf.name]
+                vf_base = vf.type_def.resolve_base_type()
+                if isinstance(vf_base, ArrayTypeDefinition):
+                    if isinstance(fval, str):
+                        fval = list(fval)
+                    array_table = self.storage.get_array_table_for_type(vf.type_def)
+                    fields_dict[vf.name] = array_table.insert(fval)
+                elif isinstance(vf_base, CompositeTypeDefinition):
+                    if isinstance(fval, dict):
+                        idx = self._create_instance(vf.type_def, vf_base, fval)
+                        fields_dict[vf.name] = idx
+        return EnumValue(
+            variant_name=variant.name,
+            discriminant=variant.discriminant,
+            fields=fields_dict,
+        )
 
     def _create_instance(
         self,
@@ -938,7 +1104,15 @@ class QueryExecutor:
                 field_references[field.name] = array_table.insert(field_value)
                 continue
 
-            if isinstance(field_base, CompositeTypeDefinition):
+            if isinstance(field_base, EnumTypeDefinition):
+                # Resolve shorthand enum expressions (.red → Color.red)
+                if isinstance(field_value, EnumValueExpr):
+                    field_value = self._resolve_enum_value_expr(
+                        field_value, enum_name=field.type_def.name,
+                    )
+                # Enum field — value should be an EnumValue
+                field_references[field.name] = field_value
+            elif isinstance(field_base, CompositeTypeDefinition):
                 # Nested composite - either an index reference, dict for recursive create, or tag reference
                 if isinstance(field_value, TagReference):
                     # Tag reference not yet bound - use None and defer patching
@@ -1082,9 +1256,74 @@ class QueryExecutor:
                     rows=[],
                     message=f"Unknown type: {query.table}",
                 )
+
+            # Handle variant-specific enum queries: from Shape.circle select *
+            if query.variant:
+                enum_base = type_def.resolve_base_type()
+                if not isinstance(enum_base, EnumTypeDefinition):
+                    return QueryResult(
+                        columns=[], rows=[],
+                        message=f"Cannot use variant syntax on non-enum type: {query.table}",
+                    )
+                variant = enum_base.get_variant(query.variant)
+                if variant is None:
+                    return QueryResult(
+                        columns=[], rows=[],
+                        message=f"Unknown variant '{query.variant}' on enum '{query.table}'",
+                    )
+                records = list(self._load_records_by_enum_type(query.table, type_def, variant_filter=query.variant))
+
+                # Apply WHERE filter
+                if query.where:
+                    records = [r for r in records if self._evaluate_condition(r, query.where)]
+
+                # Apply SORT BY
+                if query.sort_by:
+                    records = self._apply_sort_by(records, query.sort_by)
+
+                # Apply OFFSET and LIMIT
+                if query.offset:
+                    records = records[query.offset:]
+                if query.limit is not None:
+                    records = records[: query.limit]
+
+                # Build columns from variant fields
+                if len(query.fields) == 1 and query.fields[0].name == "*" and query.fields[0].aggregate is None:
+                    columns = ["_source", "_index", "_field"] + [f.name for f in variant.fields]
+                    return QueryResult(columns=columns, rows=records)
+                else:
+                    columns, rows = self._select_fields(records, query, type_def)
+                    return QueryResult(columns=columns, rows=rows)
+
             records = list(self._load_all_records(query.table, type_def))
 
         base = type_def.resolve_base_type()
+
+        # For enum type overview queries, handle specially
+        if isinstance(base, EnumTypeDefinition):
+            if query.where:
+                return QueryResult(
+                    columns=[], rows=[],
+                    message=f"WHERE not supported on enum overview query. Use 'from {query.table}.<variant> select *' for filtering.",
+                )
+
+            # Apply SORT BY
+            if query.sort_by:
+                records = self._apply_sort_by(records, query.sort_by)
+
+            # Apply OFFSET and LIMIT
+            if query.offset:
+                records = records[query.offset:]
+            if query.limit is not None:
+                records = records[: query.limit]
+
+            if len(query.fields) == 1 and query.fields[0].name == "*" and query.fields[0].aggregate is None:
+                columns = ["_source", "_index", "_field", "_variant", "value"]
+                return QueryResult(columns=columns, rows=records)
+            else:
+                # Allow selecting specific columns from overview records
+                columns, rows = self._select_fields(records, query, type_def)
+                return QueryResult(columns=columns, rows=rows)
 
         # Apply WHERE filter
         if query.where:
@@ -1134,7 +1373,10 @@ class QueryExecutor:
 
                     field_base = field.type_def.resolve_base_type()
 
-                    if isinstance(field_base, ArrayTypeDefinition):
+                    if isinstance(field_base, EnumTypeDefinition):
+                        # ref is already an EnumValue from deserialization
+                        resolved[field.name] = ref
+                    elif isinstance(field_base, ArrayTypeDefinition):
                         start_index, length = ref
                         if length == 0:
                             resolved[field.name] = []
@@ -1155,6 +1397,10 @@ class QueryExecutor:
                         resolved[field.name] = ref
 
                 yield resolved
+
+        elif isinstance(base, EnumTypeDefinition):
+            # Enum type — scan all composites that contain this enum field type
+            yield from self._load_records_by_enum_type(type_name, type_def)
 
         elif isinstance(base, ArrayTypeDefinition):
             # Standalone array types no longer have header tables;
@@ -1196,6 +1442,107 @@ class QueryExecutor:
                     "_value": ref,
                 }
 
+    def _load_records_by_enum_type(
+        self, type_name: str, type_def: TypeDefinition,
+        variant_filter: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Load records for an enum type by scanning composites that use it.
+
+        Returns records with _source, _index, _field, _variant, and value columns.
+        If variant_filter is set, only matching variants are included and
+        associated value fields become columns.
+        """
+        enum_base = type_def.resolve_base_type()
+        if not isinstance(enum_base, EnumTypeDefinition):
+            return
+
+        matches = self.registry.find_composites_with_field_type(type_name)
+        if not matches:
+            return
+
+        for comp_name, field_name, comp_def in matches:
+            table_file = self.storage.data_dir / f"{comp_name}.bin"
+            if not table_file.exists():
+                continue
+            table = self.storage.get_table(comp_name)
+            for i in range(table.count):
+                if table.is_deleted(i):
+                    continue
+                record = table.get(i)
+                ref = record[field_name]
+                if ref is None:
+                    continue
+                if not isinstance(ref, EnumValue):
+                    continue
+
+                if variant_filter and ref.variant_name != variant_filter:
+                    continue
+
+                if variant_filter:
+                    # Variant query: associated values as columns
+                    row: dict[str, Any] = {
+                        "_source": comp_name,
+                        "_index": i,
+                        "_field": field_name,
+                    }
+                    variant = enum_base.get_variant(ref.variant_name)
+                    if variant:
+                        for vf in variant.fields:
+                            fval = ref.fields.get(vf.name)
+                            vf_base = vf.type_def.resolve_base_type()
+                            if isinstance(vf_base, ArrayTypeDefinition) and isinstance(fval, tuple):
+                                start_index, length = fval
+                                if length == 0:
+                                    row[vf.name] = []
+                                else:
+                                    arr_table = self.storage.get_array_table_for_type(vf.type_def)
+                                    elements = [
+                                        arr_table.element_table.get(start_index + j)
+                                        for j in range(length)
+                                    ]
+                                    if is_string_type(vf.type_def):
+                                        row[vf.name] = "".join(elements)
+                                    else:
+                                        row[vf.name] = elements
+                            else:
+                                row[vf.name] = fval
+                    yield row
+                else:
+                    # Overview query: formatted value string
+                    if ref.fields:
+                        field_strs = []
+                        variant = enum_base.get_variant(ref.variant_name)
+                        if variant:
+                            for vf in variant.fields:
+                                fval = ref.fields.get(vf.name)
+                                vf_base = vf.type_def.resolve_base_type()
+                                if isinstance(vf_base, ArrayTypeDefinition) and isinstance(fval, tuple):
+                                    start_index, length = fval
+                                    if length == 0:
+                                        field_strs.append(f"{vf.name}=[]")
+                                    else:
+                                        arr_table = self.storage.get_array_table_for_type(vf.type_def)
+                                        elements = [
+                                            arr_table.element_table.get(start_index + j)
+                                            for j in range(length)
+                                        ]
+                                        if is_string_type(vf.type_def):
+                                            field_strs.append(f'{vf.name}="{"".join(elements)}"')
+                                        else:
+                                            field_strs.append(f"{vf.name}={elements}")
+                                elif fval is not None:
+                                    field_strs.append(f"{vf.name}={fval}")
+                        value_str = f"{ref.variant_name}({', '.join(field_strs)})"
+                    else:
+                        value_str = ref.variant_name
+                    yield {
+                        "_source": comp_name,
+                        "_index": i,
+                        "_field": field_name,
+                        "_variant": ref.variant_name,
+                        "value": value_str,
+                    }
+
     def _load_records_by_indices(
         self, type_name: str, type_def: TypeDefinition, indices: list[int]
     ) -> Iterator[dict[str, Any]]:
@@ -1224,7 +1571,9 @@ class QueryExecutor:
 
                 field_base = field.type_def.resolve_base_type()
 
-                if isinstance(field_base, ArrayTypeDefinition):
+                if isinstance(field_base, EnumTypeDefinition):
+                    resolved[field.name] = ref
+                elif isinstance(field_base, ArrayTypeDefinition):
                     start_index, length = ref
                     if length == 0:
                         resolved[field.name] = []
@@ -1718,6 +2067,7 @@ class QueryExecutor:
         # Collect user-defined types (skip primitives and auto-generated array types)
         aliases: list[tuple[str, AliasTypeDefinition]] = []
         composites: list[tuple[str, CompositeTypeDefinition]] = []
+        enums: list[tuple[str, EnumTypeDefinition]] = []
 
         for type_name in self.registry.list_types():
             type_def = self.registry.get(type_name)
@@ -1727,7 +2077,9 @@ class QueryExecutor:
                 continue
             if isinstance(type_def, ArrayTypeDefinition):
                 continue  # auto-generated array types
-            if isinstance(type_def, AliasTypeDefinition):
+            if isinstance(type_def, EnumTypeDefinition):
+                enums.append((type_name, type_def))
+            elif isinstance(type_def, AliasTypeDefinition):
                 aliases.append((type_name, type_def))
             elif isinstance(type_def, CompositeTypeDefinition):
                 composites.append((type_name, type_def))
@@ -1741,6 +2093,7 @@ class QueryExecutor:
             for tname in dump_targets:
                 needed |= self._transitive_type_closure(tname)
             aliases = [(n, t) for n, t in aliases if n in needed]
+            enums = [(n, t) for n, t in enums if n in needed]
             sorted_composites = [(n, t) for n, t in sorted_composites if n in needed]
             cycle_composites = [(n, t) for n, t in cycle_composites if n in needed]
 
@@ -1766,6 +2119,27 @@ class QueryExecutor:
         for name, alias_def in aliases:
             base_name = alias_def.base_type.name
             lines.append(f"create alias {name} as {base_name}")
+
+        # Emit enum type definitions
+        for name, enum_def in enums:
+            variant_strs = []
+            for v in enum_def.variants:
+                if v.fields:
+                    field_strs = [f"{f.name}: {f.type_def.name}" for f in v.fields]
+                    variant_strs.append(f"{v.name}({', '.join(field_strs)})")
+                elif enum_def.has_explicit_values:
+                    variant_strs.append(f"{v.name} = {v.discriminant}")
+                else:
+                    variant_strs.append(v.name)
+            if pretty:
+                lines.append(f"create enum {name} {{")
+                for i, vs in enumerate(variant_strs):
+                    comma = "," if i < len(variant_strs) - 1 else ""
+                    lines.append(f"    {vs}{comma}")
+                lines.append("}")
+                lines.append("")
+            else:
+                lines.append(f"create enum {name} {{ {', '.join(variant_strs)} }}")
 
         # Determine which cycle types need forward declarations
         # Only types referenced before they're defined need forwarding
@@ -2645,6 +3019,13 @@ class QueryExecutor:
                 continue
             if isinstance(type_def, AliasTypeDefinition):
                 stack.append(type_def.base_type.name)
+            elif isinstance(type_def, EnumTypeDefinition):
+                for v in type_def.variants:
+                    for f in v.fields:
+                        stack.append(f.type_def.name)
+                        fb = f.type_def.resolve_base_type()
+                        if isinstance(fb, ArrayTypeDefinition):
+                            stack.append(fb.element_type.name)
             elif isinstance(type_def, CompositeTypeDefinition):
                 for f in type_def.fields:
                     stack.append(f.type_def.name)
@@ -2791,7 +3172,13 @@ class QueryExecutor:
 
         field_base = field.type_def.resolve_base_type()
 
-        if isinstance(field_base, ArrayTypeDefinition):
+        if isinstance(field_base, EnumTypeDefinition):
+            # ref is an EnumValue
+            if isinstance(ref, EnumValue):
+                return self._format_enum_value_ttq(ref, field_base)
+            return str(ref)
+
+        elif isinstance(field_base, ArrayTypeDefinition):
             start_index, length = ref
             if length == 0:
                 return "[]"
@@ -2907,6 +3294,42 @@ class QueryExecutor:
             fields_joined = (",\n" + inner_indent).join(field_strs)
             return f"{type_def.name}(\n{inner_indent}{fields_joined}\n{close_indent})"
         return f"{type_def.name}({', '.join(field_strs)})"
+
+    def _format_enum_value_ttq(self, ev: EnumValue, enum_def: EnumTypeDefinition) -> str:
+        """Format an EnumValue as TTQ syntax: Color.red or Shape.circle(cx=50.0, ...)."""
+        if not ev.fields:
+            return f"{enum_def.name}.{ev.variant_name}"
+        variant = enum_def.get_variant(ev.variant_name)
+        if not variant or not variant.fields:
+            return f"{enum_def.name}.{ev.variant_name}"
+        field_strs = []
+        for vf in variant.fields:
+            fval = ev.fields.get(vf.name)
+            if fval is None:
+                field_strs.append(f"{vf.name}=null")
+            else:
+                vf_base = vf.type_def.resolve_base_type()
+                if isinstance(vf_base, ArrayTypeDefinition):
+                    # Array stored as (start, length) — resolve it
+                    if isinstance(fval, tuple):
+                        start_index, length = fval
+                        if length == 0:
+                            field_strs.append(f"{vf.name}=[]")
+                        else:
+                            arr_table = self.storage.get_array_table_for_type(vf.type_def)
+                            elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+                            if is_string_type(vf.type_def):
+                                field_strs.append(f"{vf.name}={self._format_ttq_string(''.join(elements))}")
+                            else:
+                                elem_strs = [self._format_ttq_value(e, vf_base.element_type.resolve_base_type()) for e in elements]
+                                field_strs.append(f"{vf.name}=[{', '.join(elem_strs)}]")
+                    else:
+                        field_strs.append(f"{vf.name}={fval}")
+                elif isinstance(vf_base, EnumTypeDefinition) and isinstance(fval, EnumValue):
+                    field_strs.append(f"{vf.name}={self._format_enum_value_ttq(fval, vf_base)}")
+                else:
+                    field_strs.append(f"{vf.name}={self._format_ttq_value(fval, vf_base)}")
+        return f"{enum_def.name}.{ev.variant_name}({', '.join(field_strs)})"
 
     def _format_ttq_value(self, value: Any, type_base: TypeDefinition) -> str:
         """Format a primitive value as a TTQ literal."""
