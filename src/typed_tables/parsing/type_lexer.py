@@ -20,7 +20,7 @@ class TypeLexer:
         "LBRACKET",
         "RBRACKET",
         "COLON",
-        "NEWLINE",
+        "COMMA",
     ] + list(reserved.values())
 
     # Simple tokens
@@ -29,8 +29,9 @@ class TypeLexer:
     t_LBRACKET = r"\["
     t_RBRACKET = r"\]"
     t_COLON = r":"
+    t_COMMA = r","
 
-    # Ignored characters (spaces and tabs, but not newlines)
+    # Ignored characters (spaces, tabs, and newlines)
     t_ignore = " \t"
 
     # Comments
@@ -45,10 +46,10 @@ class TypeLexer:
         t.type = self.reserved.get(t.value, "IDENTIFIER")
         return t
 
-    def t_NEWLINE(self, t: lex.LexToken) -> lex.LexToken:
+    def t_NEWLINE(self, t: lex.LexToken) -> None:
         r"\n+"
         t.lexer.lineno += len(t.value)
-        return t
+        # Don't return token — treat as whitespace
 
     def t_error(self, t: lex.LexToken) -> None:
         raise SyntaxError(f"Illegal character '{t.value[0]}' at line {t.lineno}")

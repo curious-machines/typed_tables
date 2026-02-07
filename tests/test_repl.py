@@ -27,15 +27,13 @@ class TestRunFile:
 use {db_path};
 
 -- Create a type
-create type Person
-  name: string
-  age: uint8;
+create type Person {{ name: string, age: uint8 }}
 
 -- Create an instance
-create Person(name="Alice", age=30);
+create Person(name="Alice", age=30)
 
 -- Query it
-from Person select *;
+from Person select *
 """)
 
         result = run_file(script, None, verbose=False)
@@ -48,7 +46,7 @@ from Person select *;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path}; create type Point x:float32 y:float32; create Point(x=1.0, y=2.0); from Point select *
+use {db_path}; create type Point {{ x: float32, y: float32 }}; create Point(x=1.0, y=2.0); from Point select *
 """)
 
         result = run_file(script, None, verbose=False)
@@ -61,7 +59,7 @@ use {db_path}; create type Point x:float32 y:float32; create Point(x=1.0, y=2.0)
 
         script = tmp_path / "test.ttq"
         script.write_text("""
-create type Item name:string;
+create type Item { name: string }
 create Item(name="test");
 from Item select *;
 """)
@@ -99,7 +97,7 @@ from where;
 -- This is a comment
 use {db_path};
 -- Another comment
-create type Test value:uint8;
+create type Test {{ value: uint8 }}
 -- Final comment
 """)
 
@@ -115,7 +113,7 @@ create type Test value:uint8;
         # The semicolons help separate the queries
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(
   name="Alice",
   age=30
@@ -138,7 +136,7 @@ class TestExecuteCommand:
         db_path = tmp_path / "testdb"
         subscript = tmp_path / "subscript.ttq"
         subscript.write_text("""
-create type Item name:string;
+create type Item { name: string }
 create Item(name="from subscript");
 """)
 
@@ -165,8 +163,8 @@ class TestInlineInstanceAndProjection:
 
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 from Person select *;
 """)
@@ -181,8 +179,8 @@ from Person select *;
 
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 from Person select address.city;
 """)
@@ -197,8 +195,8 @@ from Person select address.city;
 
         script.write_text(f"""
 use {db_path};
-create type Employee name:string;
-create type Team title:string employees:Employee[];
+create type Employee {{ name: string }}
+create type Team {{ title: string, employees: Employee[] }}
 create Employee(name="Alice");
 create Employee(name="Bob");
 create Team(title="Engineering", employees=[0, 1]);
@@ -215,8 +213,8 @@ from Team select employees[0].name;
 
         script.write_text(f"""
 use {db_path};
-create type Employee name:string;
-create type Team title:string employees:Employee[];
+create type Employee {{ name: string }}
+create type Team {{ title: string, employees: Employee[] }}
 create Employee(name="Alice");
 create Employee(name="Bob");
 create Team(title="Engineering", employees=[0, 1]);
@@ -238,7 +236,7 @@ class TestDump:
         script.write_text(f"""
 use {db_path};
 create alias uuid as uint128;
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 """)
@@ -263,8 +261,8 @@ dump;
 
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=Address(street="456 Oak", city="Shelbyville"));
 dump Person;
@@ -280,8 +278,8 @@ dump Person;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 """)
 
@@ -311,8 +309,8 @@ create Person(name="Alice", address=Address(street="123 Main", city="Springfield
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string age:uint8 address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, age: uint8, address: Address }}
 create Person(name="Alice", age=30, address=Address(street="123 Main", city="Springfield"));
 create Person(name="Bob", age=25, address=Address(street="456 Oak", city="Shelbyville"));
 """)
@@ -366,8 +364,8 @@ create Person(name="Bob", age=25, address=Address(street="456 Oak", city="Shelby
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Employee name:string;
-create type Team title:string employees:Employee[];
+create type Employee {{ name: string }}
+create type Team {{ title: string, employees: Employee[] }}
 create Team(title="Engineering", employees=[Employee(name="Alice"), Employee(name="Bob")]);
 from Team select *;
 """)
@@ -383,7 +381,7 @@ from Team select *;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 dump to "{tmp_path / 'dump_output.ttq'}";
@@ -405,8 +403,8 @@ dump to "{tmp_path / 'dump_output.ttq'}";
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 dump Person to "{tmp_path / 'person_dump.ttq'}";
 """)
@@ -426,7 +424,7 @@ dump Person to "{tmp_path / 'person_dump.ttq'}";
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 dump to "{tmp_path / 'dump_output.ttq'}";
@@ -476,8 +474,8 @@ class TestVariableBindings:
 
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=$addr);
 from Person select address.city;
@@ -493,8 +491,8 @@ from Person select address.city;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=$addr);
 create Person(name="Bob", address=$addr);
@@ -527,7 +525,7 @@ create Person(name="Bob", address=$addr);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
+create type Address {{ street: string, city: string }}
 $addr = create Address(street="123 Main", city="Springfield");
 $addr = create Address(street="456 Oak", city="Shelbyville");
 """)
@@ -545,8 +543,8 @@ $addr = create Address(street="456 Oak", city="Shelbyville");
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=$undefined);
 """)
 
@@ -560,8 +558,8 @@ create Person(name="Alice", address=$undefined);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Employee name:string;
-create type Team title:string employees:Employee[];
+create type Employee {{ name: string }}
+create type Team {{ title: string, employees: Employee[] }}
 $e1 = create Employee(name="Alice");
 $e2 = create Employee(name="Bob");
 create Team(title="Engineering", employees=[$e1, $e2]);
@@ -578,8 +576,8 @@ from Team select employees.name;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=$addr);
 create Person(name="Bob", address=$addr);
@@ -611,8 +609,8 @@ create Person(name="Bob", address=$addr);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=$addr);
 create Person(name="Bob", address=$addr);
@@ -667,7 +665,7 @@ class TestCyclicalTypes:
 
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 children:Node[];
+create type Node {{ value: uint8, children: Node[] }}
 describe Node;
 """)
 
@@ -681,7 +679,7 @@ describe Node;
 
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 children:Node[];
+create type Node {{ value: uint8, children: Node[] }}
 create Node(value=1, children=[]);
 create Node(value=2, children=[]);
 create Node(value=0, children=[Node(value=1, children=[]), Node(value=2, children=[])]);
@@ -698,7 +696,7 @@ from Node select *;
 
         script.write_text(f"""
 use {db_path};
-create type LinkedNode value:uint8 next:LinkedNode;
+create type LinkedNode {{ value: uint8, next: LinkedNode }}
 create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)));
 from LinkedNode select *;
 """)
@@ -714,8 +712,8 @@ from LinkedNode select *;
         script.write_text(f"""
 use {db_path};
 forward type B;
-create type A value:uint8 b:B;
-create type B value:uint8 a:A;
+create type A {{ value: uint8, b: B }}
+create type B {{ value: uint8, a: A }}
 describe A;
 describe B;
 """)
@@ -731,8 +729,8 @@ describe B;
         script.write_text(f"""
 use {db_path};
 forward type B;
-create type A value:uint8 b:B;
-create type B value:uint8 a:A;
+create type A {{ value: uint8, b: B }}
+create type B {{ value: uint8, a: A }}
 $a = create A(value=1, b=B(value=2, a=A(0)));
 from A select *;
 from B select *;
@@ -748,7 +746,7 @@ from B select *;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 children:Node[];
+create type Node {{ value: uint8, children: Node[] }}
 create Node(value=1, children=[]);
 create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, children=[])]);
 """)
@@ -798,8 +796,8 @@ create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, childre
         script.write_text(f"""
 use {db_path};
 forward type B;
-create type A value:uint8 b:B;
-create type B value:uint8 a:A;
+create type A {{ value: uint8, b: B }}
+create type B {{ value: uint8, a: A }}
 create A(value=1, b=B(value=2, a=A(0)));
 """)
 
@@ -818,7 +816,7 @@ create A(value=1, b=B(value=2, a=A(0)));
         dump_result = executor.execute(DumpQuery())
         assert isinstance(dump_result, DumpResult)
         # Should contain forward declarations
-        assert "forward type A;" in dump_result.script or "forward type B;" in dump_result.script
+        assert "forward type A" in dump_result.script or "forward type B" in dump_result.script
         storage.close()
 
         # Execute dump into fresh db
@@ -853,7 +851,7 @@ create A(value=1, b=B(value=2, a=A(0)));
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type LinkedNode value:uint8 next:LinkedNode;
+create type LinkedNode {{ value: uint8, next: LinkedNode }}
 create LinkedNode(value=42, next=LinkedNode(0));
 """)
 
@@ -889,7 +887,7 @@ class TestCollect:
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -907,7 +905,7 @@ dump $seniors;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Item name:string;
+create type Item {{ name: string }}
 create Item(name="A");
 create Item(name="B");
 create Item(name="C");
@@ -925,7 +923,7 @@ dump $all;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Score name:string value:uint8;
+create type Score {{ name: string, value: uint8 }}
 create Score(name="Alice", value=90);
 create Score(name="Bob", value=80);
 create Score(name="Carol", value=95);
@@ -943,7 +941,7 @@ dump $top2;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Item name:string;
+create type Item {{ name: string }}
 create Item(name="A");
 $items = collect Item;
 $items = collect Item;
@@ -962,8 +960,8 @@ $items = collect Item;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Item name:string;
-create type Wrapper item:Item;
+create type Item {{ name: string }}
+create type Wrapper {{ item: Item }}
 create Item(name="A");
 $items = collect Item;
 create Wrapper(item=$items);
@@ -979,7 +977,7 @@ create Wrapper(item=$items);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 $bob = create Person(name="Bob", age=25);
 create Person(name="Carol", age=40);
@@ -997,7 +995,7 @@ dump $bob;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 $all = collect Person;
@@ -1017,7 +1015,7 @@ dump $all to "{output_file}";
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1063,7 +1061,7 @@ dump $seniors to "{tmp_path / 'seniors.ttq'}";
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 $nobody = collect Person where age >= 100;
 dump $nobody;
@@ -1082,7 +1080,7 @@ class TestFromVariable:
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1098,7 +1096,7 @@ from $seniors select name, age sort by age;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=60);
 create Person(name="Carol", age=90);
@@ -1120,7 +1118,7 @@ from $old select average(age);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1151,7 +1149,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 """)
         result = run_file(script, None, verbose=False)
         assert result == 0
@@ -1178,7 +1176,7 @@ create type Person name:string age:uint8;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 $bob = create Person(name="Bob", age=25);
 create Person(name="Carol", age=40);
@@ -1214,7 +1212,7 @@ class TestCollectMultiSource:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1244,7 +1242,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1268,8 +1266,8 @@ create Person(name="Carol", age=70);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
-create type Item name:string;
+create type Person {{ name: string, age: uint8 }}
+create type Item {{ name: string }}
 create Person(name="Alice", age=30);
 create Item(name="Widget");
 $mixed = collect Person, Item;
@@ -1289,7 +1287,7 @@ $mixed = collect Person, Item;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1319,7 +1317,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1350,7 +1348,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1378,7 +1376,7 @@ class TestDumpList:
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 dump [Person];
@@ -1398,8 +1396,8 @@ dump [Person];
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
-create type Item name:string;
+create type Person {{ name: string, age: uint8 }}
+create type Item {{ name: string }}
 create Person(name="Alice", age=30);
 create Item(name="Widget");
 """)
@@ -1428,7 +1426,7 @@ create Item(name="Widget");
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1459,7 +1457,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 dump [Person] to "{output_file}";
 """)
@@ -1481,8 +1479,8 @@ dump [Person] to "{output_file}";
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
-create type Item name:string;
+create type Person {{ name: string, age: uint8 }}
+create type Item {{ name: string }}
 create Person(name="Alice", age=30);
 create Item(name="Widget");
 """)
@@ -1536,7 +1534,7 @@ class TestMain:
 
         script.write_text(f"""
 use {db_path};
-create type Simple value:uint8;
+create type Simple {{ value: uint8 }}
 """)
 
         result = main(["-f", str(script)])
@@ -1574,7 +1572,7 @@ class TestNullValues:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 """)
         result = run_file(script, None, verbose=False)
@@ -1603,7 +1601,7 @@ create Node(value=1, next=null);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 create Node(value=2, next=null);
 """)
@@ -1650,7 +1648,7 @@ create Node(value=2, next=null);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 create Node(value=1);
 """)
         result = run_file(script, None, verbose=False)
@@ -1683,7 +1681,7 @@ class TestUpdate:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=null);
 update $n1 set next=$n2;
@@ -1718,7 +1716,7 @@ update $n1 set next=$n2;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 create Node(value=2, next=null);
 """)
@@ -1750,7 +1748,7 @@ create Node(value=2, next=null);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=null);
 $n3 = create Node(value=3, next=$n1);
@@ -1785,7 +1783,7 @@ update $n2 set next=$n3;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 """)
         result = run_file(script, None, verbose=False)
         assert result == 0
@@ -1812,7 +1810,7 @@ create type Node value:uint8 next:Node;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 $n = create Node(value=1, next=null);
 """)
         result = run_file(script, None, verbose=False)
@@ -1846,7 +1844,7 @@ class TestCycleAwareDump:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=$n1);
 update $n1 set next=$n2;
@@ -1879,7 +1877,7 @@ update $n1 set next=$n2;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=$n1);
 update $n1 set next=$n2;
@@ -1929,7 +1927,7 @@ update $n1 set next=$n2;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node name:string child:Node;
+create type Node {{ name: string, child: Node }}
 $back = create Node(name="D", child=null);
 $top = create Node(name="A", child=Node(name="B", child=Node(name="C", child=$back)));
 update $back set child=$top;
@@ -1977,7 +1975,7 @@ update $back set child=$top;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 """)
@@ -2010,7 +2008,7 @@ class TestTagBasedCreation:
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 scope {{
     create Node(tag(SELF), value=42, next=SELF);
 }};
@@ -2031,7 +2029,7 @@ from Node select *;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node name:string child:Node;
+create type Node {{ name: string, child: Node }}
 scope {{
     create Node(tag(TOP), name="A", child=Node(name="B", child=TOP));
 }};
@@ -2063,7 +2061,7 @@ scope {{
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node name:string child:Node;
+create type Node {{ name: string, child: Node }}
 scope {{
     create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A))));
 }};
@@ -2089,7 +2087,7 @@ scope {{
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 scope {{
     create Node(value=1, next=NONEXISTENT);
 }};
@@ -2105,7 +2103,7 @@ scope {{
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 scope {{
     create Node(tag(X), value=1, next=null);
 }};
@@ -2124,7 +2122,7 @@ scope {{
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use {db_path};
-create type Node value:uint8 next:Node;
+create type Node {{ value: uint8, next: Node }}
 create Node(tag(X), value=1, next=null);
 """)
         result = run_file(script, None, verbose=False)
@@ -2147,7 +2145,7 @@ class TestDumpPretty:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
         result = run_file(script, None, verbose=False)
@@ -2160,7 +2158,7 @@ create Person(name="Alice", age=30);
         dump_result = executor.execute(DumpQuery(pretty=True))
         assert isinstance(dump_result, DumpResult)
         # Type definition should be multi-line with 4-space indent
-        assert "create type Person\n    name: string\n    age: uint8;" in dump_result.script
+        assert "create type Person {\n    name: string,\n    age: uint8\n}" in dump_result.script
         storage.close()
 
     def test_dump_pretty_instance_formatting(self, tmp_path: Path):
@@ -2175,7 +2173,7 @@ create Person(name="Alice", age=30);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
         result = run_file(script, None, verbose=False)
@@ -2203,8 +2201,8 @@ create Person(name="Alice", age=30);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Address street:string city:string;
-create type Person name:string address:Address;
+create type Address {{ street: string, city: string }}
+create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 """)
         result = run_file(script, None, verbose=False)
@@ -2232,7 +2230,7 @@ create Person(name="Alice", address=Address(street="123 Main", city="Springfield
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 """)
@@ -2288,7 +2286,7 @@ create Person(name="Bob", age=25);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use {db_path};
-create type Person name:string age:uint8;
+create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
         result = run_file(script, None, verbose=False)
@@ -2301,7 +2299,7 @@ create Person(name="Alice", age=30);
         dump_result = executor.execute(DumpQuery(pretty=False))
         assert isinstance(dump_result, DumpResult)
         # Compact type definition: all on one line
-        assert "create type Person name:string age:uint8;" in dump_result.script
+        assert "create type Person { name: string, age: uint8 }" in dump_result.script
         # Compact instance: all on one line
-        assert 'create Person(name="Alice", age=30);' in dump_result.script
+        assert 'create Person(name="Alice", age=30)' in dump_result.script
         storage.close()

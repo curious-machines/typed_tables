@@ -1765,7 +1765,7 @@ class QueryExecutor:
         # Emit aliases
         for name, alias_def in aliases:
             base_name = alias_def.base_type.name
-            lines.append(f"create alias {name} as {base_name};")
+            lines.append(f"create alias {name} as {base_name}")
 
         # Determine which cycle types need forward declarations
         # Only types referenced before they're defined need forwarding
@@ -1791,7 +1791,7 @@ class QueryExecutor:
 
         # Emit only the necessary forward declarations
         for name in sorted(needs_forward):
-            lines.append(f"forward type {name};")
+            lines.append(f"forward type {name}")
 
         # Helper to emit a type definition
         def emit_type_def(name: str, comp_def: CompositeTypeDefinition) -> None:
@@ -1801,17 +1801,17 @@ class QueryExecutor:
                 if field_type_name.endswith("[]"):
                     base_elem = field_type_name[:-2]
                     field_type_name = f"{base_elem}[]"
-                field_strs.append(f"{f.name}:{field_type_name}")
+                field_strs.append(f"{f.name}: {field_type_name}")
             if pretty:
-                lines.append(f"create type {name}")
+                lines.append(f"create type {name} {{")
                 for i, fs in enumerate(field_strs):
-                    fs_with_space = fs.replace(":", ": ", 1)
-                    suffix = ";" if i == len(field_strs) - 1 else ""
-                    lines.append(f"    {fs_with_space}{suffix}")
+                    comma = "," if i < len(field_strs) - 1 else ""
+                    lines.append(f"    {fs}{comma}")
+                lines.append("}")
                 lines.append("")  # blank line between type blocks
             else:
-                fields_part = " ".join(field_strs)
-                lines.append(f"create type {name} {fields_part};")
+                fields_part = ", ".join(field_strs)
+                lines.append(f"create type {name} {{ {fields_part} }}")
 
         # Emit non-cycle composite type definitions
         for name, comp_def in sorted_composites:
@@ -2024,7 +2024,7 @@ class QueryExecutor:
                 record_tags=record_tags, back_edge_tags=back_edge_tags,
             )
             var_name = dump_vars[key]
-            statement_target.append(f"${var_name} = {create_str};")
+            statement_target.append(f"${var_name} = {create_str}")
             emitted_vars.add(key)
             # Mark inlined records so Pass 4 skips them
             for v_key in visited:
@@ -2123,7 +2123,7 @@ class QueryExecutor:
                     pretty=pretty,
                     record_tags=record_tags, back_edge_tags=back_edge_tags,
                 )
-                statement_target.append(f"{create_str};")
+                statement_target.append(f"{create_str}")
 
         # If we collected statements for a scope block, wrap them
         if needs_scope and scope_statements:
@@ -2134,9 +2134,9 @@ class QueryExecutor:
                     # Indent each line of the statement
                     for line in stmt.split('\n'):
                         lines.append(f"    {line}")
-                lines.append("};")
+                lines.append("}")
             else:
-                lines.append("scope { " + " ".join(scope_statements) + " };")
+                lines.append("scope { " + " ".join(scope_statements) + " }")
 
         return DumpResult(columns=[], rows=[], script="\n".join(lines) + "\n", output_file=query.output_file)
 

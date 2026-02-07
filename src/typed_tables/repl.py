@@ -16,70 +16,33 @@ from typed_tables.storage import StorageManager
 from typed_tables.types import TypeRegistry
 
 
-def _split_statements(content: str) -> list[str]:
-    """Split content into statements on semicolons, respecting brace nesting.
-
-    Scope blocks contain semicolons inside braces, so we need to track
-    brace depth and only split on semicolons at depth 0.
-
-    Also handles string literals to avoid matching braces/semicolons inside them.
-    """
-    statements = []
-    current = []
-    brace_depth = 0
+def _balance_counts(text: str) -> tuple[int, int]:
+    """Return (paren_balance, brace_balance) for text, ignoring strings."""
+    paren = 0
+    brace = 0
     in_string = False
     escape_next = False
-    i = 0
-
-    while i < len(content):
-        ch = content[i]
-
+    for ch in text:
         if escape_next:
-            current.append(ch)
             escape_next = False
-            i += 1
             continue
-
         if ch == '\\' and in_string:
-            current.append(ch)
             escape_next = True
-            i += 1
             continue
-
         if ch == '"':
             in_string = not in_string
-            current.append(ch)
-            i += 1
             continue
-
         if in_string:
-            current.append(ch)
-            i += 1
             continue
-
-        # Not in string
-        if ch == '{':
-            brace_depth += 1
-            current.append(ch)
+        if ch == '(':
+            paren += 1
+        elif ch == ')':
+            paren -= 1
+        elif ch == '{':
+            brace += 1
         elif ch == '}':
-            brace_depth = max(0, brace_depth - 1)
-            current.append(ch)
-        elif ch == ';' and brace_depth == 0:
-            # End of statement at top level
-            stmt = ''.join(current).strip()
-            if stmt:
-                statements.append(stmt)
-            current = []
-        else:
-            current.append(ch)
-        i += 1
-
-    # Handle any remaining content
-    stmt = ''.join(current).strip()
-    if stmt:
-        statements.append(stmt)
-
-    return statements
+            brace -= 1
+    return paren, brace
 
 
 def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
@@ -234,48 +197,54 @@ def run_repl(data_dir: Path | None) -> int:
     except FileNotFoundError:
         pass
 
-    def has_balanced_parens(line: str) -> bool:
-        """Check if parentheses are balanced in the line."""
-        count = 0
-        in_string = False
-        escape = False
-        for char in line:
-            if escape:
-                escape = False
-                continue
-            if char == "\\":
-                escape = True
-                continue
-            if char == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if char == "(":
-                count += 1
-            elif char == ")":
-                count -= 1
-        return count == 0
-
     def needs_continuation(line: str) -> bool:
         """Check if we need more input for this query.
 
-        A query is complete when it ends with a semicolon.
-        For create instance, parentheses must also be balanced before the semicolon.
+        A query is complete when:
+        - It ends with `;` (explicit terminator, for backward compat)
+        - It ends with `)` and parens are balanced (instance creation)
+        - It ends with `}` and braces are balanced (type def or scope)
+        - Parens and braces are balanced and it looks like a complete statement
+
+        For multi-line input, an empty line also terminates.
         """
         stripped = line.strip()
         if not stripped:
             return False
-        # If it ends with a semicolon, check paren balance for create instance, variable assignment, or update
+
+        paren, brace = _balance_counts(stripped)
+
+        # Explicit semicolon terminator — always complete if balanced
         if stripped.endswith(";"):
-            lower = stripped.lower()
-            if lower.startswith("create ") and not lower.startswith("create type") and "(" in stripped:
-                return not has_balanced_parens(stripped)
-            if stripped.startswith("$") and "(" in stripped:
-                return not has_balanced_parens(stripped)
-            if lower.startswith("update ") and "(" in stripped:
-                return not has_balanced_parens(stripped)
+            return paren != 0 or brace != 0
+
+        # Unbalanced parens or braces — definitely need more
+        if paren != 0 or brace != 0:
+            return True
+
+        # Balanced and ends with ) — complete (instance creation, update, etc.)
+        if stripped.endswith(")"):
             return False
+
+        # Balanced and ends with } — complete (type def, scope block)
+        if stripped.endswith("}"):
+            return False
+
+        # Simple statements that are complete without ; or ) or }
+        lower = stripped.lower()
+        simple_prefixes = (
+            "show ", "describe ", "use ", "use", "drop ", "dump",
+            "delete ", "from ", "select ", "forward ",
+        )
+        for prefix in simple_prefixes:
+            if lower.startswith(prefix) or lower == prefix.strip():
+                return False
+
+        # Collect query: $var = collect ...
+        if stripped.startswith("$") and "collect" in lower:
+            return False
+
+        # Default: need more input
         return True
 
     try:
@@ -495,10 +464,9 @@ DATABASE:
   describe <table>         Show table structure (use quotes for special names)
 
 CREATE:
-  create type <Name>       Create a new composite type (fields on following lines)
-    field: type              - Each field on its own line
-                             - End with empty line
-  create type <Name> from <Parent>
+  create type <Name> { field: type, ... }
+                           Create a new composite type
+  create type <Name> from <Parent> { field: type, ... }
                            Create a type inheriting from another type
   create alias <name> as <type>
                            Create a type alias
@@ -572,9 +540,7 @@ TYPES:
 EXAMPLES:
   use ./my_database
 
-  create type Person
-  name: string
-  age: uint8
+  create type Person { name: string, age: uint8 }
 
   create Person(name="Alice", age=30)
 
@@ -634,13 +600,13 @@ CYCLIC DATA:
   can be referenced by nested records to form cycles.
 
   Scope block syntax:
-    scope { <statements> };
+    scope { <statements> }
 
   Self-referencing (node points to itself):
-    scope { create Node(tag(SELF), value=42, next=SELF); };
+    scope { create Node(tag(SELF), value=42, next=SELF) }
 
   Two-node cycle (A→B→A):
-    scope { create Node(tag(A), name="A", child=Node(name="B", child=A)); };
+    scope { create Node(tag(A), name="A", child=Node(name="B", child=A)) }
 
   Tags and variables declared inside a scope are destroyed when the scope
   exits. Tags cannot be redefined within a scope.
@@ -654,7 +620,8 @@ OTHER:
   clear                    Clear the screen
   execute "file.ttq"       Execute queries from a file
 
-Queries can span multiple lines. End with semicolon or press Enter on empty line.
+Queries can span multiple lines. Semicolons are optional.
+End with closing ) or }, or press Enter on empty line.
 """)
 
 
@@ -676,22 +643,6 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
         content = file_path.read_text()
     except Exception as e:
         print(f"Error reading file: {e}", file=sys.stderr)
-        return 1
-
-    # Strip comments (lines starting with --)
-    lines = []
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("--"):
-            continue
-        lines.append(line)
-    content = "\n".join(lines)
-
-    # Split on semicolons to get individual queries (brace-aware)
-    queries = _split_statements(content)
-
-    if not queries:
-        print("No queries found in file", file=sys.stderr)
         return 1
 
     # Initialize state
@@ -723,26 +674,41 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
             print(f"Error loading database: {e}", file=sys.stderr)
             return 1
 
+    # Parse all queries at once using multi-statement parser
+    try:
+        queries = parser.parse_program(content)
+    except SyntaxError as e:
+        print(f"Syntax error: {e}", file=sys.stderr)
+        if storage:
+            storage.close()
+        return 1
+
+    if not queries:
+        # Empty file is okay — no error
+        if storage:
+            storage.close()
+        return 0
+
     # Execute each query
-    for query_text in queries:
+    for query in queries:
         if verbose:
-            # Print query with prefix
-            for i, line in enumerate(query_text.split("\n")):
-                prefix = ">>> " if i == 0 else "... "
-                print(f"{prefix}{line}")
+            # Print a summary of the query type
+            query_type = type(query).__name__
+            print(f">>> [{query_type}]")
 
         try:
             # Check if we need a database for this query
-            lower = query_text.lower().strip()
-            needs_db = not (lower.startswith("use") or lower.startswith("drop") or lower.startswith("select "))
+            needs_db = not isinstance(query, (UseQuery, DropDatabaseQuery))
+            # EvalQuery (SELECT without FROM) doesn't need a database
+            from typed_tables.parsing.query_parser import EvalQuery
+            if isinstance(query, EvalQuery):
+                needs_db = False
 
             if needs_db and executor is None:
                 print("Error: No database selected. Use 'use <path>' first.", file=sys.stderr)
                 if storage:
                     storage.close()
                 return 1
-
-            query = parser.parse(query_text)
 
             # Handle USE query specially
             if isinstance(query, UseQuery):

@@ -33,7 +33,7 @@ define uuid as uint128
 define name as character[]
 
 Person {
-  id: uuid
+  id: uuid,
   name
 }
 ```
@@ -63,7 +63,7 @@ Metadata about types is stored in `_metadata.json` in the data directory.
 
 ## Query Language
 
-Newlines are treated as whitespace, so queries can be formatted freely across multiple lines. Semicolons terminate queries in the interactive REPL and separate queries in scripts. In the REPL, a query can also be submitted by pressing Enter on an empty line during continuation.
+Newlines are treated as whitespace, so queries can be formatted freely across multiple lines. Semicolons are optional everywhere — statements are separated by keyword boundaries. In the REPL, a query can also be submitted by pressing Enter on an empty line during continuation. Semicolons are still accepted for backward compatibility.
 
 ### Select Database
 
@@ -81,57 +81,65 @@ drop example_data
 
 ### Create Types
 
+Type definitions use `{ }` with comma-separated fields:
+
 ```ttq
-create type Address
-  number: string
-  street: string
-  city: string
-  state: string
-  zipcode: string
+create type Address {
+    number: string,
+    street: string,
+    city: string,
+    state: string,
+    zipcode: string
+}
 ```
 
 ```ttq
-create type Person
-  id: uuid
-  name: string
-  age: uint8
-  address: Address
+create type Person {
+    id: uuid,
+    name: string,
+    age: uint8,
+    address: Address
+}
 ```
 
 ```ttq
-create Employee from Person
-  department: string
-  title: string
+create Employee from Person {
+    department: string,
+    title: string
+}
 ```
 
 Types with array fields:
 ```ttq
-create type Sensor
-  name: string
-  readings: int8[]
+create type Sensor { name: string, readings: int8[] }
+```
+
+Trailing commas are allowed:
+```ttq
+create type Point { x: float32, y: float32, }
 ```
 
 ### Self-Referential Types
 
 Types can reference themselves, useful for tree and graph structures:
 ```ttq
-create type Node value:uint8 children:Node[];
-create Node(value=0, children=[Node(value=1, children=[]), Node(value=2, children=[])]);
+create type Node { value: uint8, children: Node[] }
+create Node(value=0, children=[Node(value=1, children=[]), Node(value=2, children=[])])
 ```
 
 Direct self-reference (linked list):
 ```ttq
-create type LinkedNode value:uint8 next:LinkedNode;
-create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)));
+create type LinkedNode { value: uint8, next: LinkedNode }
+create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)))
 ```
 
 ### Forward Declarations (Mutual References)
 
 For mutually referential types, use forward declarations:
 ```ttq
-forward type B;
-create type A value:uint8 b:B;
-create type B value:uint8 a:A;
+forward type B
+create type A { value: uint8, b: B }
+create type B { value: uint8, a: A }
 ```
 
 The `forward type B` registers an empty stub. The third statement populates it with fields. This allows A and B to reference each other.
@@ -141,9 +149,9 @@ The `forward type B` registers an empty stub. The third statement populates it w
 Composite fields can be set to `null` to indicate the absence of a value. Null is tracked via a null bitmap at the start of each composite record. Fields omitted during creation default to null.
 
 ```ttq
-create type Node value:uint8 next:Node;
-create Node(value=1, next=null);
-create Node(value=2);              -- next defaults to null
+create type Node { value: uint8, next: Node }
+create Node(value=1, next=null)
+create Node(value=2)              -- next defaults to null
 ```
 
 NULL values display as `NULL` in select results and as `null` in dump output.
@@ -174,30 +182,30 @@ create Sensor(name="temperature", readings=[25, 26, 24, 27])
 
 Variables are immutable bindings to created instances:
 ```ttq
-$addr = create Address(street="123 Main", city="Springfield");
-create Person(name="Alice", address=$addr);
-create Person(name="Bob", address=$addr);
+$addr = create Address(street="123 Main", city="Springfield")
+create Person(name="Alice", address=$addr)
+create Person(name="Bob", address=$addr)
 ```
 
 Variables can be used in array elements:
 ```ttq
-$e1 = create Employee(name="Alice");
-$e2 = create Employee(name="Bob");
-create Team(members=[$e1, $e2]);
+$e1 = create Employee(name="Alice")
+$e2 = create Employee(name="Bob")
+create Team(members=[$e1, $e2])
 ```
 
 Variables can also collect sets of record indices:
 ```ttq
-$seniors = collect Person where age >= 65;
-$top10 = collect Score sort by value limit 10;
-$all = collect Person;
+$seniors = collect Person where age >= 65
+$top10 = collect Score sort by value limit 10
+$all = collect Person
 ```
 
 Multi-source collect unions multiple sources (same type, deduplication built in):
 ```ttq
-$combined = collect Person where age >= 65, Person where age = 30;
-$subset = collect $seniors where city = "Springfield";
-$union = collect $seniors, $young;
+$combined = collect Person where age >= 65, Person where age = 30
+$subset = collect $seniors where city = "Springfield"
+$union = collect $seniors, $young
 ```
 
 ### Delete Entry
@@ -222,19 +230,19 @@ Cycles in composite references (e.g., linked lists, graphs) are supported using 
 
 Self-referencing (node points to itself):
 ```ttq
-create type Node value:uint8 next:Node;
-scope { create Node(tag(SELF), value=42, next=SELF); };
+create type Node { value: uint8, next: Node }
+scope { create Node(tag(SELF), value=42, next=SELF) }
 ```
 
 Two-node cycle (A→B→A):
 ```ttq
-create type Node name:string child:Node;
-scope { create Node(tag(A), name="A", child=Node(name="B", child=A)); };
+create type Node { name: string, child: Node }
+scope { create Node(tag(A), name="A", child=Node(name="B", child=A)) }
 ```
 
 Four-node cycle (A→B→C→D→A):
 ```ttq
-scope { create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A)))); };
+scope { create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A)))) }
 ```
 
 Tags require a scope block and are scoped to that block. Tags and variables declared inside a scope are destroyed when the scope exits. Tags cannot be redefined within a scope.
@@ -242,9 +250,9 @@ Tags require a scope block and are scoped to that block. Tags and variables decl
 For multi-statement cycles, use `null` + `update`:
 
 ```ttq
-$n1 = create Node(value=1, next=null);
-$n2 = create Node(value=2, next=$n1);
-update $n1 set next=$n2;
+$n1 = create Node(value=1, next=null)
+$n2 = create Node(value=2, next=$n1)
+update $n1 set next=$n2
 -- Now: n1 -> n2 -> n1 (cycle)
 ```
 
@@ -261,9 +269,9 @@ This example will return all Person entries.
 
 A variable can also be used as the source:
 ```ttq
-$seniors = collect Person where age >= 65;
-from $seniors select name, age sort by age;
-from $seniors select average(age);
+$seniors = collect Person where age >= 65
+from $seniors select name, age sort by age
+from $seniors select average(age)
 ```
 
 ### Naming Fields
@@ -515,8 +523,8 @@ define name as character[]
 define age as uint8
 
 Person {
-  id: uuid
-  name
+  id: uuid,
+  name,
   age
 }
 '''

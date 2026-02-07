@@ -144,7 +144,7 @@ class TestSchema:
         define name as character[]
 
         Person {
-            id: uuid
+            id: uuid,
             name
         }
         """
@@ -167,7 +167,7 @@ class TestSchema:
         """Test listing types in schema."""
         types = """
         define uuid as uint128
-        Point { x: float64  y: float64 }
+        Point { x: float64, y: float64 }
         """
 
         with Schema.parse(types, tmp_path) as schema:
@@ -194,7 +194,7 @@ class TestSchema:
         define name as character[]
 
         Person {
-            id: uuid
+            id: uuid,
             name
         }
         """
@@ -221,7 +221,7 @@ class TestSchema:
         """Test creating composite with tuple values."""
         types = """
         Point {
-            x: float64
+            x: float64,
             y: float64
         }
         """

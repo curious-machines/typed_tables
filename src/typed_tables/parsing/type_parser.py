@@ -87,48 +87,17 @@ class TypeParser:
         """statement : type_def"""
         p[0] = p[1]
 
-    def p_statement_newline(self, p: yacc.YaccProduction) -> None:
-        """statement : NEWLINE"""
-        p[0] = None
-
     def p_alias_def(self, p: yacc.YaccProduction) -> None:
         """alias_def : DEFINE IDENTIFIER AS type_ref"""
         p[0] = AliasSpec(name=p[2], base_type_ref=p[4])
 
-    def p_alias_def_newline(self, p: yacc.YaccProduction) -> None:
-        """alias_def : DEFINE IDENTIFIER AS type_ref NEWLINE"""
-        p[0] = AliasSpec(name=p[2], base_type_ref=p[4])
-
     def p_type_def(self, p: yacc.YaccProduction) -> None:
-        """type_def : IDENTIFIER LBRACE field_list RBRACE"""
-        p[0] = TypeSpec(name=p[1], fields=p[3])
-
-    def p_type_def_newline(self, p: yacc.YaccProduction) -> None:
-        """type_def : IDENTIFIER LBRACE field_list RBRACE NEWLINE"""
+        """type_def : IDENTIFIER LBRACE field_list RBRACE
+                    | IDENTIFIER LBRACE field_list COMMA RBRACE"""
         p[0] = TypeSpec(name=p[1], fields=p[3])
 
     def p_type_def_empty(self, p: yacc.YaccProduction) -> None:
         """type_def : IDENTIFIER LBRACE RBRACE"""
-        p[0] = TypeSpec(name=p[1], fields=[])
-
-    def p_type_def_empty_newline(self, p: yacc.YaccProduction) -> None:
-        """type_def : IDENTIFIER LBRACE RBRACE NEWLINE"""
-        p[0] = TypeSpec(name=p[1], fields=[])
-
-    def p_type_def_newlines(self, p: yacc.YaccProduction) -> None:
-        """type_def : IDENTIFIER LBRACE NEWLINE field_list RBRACE"""
-        p[0] = TypeSpec(name=p[1], fields=p[4])
-
-    def p_type_def_newlines_end(self, p: yacc.YaccProduction) -> None:
-        """type_def : IDENTIFIER LBRACE NEWLINE field_list RBRACE NEWLINE"""
-        p[0] = TypeSpec(name=p[1], fields=p[4])
-
-    def p_type_def_empty_newlines(self, p: yacc.YaccProduction) -> None:
-        """type_def : IDENTIFIER LBRACE NEWLINE RBRACE"""
-        p[0] = TypeSpec(name=p[1], fields=[])
-
-    def p_type_def_empty_newlines_end(self, p: yacc.YaccProduction) -> None:
-        """type_def : IDENTIFIER LBRACE NEWLINE RBRACE NEWLINE"""
         p[0] = TypeSpec(name=p[1], fields=[])
 
     def p_field_list_single(self, p: yacc.YaccProduction) -> None:
@@ -136,22 +105,14 @@ class TypeParser:
         p[0] = [p[1]]
 
     def p_field_list_multiple(self, p: yacc.YaccProduction) -> None:
-        """field_list : field_list field"""
-        p[0] = p[1] + [p[2]]
+        """field_list : field_list COMMA field"""
+        p[0] = p[1] + [p[3]]
 
     def p_field_with_type(self, p: yacc.YaccProduction) -> None:
-        """field : IDENTIFIER COLON type_ref NEWLINE"""
-        p[0] = FieldSpec(name=p[1], type_ref=p[3])
-
-    def p_field_with_type_no_newline(self, p: yacc.YaccProduction) -> None:
         """field : IDENTIFIER COLON type_ref"""
         p[0] = FieldSpec(name=p[1], type_ref=p[3])
 
     def p_field_implicit_type(self, p: yacc.YaccProduction) -> None:
-        """field : IDENTIFIER NEWLINE"""
-        p[0] = FieldSpec(name=p[1], type_ref=None)
-
-    def p_field_implicit_type_no_newline(self, p: yacc.YaccProduction) -> None:
         """field : IDENTIFIER"""
         p[0] = FieldSpec(name=p[1], type_ref=None)
 

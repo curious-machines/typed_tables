@@ -43,15 +43,25 @@ class TestTypeLexer:
             "RBRACE",
         ]
 
-    def test_tokenize_newlines(self):
-        """Test that newlines are tokenized."""
+    def test_newlines_ignored(self):
+        """Test that newlines are ignored (not tokenized)."""
         lexer = TypeLexer()
         lexer.build()
 
         tokens = lexer.tokenize("define uuid as uint128\nPerson { }")
         token_types = [t.type for t in tokens]
 
-        assert "NEWLINE" in token_types
+        assert "NEWLINE" not in token_types
+
+    def test_tokenize_comma(self):
+        """Test that commas are tokenized."""
+        lexer = TypeLexer()
+        lexer.build()
+
+        tokens = lexer.tokenize("Person { x: uint32, y: uint32 }")
+        token_types = [t.type for t in tokens]
+
+        assert "COMMA" in token_types
 
     def test_illegal_character(self):
         """Test error on illegal character."""
@@ -90,7 +100,7 @@ class TestTypeParser:
         parser = TypeParser()
         registry = parser.parse("""
         Point {
-            x: uint32
+            x: uint32,
             y: uint32
         }
         """)
@@ -127,7 +137,7 @@ class TestTypeParser:
         define name as character[]
 
         Person {
-            id: uuid
+            id: uuid,
             name
         }
         """)
@@ -153,12 +163,12 @@ class TestTypeParser:
         parser = TypeParser()
         registry = parser.parse("""
         Point {
-            x: float64
+            x: float64,
             y: float64
         }
 
         Rectangle {
-            width: float64
+            width: float64,
             height: float64
         }
         """)
@@ -213,7 +223,7 @@ class TestTypeParser:
         parser = TypeParser()
         registry = parser.parse("""
         Node {
-            value: uint8
+            value: uint8,
             children: Node[]
         }
         """)
@@ -235,12 +245,12 @@ class TestTypeParser:
         parser = TypeParser()
         registry = parser.parse("""
         A {
-            value: uint8
+            value: uint8,
             b: B
         }
 
         B {
-            value: uint8
+            value: uint8,
             a: A
         }
         """)

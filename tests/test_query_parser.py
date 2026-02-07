@@ -61,7 +61,7 @@ class TestQueryLexer:
         lexer = QueryLexer()
         lexer.build()
 
-        tokens = lexer.tokenize("create type Sensor readings:int8[]")
+        tokens = lexer.tokenize("create type Sensor { readings: int8[] }")
         token_types = [t.type for t in tokens]
 
         assert "LBRACKET" in token_types
@@ -211,9 +211,9 @@ class TestQueryParser:
         assert query.base_type == "uint128"
 
     def test_parse_create_type_multiline(self):
-        """Test parsing create type with multiple lines."""
+        """Test parsing create type with braces and comma-separated fields."""
         parser = QueryParser()
-        query = parser.parse("create type Person\nname: string\nage: uint8")
+        query = parser.parse("create type Person { name: string, age: uint8 }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Person"
@@ -226,7 +226,7 @@ class TestQueryParser:
     def test_parse_create_type_single_line(self):
         """Test parsing create type on a single line."""
         parser = QueryParser()
-        query = parser.parse("create type Point x:float32 y:float32")
+        query = parser.parse("create type Point { x: float32, y: float32 }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Point"
@@ -237,7 +237,7 @@ class TestQueryParser:
     def test_parse_create_type_with_array_field(self):
         """Test parsing create type with array field."""
         parser = QueryParser()
-        query = parser.parse("create type Sensor readings:int8[]")
+        query = parser.parse("create type Sensor { readings: int8[] }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Sensor"
@@ -248,7 +248,7 @@ class TestQueryParser:
     def test_parse_create_type_with_inheritance(self):
         """Test parsing create type with inheritance."""
         parser = QueryParser()
-        query = parser.parse("create type Employee from Person department:string")
+        query = parser.parse("create type Employee from Person { department: string }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Employee"
@@ -522,7 +522,7 @@ class TestQueryParser:
     def test_parse_create_type_freeform(self):
         """Test that create type works with free-form whitespace."""
         parser = QueryParser()
-        query = parser.parse("create type Person\n  name: string\n  age: uint8")
+        query = parser.parse("create type Person {\n  name: string,\n  age: uint8\n}")
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Person"
         assert len(query.fields) == 2
@@ -1184,3 +1184,41 @@ class TestQueryParser:
         assert isinstance(children[0], InlineInstance)
         assert isinstance(children[1], TagReference)
         assert children[1].name == "A"
+
+    def test_parse_program(self):
+        """Test parsing multiple statements with parse_program."""
+        parser = QueryParser()
+
+        # Multiple statements without semicolons
+        queries = parser.parse_program("from Person select *\nshow tables")
+        assert len(queries) == 2
+        assert isinstance(queries[0], SelectQuery)
+        assert isinstance(queries[1], ShowTablesQuery)
+
+        # Multiple statements with semicolons
+        queries = parser.parse_program("from Person select *; show tables;")
+        assert len(queries) == 2
+        assert isinstance(queries[0], SelectQuery)
+        assert isinstance(queries[1], ShowTablesQuery)
+
+    def test_parse_create_type_trailing_comma(self):
+        """Test that trailing comma is allowed in create type field list."""
+        parser = QueryParser()
+        query = parser.parse("create type Point { x: float32, y: float32, }")
+
+        assert isinstance(query, CreateTypeQuery)
+        assert query.name == "Point"
+        assert len(query.fields) == 2
+        assert query.fields[0].name == "x"
+        assert query.fields[0].type_name == "float32"
+        assert query.fields[1].name == "y"
+        assert query.fields[1].type_name == "float32"
+
+    def test_parse_create_type_empty_braces(self):
+        """Test that create type with empty braces works."""
+        parser = QueryParser()
+        query = parser.parse("create type Empty { }")
+
+        assert isinstance(query, CreateTypeQuery)
+        assert query.name == "Empty"
+        assert len(query.fields) == 0

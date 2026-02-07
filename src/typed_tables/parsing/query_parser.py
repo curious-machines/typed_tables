@@ -303,10 +303,30 @@ class QueryParser:
         self.lexer.build()
         self.parser: yacc.LRParser = None  # type: ignore
 
-    def p_statement(self, p: yacc.YaccProduction) -> None:
-        """statement : query SEMICOLON
-                     | query"""
+    # --- Program (multi-statement) productions ---
+
+    def p_program(self, p: yacc.YaccProduction) -> None:
+        """program : program_statement_list"""
         p[0] = p[1]
+
+    def p_program_statement_list_single(self, p: yacc.YaccProduction) -> None:
+        """program_statement_list : program_statement"""
+        p[0] = [p[1]] if p[1] is not None else []
+
+    def p_program_statement_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """program_statement_list : program_statement_list program_statement"""
+        p[0] = p[1]
+        if p[2] is not None:
+            p[0].append(p[2])
+
+    def p_program_statement(self, p: yacc.YaccProduction) -> None:
+        """program_statement : query
+                             | query SEMICOLON"""
+        p[0] = p[1]
+
+    def p_program_statement_empty(self, p: yacc.YaccProduction) -> None:
+        """program_statement : SEMICOLON"""
+        p[0] = None
 
     def p_query_select(self, p: yacc.YaccProduction) -> None:
         """query : select_query"""
@@ -526,16 +546,26 @@ class QueryParser:
         p[0] = p[1] + [p[2]]
 
     def p_scope_statement(self, p: yacc.YaccProduction) -> None:
-        """scope_statement : query SEMICOLON"""
+        """scope_statement : query
+                           | query SEMICOLON"""
         p[0] = p[1]
 
-    def p_type_field_list_single(self, p: yacc.YaccProduction) -> None:
-        """type_field_list : type_field_def"""
+    def p_type_field_list(self, p: yacc.YaccProduction) -> None:
+        """type_field_list : LBRACE type_field_items RBRACE
+                           | LBRACE type_field_items COMMA RBRACE
+                           | LBRACE RBRACE"""
+        if len(p) == 3:
+            p[0] = []
+        else:
+            p[0] = p[2]
+
+    def p_type_field_items_single(self, p: yacc.YaccProduction) -> None:
+        """type_field_items : type_field_def"""
         p[0] = [p[1]]
 
-    def p_type_field_list_multiple(self, p: yacc.YaccProduction) -> None:
-        """type_field_list : type_field_list type_field_def"""
-        p[0] = p[1] + [p[2]]
+    def p_type_field_items_multiple(self, p: yacc.YaccProduction) -> None:
+        """type_field_items : type_field_items COMMA type_field_def"""
+        p[0] = p[1] + [p[3]]
 
     def p_type_field_def(self, p: yacc.YaccProduction) -> None:
         """type_field_def : IDENTIFIER COLON IDENTIFIER
@@ -879,11 +909,24 @@ class QueryParser:
 
     def build(self, **kwargs: Any) -> None:
         """Build the parser."""
-        self.parser = yacc.yacc(module=self, start="statement", **kwargs)
+        self.parser = yacc.yacc(module=self, start="program", **kwargs)
 
     def parse(self, data: str) -> Query:
-        """Parse a query string."""
+        """Parse a single query string."""
         if self.parser is None:
             self.build(debug=False, write_tables=False)
 
-        return self.parser.parse(data, lexer=self.lexer.lexer)
+        results = self.parser.parse(data, lexer=self.lexer.lexer)
+        if not results:
+            raise SyntaxError("Empty input")
+        if len(results) > 1:
+            raise SyntaxError("Multiple statements found; use parse_program()")
+        return results[0]
+
+    def parse_program(self, data: str) -> list[Query]:
+        """Parse multiple statements."""
+        if self.parser is None:
+            self.build(debug=False, write_tables=False)
+
+        results = self.parser.parse(data, lexer=self.lexer.lexer)
+        return results if results else []
