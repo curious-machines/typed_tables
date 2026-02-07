@@ -225,34 +225,53 @@ class Table:
     def _serialize_composite(self, value: Any, type_def: CompositeTypeDefinition) -> bytes:
         """Serialize a composite value.
 
-        Composite records store references to field values, not the values themselves.
-        - For array fields: (start_index, length) tuple (8 bytes)
-        - For all other fields: index into the field type's table (4 bytes)
-        """
-        parts = []
+        Record layout: [null_bitmap] [field0_data] [field1_data] ...
 
-        if isinstance(value, dict):
-            for field in type_def.fields:
-                field_value = value[field.name]
-                parts.append(self._serialize_field_reference(field_value, field.type_def))
-        elif isinstance(value, (list, tuple)):
-            for i, field in enumerate(type_def.fields):
-                parts.append(self._serialize_field_reference(value[i], field.type_def))
-        else:
+        - Primitive/alias-to-primitive fields: actual value bytes (inline)
+        - Array fields: (start_index, length) tuple (8 bytes)
+        - Composite ref fields: uint32 index (4 bytes)
+        """
+        if isinstance(value, (list, tuple)):
+            value = {field.name: value[i] for i, field in enumerate(type_def.fields)}
+        elif not isinstance(value, dict):
             raise TypeError(f"Expected dict or tuple for composite type, got {type(value)}")
+
+        # Build null bitmap
+        bitmap_size = type_def.null_bitmap_size
+        bitmap = bytearray(bitmap_size)
+        for i, field in enumerate(type_def.fields):
+            if value.get(field.name) is None:
+                bitmap[i // 8] |= 1 << (i % 8)
+
+        parts = [bytes(bitmap)]
+
+        for i, field in enumerate(type_def.fields):
+            field_value = value.get(field.name)
+            ref_size = field.type_def.reference_size
+            if field_value is None:
+                # Null field: write zeroed bytes
+                parts.append(b"\x00" * ref_size)
+            else:
+                parts.append(self._serialize_field_data(field_value, field.type_def))
 
         return b"".join(parts)
 
-    def _serialize_field_reference(self, value: Any, type_def: TypeDefinition) -> bytes:
-        """Serialize a field reference.
+    def _serialize_field_data(self, value: Any, type_def: TypeDefinition) -> bytes:
+        """Serialize field data within a composite record.
 
-        Array fields store (start_index, length) inline as 8 bytes.
-        All other fields store a uint32 index (4 bytes).
+        - Array fields: (start_index, length) as 8 bytes
+        - Composite ref fields: uint32 index as 4 bytes
+        - Primitive/alias-to-primitive fields: actual value bytes (inline)
         """
         base = type_def.resolve_base_type()
         if isinstance(base, ArrayTypeDefinition):
             return struct.pack("<II", value[0], value[1])
-        return struct.pack("<I", value)
+        elif isinstance(base, CompositeTypeDefinition):
+            return struct.pack("<I", value)
+        elif isinstance(base, PrimitiveTypeDefinition):
+            return self._serialize_primitive(value, base.primitive)
+        else:
+            raise TypeError(f"Cannot serialize field type: {type_def.name}")
 
     def _deserialize(self, data: bytes) -> Any:
         """Deserialize bytes to a value."""
@@ -300,20 +319,37 @@ class Table:
     ) -> dict[str, Any]:
         """Deserialize a composite record.
 
-        Returns a dict of field references (indices into each field's table),
-        not the actual field values.
+        Returns a dict of field values/references:
+        - Primitive fields: actual deserialized value
+        - Array fields: (start_index, length) tuple
+        - Composite ref fields: uint32 index
+        - Null fields: None
         """
         result: dict[str, Any] = {}
-        offset = 0
+        bitmap_size = type_def.null_bitmap_size
+        bitmap = data[:bitmap_size]
+        offset = bitmap_size
 
-        for field in type_def.fields:
+        for i, field in enumerate(type_def.fields):
             field_ref_size = field.type_def.reference_size
             field_data = data[offset : offset + field_ref_size]
+
+            # Check null bitmap
+            is_null = bool(bitmap[i // 8] & (1 << (i % 8)))
+            if is_null:
+                result[field.name] = None
+                offset += field_ref_size
+                continue
+
             field_base = field.type_def.resolve_base_type()
             if isinstance(field_base, ArrayTypeDefinition):
                 result[field.name] = struct.unpack("<II", field_data)
-            else:
+            elif isinstance(field_base, CompositeTypeDefinition):
                 result[field.name] = struct.unpack("<I", field_data)[0]
+            elif isinstance(field_base, PrimitiveTypeDefinition):
+                result[field.name] = self._deserialize_primitive(field_data, field_base.primitive)
+            else:
+                raise TypeError(f"Cannot deserialize field type: {field.type_def.name}")
             offset += field_ref_size
 
         return result

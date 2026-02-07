@@ -103,9 +103,10 @@ class TestCompositeTypeDefinition:
         )
 
         assert composite.name == "Point"
-        # Composite stores references (indices), not values
-        # Each reference is 4 bytes (uint32 index)
-        assert composite.size_bytes == 4 + 4 + 4
+        # 3 fields → null bitmap = 1 byte
+        # Primitives stored inline: uint32=4, uint32=4, uint64=8
+        assert composite.null_bitmap_size == 1
+        assert composite.size_bytes == 1 + 4 + 4 + 8
         assert composite.is_composite is True
         assert len(composite.fields) == 3
 
@@ -136,10 +137,11 @@ class TestCompositeTypeDefinition:
             ],
         )
 
-        # Offsets are based on reference sizes (all 4 bytes)
-        assert composite.get_field_offset("x") == 0
-        assert composite.get_field_offset("y") == 4
-        assert composite.get_field_offset("z") == 8
+        # 3 fields → null bitmap = 1 byte
+        # Offsets account for bitmap prefix + inline primitive sizes
+        assert composite.get_field_offset("x") == 1  # bitmap(1)
+        assert composite.get_field_offset("y") == 5  # bitmap(1) + uint32(4)
+        assert composite.get_field_offset("z") == 13  # bitmap(1) + uint32(4) + uint64(8)
 
         with pytest.raises(KeyError):
             composite.get_field_offset("nonexistent")

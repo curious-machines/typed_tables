@@ -196,11 +196,14 @@ def dump_table_raw(
             values = []
             for field in base.fields:
                 ref = record[field.name]
-                field_base = field.type_def.resolve_base_type()
-                if isinstance(field_base, ArrayTypeDefinition):
-                    values.append(f"({ref[0]}, {ref[1]})")
+                if ref is None:
+                    values.append("NULL")
                 else:
-                    values.append(str(ref))
+                    field_base = field.type_def.resolve_base_type()
+                    if isinstance(field_base, ArrayTypeDefinition):
+                        values.append(f"({ref[0]}, {ref[1]})")
+                    else:
+                        values.append(str(ref))
             print(f"{i:>4}  " + "  ".join(f"{v:>16}" for v in values))
 
         if limit and count > limit:
@@ -250,6 +253,11 @@ def dump_table_resolved(
             print(f"[{i}]")
             for field in base.fields:
                 ref = record[field.name]
+
+                if ref is None:
+                    print(f"    {field.name}: NULL")
+                    continue
+
                 field_base = field.type_def.resolve_base_type()
 
                 if isinstance(field_base, ArrayTypeDefinition):
@@ -268,10 +276,8 @@ def dump_table_resolved(
                     # Resolve nested composite (just show index for now)
                     formatted = f"<{field.type_def.name}[{ref}]>"
                 else:
-                    # Resolve primitive
-                    field_table = storage.get_table(field.type_def.name)
-                    resolved = field_table.get(ref)
-                    formatted = format_value(resolved, field.type_def)
+                    # Primitive — value is already inline
+                    formatted = format_value(ref, field.type_def)
 
                 print(f"    {field.name}: {formatted}")
             print()
@@ -307,16 +313,26 @@ def dump_table_json(
                 rec = {"_index": i}
                 for field in base.fields:
                     ref = record[field.name]
-                    field_base = field.type_def.resolve_base_type()
-                    if isinstance(field_base, ArrayTypeDefinition):
-                        rec[field.name] = {"start_index": ref[0], "length": ref[1]}
+                    if ref is None:
+                        rec[field.name] = None
                     else:
-                        rec[field.name] = {"index": ref}
+                        field_base = field.type_def.resolve_base_type()
+                        if isinstance(field_base, ArrayTypeDefinition):
+                            rec[field.name] = {"start_index": ref[0], "length": ref[1]}
+                        elif isinstance(field_base, CompositeTypeDefinition):
+                            rec[field.name] = {"index": ref}
+                        else:
+                            rec[field.name] = {"value": ref}
                 records.append(rec)
             else:
                 rec = {"_index": i}
                 for field in base.fields:
                     ref = record[field.name]
+
+                    if ref is None:
+                        rec[field.name] = None
+                        continue
+
                     field_base = field.type_def.resolve_base_type()
 
                     if isinstance(field_base, ArrayTypeDefinition):
@@ -332,8 +348,8 @@ def dump_table_json(
                     elif isinstance(field_base, CompositeTypeDefinition):
                         rec[field.name] = f"<{field.type_def.name}[{ref}]>"
                     else:
-                        field_table = storage.get_table(field.type_def.name)
-                        value = field_table.get(ref)
+                        # Primitive — value is already inline
+                        value = ref
                         # Handle large integers for JSON
                         if isinstance(value, int) and (value > 2**53 or value < -(2**53)):
                             value = hex(value)

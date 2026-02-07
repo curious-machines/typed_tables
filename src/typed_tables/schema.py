@@ -133,14 +133,17 @@ class Schema:
                 field.name: v for field, v in zip(composite_type.fields, values)
             }
 
-        # Process each field value - store in field's type table, get reference
+        # Process each field value
         field_references: dict[str, Any] = {}
 
         for field in composite_type.fields:
-            field_value = values[field.name]
+            field_value = values.get(field.name)
             field_base = field.type_def.resolve_base_type()
 
-            if isinstance(field_base, ArrayTypeDefinition):
+            if field_value is None:
+                # Null field — bitmap handles serialization
+                field_references[field.name] = None
+            elif isinstance(field_base, ArrayTypeDefinition):
                 # Store array elements and get (start_index, length) tuple
                 instance_ref = self._create_array_instance(
                     field.type_def, field_base, field_value
@@ -153,9 +156,8 @@ class Schema:
                 )
                 field_references[field.name] = instance_ref.index
             else:
-                # Store primitive/alias value in its type's table and get index
-                instance_ref = self._create_instance_for_type(field.type_def, field_value)
-                field_references[field.name] = instance_ref.index
+                # Primitive/alias — store value inline (no separate table)
+                field_references[field.name] = field_value
 
         # Store the composite record (contains only references)
         table = self.storage.get_table(type_def.name)

@@ -44,13 +44,18 @@ Composite types may be nested.
 
 ## Data Storage
 
-Each type is stored in its own table. It is a requirement that a table be thought of as an array of fixed type members. In memory we reference a type by its name and index. The name matches the type name, which is used to name the data file on disk. The index points to the entry within that data file.
+Each composite type is stored in its own table as a `.bin` file. A table is an array of fixed-size records. In memory we reference a record by its type name and index.
 
-**Composite types store references, not values.** When a Person is created, the uuid value is stored in the `uuid.bin` table, and the name characters are stored in the `name_elements.bin` table. The Person record in `Person.bin` stores references pointing to those values:
-- Non-array fields: uint32 index (4 bytes) into the field's type table
-- Array fields: `(start_index, length)` stored inline (8 bytes) — `start_index` is a uint32 index into the element table, and `length` is a uint32 count of elements. There is no separate header table for arrays.
+**Composite record layout:** `[null_bitmap] [field0_data] [field1_data] ...`
 
-Array elements are stored in element tables (e.g., `name_elements.bin`). The composite record directly contains the `(start_index, length)` pair needed to locate the elements, eliminating the extra indirection of a header table.
+- **Null bitmap**: `ceil(N/8)` bytes at the start, one bit per field. Bit set = field is null, with the field's data area zeroed.
+- **Primitive/alias-to-primitive fields**: actual value stored inline (1–16 bytes depending on type). No separate table is created for primitive fields.
+- **Array fields**: `(start_index, length)` stored inline (8 bytes) — `start_index` is a uint32 index into the element table, `length` is a uint32 element count.
+- **Composite ref fields**: uint32 index (4 bytes) into the referenced type's table.
+
+Array elements are stored in element tables (e.g., `name_elements.bin`). The composite record directly contains the `(start_index, length)` pair needed to locate the elements.
+
+**Type-based querying**: `from <non-composite-type> select *` scans all composites containing a field of that type and extracts values, returning `_source`, `_index`, `_field`, and value columns.
 
 Metadata about types is stored in `_metadata.json` in the data directory.
 
@@ -131,7 +136,7 @@ The `forward type B` registers an empty stub. The third statement populates it w
 
 ### NULL Values
 
-Composite fields can be set to `null` to indicate the absence of a referenced record. Internally, null is stored as `0xFFFFFFFF` (the max uint32 sentinel). Fields omitted during creation default to null.
+Composite fields can be set to `null` to indicate the absence of a value. Null is tracked via a null bitmap at the start of each composite record. Fields omitted during creation default to null.
 
 ```ttq
 create type Node value:uint8 next:Node;

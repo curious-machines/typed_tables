@@ -117,6 +117,11 @@ class PrimitiveTypeDefinition(TypeDefinition):
         return self.primitive.size_bytes
 
     @property
+    def reference_size(self) -> int:
+        """Primitives are stored inline in composites — size equals the value size."""
+        return self.primitive.size_bytes
+
+    @property
     def is_primitive(self) -> bool:
         return True
 
@@ -180,21 +185,27 @@ class FieldDefinition:
 class CompositeTypeDefinition(TypeDefinition):
     """Type definition for composite types (structs).
 
-    A composite stores references to values in other tables, not the values
-    themselves. Each field's value is stored in its own type's table, and
-    the composite record stores indices (or start_index+length for arrays).
+    A composite record layout:
+      [null_bitmap (ceil(N/8) bytes)] [field0_data] [field1_data] ...
+
+    Primitive fields are stored inline (actual value bytes).
+    Array fields store (start_index, length) = 8 bytes.
+    Composite ref fields store a uint32 index = 4 bytes.
     """
 
     fields: list[FieldDefinition] = field(default_factory=list)
 
     @property
-    def size_bytes(self) -> int:
-        """Return the total size of all field references.
+    def null_bitmap_size(self) -> int:
+        """Return the number of bytes needed for the null bitmap."""
+        if not self.fields:
+            return 0
+        return (len(self.fields) + 7) // 8
 
-        This is the size of a composite record, which stores references
-        to field values, not the actual values.
-        """
-        return sum(f.type_def.reference_size for f in self.fields)
+    @property
+    def size_bytes(self) -> int:
+        """Return the total record size: bitmap + all field data."""
+        return self.null_bitmap_size + sum(f.type_def.reference_size for f in self.fields)
 
     @property
     def is_composite(self) -> bool:
@@ -208,8 +219,8 @@ class CompositeTypeDefinition(TypeDefinition):
         return None
 
     def get_field_offset(self, name: str) -> int:
-        """Get the byte offset of a field reference within the composite."""
-        offset = 0
+        """Get the byte offset of a field within the composite record (after bitmap)."""
+        offset = self.null_bitmap_size
         for f in self.fields:
             if f.name == name:
                 return offset
@@ -283,6 +294,34 @@ class TypeRegistry:
     def list_types(self) -> list[str]:
         """List all registered type names."""
         return list(self._types.keys())
+
+    def find_composites_with_field_type(
+        self, type_name: str
+    ) -> list[tuple[str, str, "CompositeTypeDefinition"]]:
+        """Find all composite types that have a field whose type matches type_name.
+
+        Returns a list of (composite_name, field_name, composite_def) tuples
+        for each composite field whose type name matches or whose base resolves
+        to the same base as type_name.
+        """
+        target = self._types.get(type_name)
+        if target is None:
+            return []
+        target_base = target.resolve_base_type()
+
+        results: list[tuple[str, str, CompositeTypeDefinition]] = []
+        for name, td in self._types.items():
+            if not isinstance(td, CompositeTypeDefinition):
+                continue
+            for f in td.fields:
+                field_base = f.type_def.resolve_base_type()
+                # Match if field type name equals target, or both resolve to same base
+                if f.type_def.name == type_name or (
+                    type(field_base) is type(target_base)
+                    and field_base.name == target_base.name
+                ):
+                    results.append((name, f.name, td))
+        return results
 
     def __contains__(self, name: str) -> bool:
         return name in self._types

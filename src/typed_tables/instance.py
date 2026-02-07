@@ -58,21 +58,25 @@ class InstanceRef:
     ) -> dict[str, Any]:
         """Resolve all field references in composite data to actual values.
 
-        Each field in a composite stores a reference to its value in another table.
-        This method resolves those references to return the actual values.
+        Primitive fields are already inline values (no table lookup needed).
+        Array fields need element table lookup.
+        Composite ref fields need nested table lookup.
+        Null fields (None) pass through.
         """
-        from typed_tables.types import ArrayTypeDefinition, CompositeTypeDefinition, NULL_ARRAY_REF
+        from typed_tables.types import ArrayTypeDefinition, CompositeTypeDefinition
 
         result = {}
         for field in composite_type.fields:
             field_ref = data[field.name]
+
+            if field_ref is None:
+                result[field.name] = None
+                continue
+
             field_base = field.type_def.resolve_base_type()
 
             if isinstance(field_base, ArrayTypeDefinition):
                 # field_ref is an inline (start_index, length) tuple
-                if field_ref == NULL_ARRAY_REF:
-                    result[field.name] = None
-                    continue
                 start_index, length = field_ref
                 if length == 0:
                     result[field.name] = []
@@ -89,9 +93,8 @@ class InstanceRef:
                 nested_raw = nested_table.get(field_ref)
                 result[field.name] = self._resolve_field_references(nested_raw, field_base)
             else:
-                # Resolve primitive/alias reference (index)
-                field_table = self.schema.storage.get_table(field.type_def.name)
-                result[field.name] = field_table.get(field_ref)
+                # Primitive/alias — value is already inline
+                result[field.name] = field_ref
 
         return result
 

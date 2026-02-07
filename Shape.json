@@ -1,0 +1,59 @@
+{
+    "Shape": {
+        "kind": "enum",
+        "variants": [
+            {
+                "name": "Line",
+                "fields": [
+                    {
+                        "name": "start",
+                        "type": "Point"
+                    },
+                    {
+                        "name": "end",
+                        "type": "Point"
+                    }
+                ]
+            },
+            {
+                "name": "Rectangle",
+                "fields": [
+                    {
+                        "name": "origin",
+                        "type": "Point"
+                    },
+                    {
+                        "name": "width",
+                        "type": "float32"
+                    },
+                    {
+                        "name": "height",
+                        "type": "float32"
+                    }
+                ]
+            },
+            {
+                "name": "Circle",
+                "fields": [
+                    {
+                        "name": "center",
+                        "type": "Point"
+                    },
+                    {
+                        "name": "radius",
+                        "type": "float32"
+                    }
+                ]
+            },
+            {
+                "name": "Path",
+                "fields": [
+                    {
+                        "name": "points",
+                        "type": "Point[]"
+                    }
+                ]
+            }
+        ]
+    }
+}
