@@ -141,7 +141,7 @@ class Schema:
             field_base = field.type_def.resolve_base_type()
 
             if isinstance(field_base, ArrayTypeDefinition):
-                # Store array elements and get index into the array's header table
+                # Store array elements and get (start_index, length) tuple
                 instance_ref = self._create_array_instance(
                     field.type_def, field_base, field_value
                 )

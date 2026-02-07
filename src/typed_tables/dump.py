@@ -172,21 +172,7 @@ def dump_table_raw(
     print(f"Type: {type_def.__class__.__name__}")
     print("-" * 60)
 
-    if isinstance(base, ArrayTypeDefinition):
-        array_table = storage.get_array_table(type_name)
-        count = array_table.count
-        print(f"Records: {count}")
-        print()
-
-        display_count = min(count, limit) if limit else count
-        for i in range(display_count):
-            start_index, length = array_table.get_header(i)
-            print(f"[{i}] start_index={start_index}, length={length}")
-
-        if limit and count > limit:
-            print(f"... ({count - limit} more records)")
-
-    elif isinstance(base, CompositeTypeDefinition):
+    if isinstance(base, CompositeTypeDefinition):
         table = storage.get_table(type_name)
         count = table.count
         print(f"Records: {count}")
@@ -252,22 +238,7 @@ def dump_table_resolved(
     print(f"Type: {type_def.__class__.__name__}")
     print("-" * 60)
 
-    if isinstance(base, ArrayTypeDefinition):
-        array_table = storage.get_array_table(type_name)
-        count = array_table.count
-        print(f"Records: {count}")
-        print()
-
-        display_count = min(count, limit) if limit else count
-        for i in range(display_count):
-            elements = array_table.get(i)
-            formatted = format_value(elements, type_def)
-            print(f"[{i}] {formatted}")
-
-        if limit and count > limit:
-            print(f"... ({count - limit} more records)")
-
-    elif isinstance(base, CompositeTypeDefinition):
+    if isinstance(base, CompositeTypeDefinition):
         table = storage.get_table(type_name)
         count = table.count
         print(f"Records: {count}")
@@ -325,20 +296,7 @@ def dump_table_json(
     base = type_def.resolve_base_type()
     records = []
 
-    if isinstance(base, ArrayTypeDefinition):
-        array_table = storage.get_array_table(type_name)
-        count = array_table.count
-        display_count = min(count, limit) if limit else count
-
-        for i in range(display_count):
-            if raw:
-                start, length = array_table.get_header(i)
-                records.append({"_index": i, "start_index": start, "length": length})
-            else:
-                elements = array_table.get(i)
-                records.append({"_index": i, "elements": elements})
-
-    elif isinstance(base, CompositeTypeDefinition):
+    if isinstance(base, CompositeTypeDefinition):
         table = storage.get_table(type_name)
         count = table.count
         display_count = min(count, limit) if limit else count
@@ -417,19 +375,16 @@ def list_tables(storage: StorageManager, registry: TypeRegistry) -> None:
         if not table_file.exists():
             continue
 
-        kind = type_def.__class__.__name__.replace("TypeDefinition", "")
+        # Skip standalone array types (no header table file anymore)
         if isinstance(base, ArrayTypeDefinition):
-            try:
-                arr_table = storage.get_array_table(type_name)
-                count = arr_table.count
-            except Exception:
-                count = "?"
-        else:
-            try:
-                table = storage.get_table(type_name)
-                count = table.count
-            except Exception:
-                count = "?"
+            continue
+
+        kind = type_def.__class__.__name__.replace("TypeDefinition", "")
+        try:
+            table = storage.get_table(type_name)
+            count = table.count
+        except Exception:
+            count = "?"
 
         print(f"  {type_name:<20} {kind:<12} {count:>6} records")
 

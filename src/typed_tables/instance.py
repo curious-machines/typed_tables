@@ -19,7 +19,7 @@ class InstanceRef:
 
     schema: Schema
     type_name: str
-    index: int
+    index: int | tuple[int, int]
 
     def load(self, resolve_references: bool = True) -> Any:
         """Load and return the value from storage.
@@ -40,7 +40,8 @@ class InstanceRef:
 
         if isinstance(base, ArrayTypeDefinition):
             array_table = self.schema.storage.get_array_table_for_type(type_def)
-            return array_table.get(self.index)
+            start_index, length = self.index
+            return array_table.get(start_index, length)
         elif isinstance(base, CompositeTypeDefinition):
             table = self.schema.storage.get_table(self.type_name)
             raw_data = table.get(self.index)
@@ -60,7 +61,7 @@ class InstanceRef:
         Each field in a composite stores a reference to its value in another table.
         This method resolves those references to return the actual values.
         """
-        from typed_tables.types import ArrayTypeDefinition, CompositeTypeDefinition
+        from typed_tables.types import ArrayTypeDefinition, CompositeTypeDefinition, NULL_ARRAY_REF
 
         result = {}
         for field in composite_type.fields:
@@ -68,12 +69,15 @@ class InstanceRef:
             field_base = field.type_def.resolve_base_type()
 
             if isinstance(field_base, ArrayTypeDefinition):
-                # field_ref is an index into the array's header table
-                array_table = self.schema.storage.get_array_table_for_type(field.type_def)
-                start_index, length = array_table.get_header(field_ref)
+                # field_ref is an inline (start_index, length) tuple
+                if field_ref == NULL_ARRAY_REF:
+                    result[field.name] = None
+                    continue
+                start_index, length = field_ref
                 if length == 0:
                     result[field.name] = []
                 else:
+                    array_table = self.schema.storage.get_array_table_for_type(field.type_def)
                     elements = [
                         array_table.element_table.get(start_index + i)
                         for i in range(length)

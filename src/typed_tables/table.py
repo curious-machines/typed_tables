@@ -244,8 +244,14 @@ class Table:
         return b"".join(parts)
 
     def _serialize_field_reference(self, value: Any, type_def: TypeDefinition) -> bytes:
-        """Serialize a field reference (always an index into the field's table)."""
-        # All fields store an index (uint32) into their type's table
+        """Serialize a field reference.
+
+        Array fields store (start_index, length) inline as 8 bytes.
+        All other fields store a uint32 index (4 bytes).
+        """
+        base = type_def.resolve_base_type()
+        if isinstance(base, ArrayTypeDefinition):
+            return struct.pack("<II", value[0], value[1])
         return struct.pack("<I", value)
 
     def _deserialize(self, data: bytes) -> Any:
@@ -303,8 +309,11 @@ class Table:
         for field in type_def.fields:
             field_ref_size = field.type_def.reference_size
             field_data = data[offset : offset + field_ref_size]
-            # All fields store an index (uint32) into their type's table
-            result[field.name] = struct.unpack("<I", field_data)[0]
+            field_base = field.type_def.resolve_base_type()
+            if isinstance(field_base, ArrayTypeDefinition):
+                result[field.name] = struct.unpack("<II", field_data)
+            else:
+                result[field.name] = struct.unpack("<I", field_data)[0]
             offset += field_ref_size
 
         return result

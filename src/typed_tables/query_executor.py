@@ -46,6 +46,7 @@ from typed_tables.types import (
     ArrayTypeDefinition,
     CompositeTypeDefinition,
     FieldDefinition,
+    NULL_ARRAY_REF,
     NULL_REF,
     PrimitiveType,
     PrimitiveTypeDefinition,
@@ -330,12 +331,13 @@ class QueryExecutor:
             base = type_def.resolve_base_type()
             kind = type_def.__class__.__name__.replace("TypeDefinition", "")
 
+            # Skip standalone array types (no header table file anymore)
+            if isinstance(base, ArrayTypeDefinition):
+                continue
+
             # Get record count
             try:
-                if isinstance(base, ArrayTypeDefinition):
-                    count = self.storage.get_array_table(type_name).count
-                else:
-                    count = self.storage.get_table(type_name).count
+                count = self.storage.get_table(type_name).count
             except Exception:
                 count = 0
 
@@ -369,6 +371,13 @@ class QueryExecutor:
             "type": type_def.__class__.__name__.replace("TypeDefinition", ""),
             "size": type_def.size_bytes,
         })
+
+        if isinstance(type_def, AliasTypeDefinition):
+            rows.append({
+                "property": "(alias_of)",
+                "type": type_def.base_type.name,
+                "size": type_def.base_type.size_bytes,
+            })
 
         if isinstance(base, CompositeTypeDefinition):
             for field in base.fields:
@@ -806,14 +815,16 @@ class QueryExecutor:
             resolved_value = self._resolve_instance_value(fv.value)
             field_base = field_def.type_def.resolve_base_type()
 
-            if resolved_value is None:
+            if isinstance(field_base, ArrayTypeDefinition):
+                if resolved_value is None:
+                    raw_record[fv.name] = NULL_ARRAY_REF
+                else:
+                    if isinstance(resolved_value, str):
+                        resolved_value = list(resolved_value)
+                    array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                    raw_record[fv.name] = array_table.insert(resolved_value)
+            elif resolved_value is None:
                 raw_record[fv.name] = NULL_REF
-            elif isinstance(field_base, ArrayTypeDefinition):
-                if isinstance(resolved_value, str):
-                    resolved_value = list(resolved_value)
-                array_table = self.storage.get_array_table_for_type(field_def.type_def)
-                array_index = array_table.insert(resolved_value)
-                raw_record[fv.name] = array_index
             elif isinstance(field_base, CompositeTypeDefinition):
                 if isinstance(resolved_value, int):
                     raw_record[fv.name] = resolved_value
@@ -904,11 +915,10 @@ class QueryExecutor:
             field_value = values.get(field.name)
             field_base = field.type_def.resolve_base_type()
 
-            if field_value is None:
-                field_references[field.name] = NULL_REF
-                continue
-
             if isinstance(field_base, ArrayTypeDefinition):
+                if field_value is None:
+                    field_references[field.name] = NULL_ARRAY_REF
+                    continue
                 # Convert string to character list if needed
                 if isinstance(field_value, str):
                     field_value = list(field_value)
@@ -930,11 +940,16 @@ class QueryExecutor:
                             elem = ref_table.get(elem)
                         resolved.append(elem)
                     field_value = resolved
-                # Store array elements and get index into header table
+                # Store array elements and get (start_index, length) tuple
                 array_table = self.storage.get_array_table_for_type(field.type_def)
-                array_index = array_table.insert(field_value)
-                field_references[field.name] = array_index
-            elif isinstance(field_base, CompositeTypeDefinition):
+                field_references[field.name] = array_table.insert(field_value)
+                continue
+
+            if field_value is None:
+                field_references[field.name] = NULL_REF
+                continue
+
+            if isinstance(field_base, CompositeTypeDefinition):
                 # Nested composite - either an index reference, dict for recursive create, or tag reference
                 if isinstance(field_value, TagReference):
                     # Tag reference not yet bound - use NULL_REF and defer patching
@@ -1113,13 +1128,7 @@ class QueryExecutor:
         """Load all records from a table with resolved values."""
         base = type_def.resolve_base_type()
 
-        if isinstance(base, ArrayTypeDefinition):
-            array_table = self.storage.get_array_table(type_name)
-            for i in range(array_table.count):
-                elements = array_table.get(i)
-                yield {"_index": i, "_value": elements}
-
-        elif isinstance(base, CompositeTypeDefinition):
+        if isinstance(base, CompositeTypeDefinition):
             table = self.storage.get_table(type_name)
             for i in range(table.count):
                 # Skip deleted records
@@ -1131,18 +1140,17 @@ class QueryExecutor:
 
                 for field in base.fields:
                     ref = record[field.name]
-                    if ref == NULL_REF:
-                        resolved[field.name] = None
-                        continue
                     field_base = field.type_def.resolve_base_type()
 
                     if isinstance(field_base, ArrayTypeDefinition):
-                        # ref is an index into the array's header table
-                        arr_table = self.storage.get_array_table_for_type(field.type_def)
-                        start_index, length = arr_table.get_header(ref)
+                        if ref == NULL_ARRAY_REF:
+                            resolved[field.name] = None
+                            continue
+                        start_index, length = ref
                         if length == 0:
                             resolved[field.name] = []
                         else:
+                            arr_table = self.storage.get_array_table_for_type(field.type_def)
                             elements = [
                                 arr_table.element_table.get(start_index + j)
                                 for j in range(length)
@@ -1152,6 +1160,8 @@ class QueryExecutor:
                                 resolved[field.name] = "".join(elements)
                             else:
                                 resolved[field.name] = elements
+                    elif ref == NULL_REF:
+                        resolved[field.name] = None
                     elif isinstance(field_base, CompositeTypeDefinition):
                         resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
                     else:
@@ -1159,6 +1169,11 @@ class QueryExecutor:
                         resolved[field.name] = field_table.get(ref)
 
                 yield resolved
+
+        elif isinstance(base, ArrayTypeDefinition):
+            # Standalone array types no longer have header tables;
+            # arrays are accessed through composites only
+            return
 
         else:
             # Primitive type
@@ -1188,17 +1203,17 @@ class QueryExecutor:
 
             for field in base.fields:
                 ref = record[field.name]
-                if ref == NULL_REF:
-                    resolved[field.name] = None
-                    continue
                 field_base = field.type_def.resolve_base_type()
 
                 if isinstance(field_base, ArrayTypeDefinition):
-                    arr_table = self.storage.get_array_table_for_type(field.type_def)
-                    start_index, length = arr_table.get_header(ref)
+                    if ref == NULL_ARRAY_REF:
+                        resolved[field.name] = None
+                        continue
+                    start_index, length = ref
                     if length == 0:
                         resolved[field.name] = []
                     else:
+                        arr_table = self.storage.get_array_table_for_type(field.type_def)
                         elements = [
                             arr_table.element_table.get(start_index + j)
                             for j in range(length)
@@ -1207,6 +1222,8 @@ class QueryExecutor:
                             resolved[field.name] = "".join(elements)
                         else:
                             resolved[field.name] = elements
+                elif ref == NULL_REF:
+                    resolved[field.name] = None
                 elif isinstance(field_base, CompositeTypeDefinition):
                     resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
                 else:
@@ -1451,16 +1468,16 @@ class QueryExecutor:
         resolved: dict[str, Any] = {}
         for f in composite_base.fields:
             ref = raw_record[f.name]
-            if ref == NULL_REF:
-                resolved[f.name] = None
-                continue
             field_type_base = f.type_def.resolve_base_type()
             if isinstance(field_type_base, ArrayTypeDefinition):
-                arr_table = self.storage.get_array_table_for_type(f.type_def)
-                start_index, length = arr_table.get_header(ref)
+                if ref == NULL_ARRAY_REF:
+                    resolved[f.name] = None
+                    continue
+                start_index, length = ref
                 if length == 0:
                     resolved[f.name] = []
                 else:
+                    arr_table = self.storage.get_array_table_for_type(f.type_def)
                     elements = [
                         arr_table.element_table.get(start_index + j)
                         for j in range(length)
@@ -1469,6 +1486,8 @@ class QueryExecutor:
                         resolved[f.name] = "".join(elements)
                     else:
                         resolved[f.name] = elements
+            elif ref == NULL_REF:
+                resolved[f.name] = None
             elif isinstance(field_type_base, CompositeTypeDefinition):
                 resolved[f.name] = f"<{f.type_def.name}[{ref}]>"
             else:
@@ -1820,22 +1839,24 @@ class QueryExecutor:
                 raw_record = table.get(i)
                 for f in comp_def.fields:
                     ref = raw_record[f.name]
-                    if ref == NULL_REF:
-                        continue
                     field_base = f.type_def.resolve_base_type()
-                    if isinstance(field_base, CompositeTypeDefinition):
-                        ref_counts[(f.type_def.name, ref)] += 1
-                    elif isinstance(field_base, ArrayTypeDefinition):
+                    if isinstance(field_base, ArrayTypeDefinition):
+                        if ref == NULL_ARRAY_REF:
+                            continue
+                        start_index, length = ref
                         elem_base = field_base.element_type.resolve_base_type()
                         if isinstance(elem_base, CompositeTypeDefinition):
                             arr_table = self.storage.get_array_table_for_type(f.type_def)
-                            start_index, length = arr_table.get_header(ref)
                             for j in range(length):
                                 elem = arr_table.element_table.get(start_index + j)
                                 if isinstance(elem, dict):
                                     # Array element composites are stored inline,
                                     # not as index references — skip for ref counting
                                     pass
+                    elif ref == NULL_REF:
+                        continue
+                    elif isinstance(field_base, CompositeTypeDefinition):
+                        ref_counts[(f.type_def.name, ref)] += 1
 
         # Pass 2: Assign variable names to multiply-referenced composites
         dump_vars: dict[tuple[str, int], str] = {}
@@ -1903,11 +1924,13 @@ class QueryExecutor:
             raw_record = table.get(idx)
             for f in comp_def.fields:
                 ref = raw_record[f.name]
-                if ref == NULL_REF:
-                    continue
                 if (name, idx, f.name) in back_edge_tags:
                     continue
                 field_base = f.type_def.resolve_base_type()
+                if isinstance(field_base, ArrayTypeDefinition):
+                    continue
+                if ref == NULL_REF:
+                    continue
                 if isinstance(field_base, CompositeTypeDefinition):
                     dep_key = (f.type_def.name, ref)
                     if dep_key in dump_vars:
@@ -1941,11 +1964,13 @@ class QueryExecutor:
                 raw_record_v = table_v.get(v_idx)
                 for f in comp_def_v.fields:
                     ref = raw_record_v[f.name]
-                    if ref == NULL_REF:
-                        continue
                     if (v_name, v_idx, f.name) in back_edge_tags:
                         continue
                     field_base = f.type_def.resolve_base_type()
+                    if isinstance(field_base, ArrayTypeDefinition):
+                        continue
+                    if ref == NULL_REF:
+                        continue
                     if isinstance(field_base, CompositeTypeDefinition):
                         dep_key = (f.type_def.name, ref)
                         if dep_key in dump_vars and dep_key not in emitted_vars:
@@ -1960,11 +1985,13 @@ class QueryExecutor:
                         raw_record = table.get(idx)
                         for f in comp_def.fields:
                             ref = raw_record[f.name]
-                            if ref == NULL_REF:
-                                continue
                             if (name, idx, f.name) in back_edge_tags:
                                 continue
                             field_base = f.type_def.resolve_base_type()
+                            if isinstance(field_base, ArrayTypeDefinition):
+                                continue
+                            if ref == NULL_REF:
+                                continue
                             if isinstance(field_base, CompositeTypeDefinition):
                                 dep_key = (f.type_def.name, ref)
                                 if dep_key in dump_vars and dep_key not in emitted_vars:
@@ -2027,14 +2054,14 @@ class QueryExecutor:
             raw_record = table.get(idx)
             for f in comp_def.fields:
                 ref = raw_record[f.name]
-                if ref == NULL_REF:
-                    continue
                 # Skip back-edges (they're emitted as tag refs, not inlined)
                 if (name, idx, f.name) in back_edge_tags:
                     continue
-                if back_edge_tags and (name, idx, f.name) in back_edge_tags:
-                    continue
                 field_base = f.type_def.resolve_base_type()
+                if isinstance(field_base, ArrayTypeDefinition):
+                    continue
+                if ref == NULL_REF:
+                    continue
                 if isinstance(field_base, CompositeTypeDefinition):
                     dep_key = (f.type_def.name, ref)
                     if dep_key in dump_vars:
@@ -2158,20 +2185,15 @@ class QueryExecutor:
 
             base = field_type.resolve_base_type()
 
-            if val is None or val == NULL_REF:
-                return "null"
-            elif isinstance(base, PrimitiveTypeDefinition):
-                return fmt_primitive(val, base)
-            elif isinstance(base, CompositeTypeDefinition):
-                # Always use alias reference - record is at top level
-                return f"*{anchor_name(field_type.name, val)}"
-            elif isinstance(base, ArrayTypeDefinition):
-                arr_table = self.storage.get_array_table_for_type(field_type)
-                start_idx, length = arr_table.get_header(val)
+            if isinstance(base, ArrayTypeDefinition):
+                if val is None or val == NULL_ARRAY_REF:
+                    return "null"
+                start_idx, length = val
 
                 if length == 0:
                     return "[]"
 
+                arr_table = self.storage.get_array_table_for_type(field_type)
                 elem_base = base.element_type.resolve_base_type()
 
                 # Character array → string
@@ -2205,6 +2227,13 @@ class QueryExecutor:
                         return f"\n{elem_lines}"
                     else:
                         return "[" + ", ".join(elem_strs) + "]"
+            elif val is None or val == NULL_REF:
+                return "null"
+            elif isinstance(base, PrimitiveTypeDefinition):
+                return fmt_primitive(val, base)
+            elif isinstance(base, CompositeTypeDefinition):
+                # Always use alias reference - record is at top level
+                return f"*{anchor_name(field_type.name, val)}"
             elif isinstance(base, AliasTypeDefinition):
                 return fmt_value(val, base.base_type, depth)
             else:
@@ -2317,20 +2346,15 @@ class QueryExecutor:
         def fmt_value(val: Any, field_type: TypeDefinition) -> Any:
             base = field_type.resolve_base_type()
 
-            if val is None or val == NULL_REF:
-                return None
-            elif isinstance(base, PrimitiveTypeDefinition):
-                return fmt_primitive(val, base)
-            elif isinstance(base, CompositeTypeDefinition):
-                # Reference to another record
-                return {"$ref": record_id(field_type.name, val)}
-            elif isinstance(base, ArrayTypeDefinition):
-                arr_table = self.storage.get_array_table_for_type(field_type)
-                start_idx, length = arr_table.get_header(val)
+            if isinstance(base, ArrayTypeDefinition):
+                if val is None or val == NULL_ARRAY_REF:
+                    return None
+                start_idx, length = val
 
                 if length == 0:
                     return []
 
+                arr_table = self.storage.get_array_table_for_type(field_type)
                 elem_base = base.element_type.resolve_base_type()
 
                 # Character array → string
@@ -2352,6 +2376,13 @@ class QueryExecutor:
                 else:
                     # Primitive array
                     return [fmt_primitive(e, elem_base) for e in elements]
+            elif val is None or val == NULL_REF:
+                return None
+            elif isinstance(base, PrimitiveTypeDefinition):
+                return fmt_primitive(val, base)
+            elif isinstance(base, CompositeTypeDefinition):
+                # Reference to another record
+                return {"$ref": record_id(field_type.name, val)}
             elif isinstance(base, AliasTypeDefinition):
                 return fmt_value(val, base.base_type)
             else:
@@ -2453,21 +2484,15 @@ class QueryExecutor:
             ind = indent * depth if pretty else ""
             ind_inner = indent * (depth + 1) if pretty else ""
 
-            if val is None or val == NULL_REF:
-                return f"{ind}<{field_name} null=\"true\"/>"
-            elif isinstance(base, PrimitiveTypeDefinition):
-                prim_val = fmt_primitive(val, base)
-                return f"{ind}<{field_name}>{prim_val}</{field_name}>"
-            elif isinstance(base, CompositeTypeDefinition):
-                # Reference to another record using ref
-                return f"{ind}<{field_name} ref=\"#{record_id(field_type.name, val)}\"/>"
-            elif isinstance(base, ArrayTypeDefinition):
-                arr_table = self.storage.get_array_table_for_type(field_type)
-                start_idx, length = arr_table.get_header(val)
+            if isinstance(base, ArrayTypeDefinition):
+                if val is None or val == NULL_ARRAY_REF:
+                    return f"{ind}<{field_name} null=\"true\"/>"
+                start_idx, length = val
 
                 if length == 0:
                     return f"{ind}<{field_name}/>"
 
+                arr_table = self.storage.get_array_table_for_type(field_type)
                 elem_base = base.element_type.resolve_base_type()
 
                 # Character array → string
@@ -2496,6 +2521,14 @@ class QueryExecutor:
                 else:
                     inner = "".join(elements_xml)
                 return f"{ind}<{field_name}>{inner}</{field_name}>"
+            elif val is None or val == NULL_REF:
+                return f"{ind}<{field_name} null=\"true\"/>"
+            elif isinstance(base, PrimitiveTypeDefinition):
+                prim_val = fmt_primitive(val, base)
+                return f"{ind}<{field_name}>{prim_val}</{field_name}>"
+            elif isinstance(base, CompositeTypeDefinition):
+                # Reference to another record using ref
+                return f"{ind}<{field_name} ref=\"#{record_id(field_type.name, val)}\"/>"
             elif isinstance(base, AliasTypeDefinition):
                 return fmt_value(field_name, val, base.base_type, depth)
             else:
@@ -2649,9 +2682,11 @@ class QueryExecutor:
             raw_record = table.get(idx)
             for f in comp_def.fields:
                 ref = raw_record[f.name]
+                field_base = f.type_def.resolve_base_type()
+                if isinstance(field_base, ArrayTypeDefinition):
+                    continue
                 if ref == NULL_REF:
                     continue
-                field_base = f.type_def.resolve_base_type()
                 if not isinstance(field_base, CompositeTypeDefinition):
                     continue
                 tgt_key = (f.type_def.name, ref)
@@ -2744,17 +2779,15 @@ class QueryExecutor:
         if formatting is None:
             formatting = set()
 
-        if ref == NULL_REF:
-            return "null"
-
         field_base = field.type_def.resolve_base_type()
 
         if isinstance(field_base, ArrayTypeDefinition):
-            # Load array header and elements
-            arr_table = self.storage.get_array_table_for_type(field.type_def)
-            start_index, length = arr_table.get_header(ref)
+            if ref == NULL_ARRAY_REF:
+                return "null"
+            start_index, length = ref
             if length == 0:
                 return "[]"
+            arr_table = self.storage.get_array_table_for_type(field.type_def)
 
             elem_base = field_base.element_type.resolve_base_type()
 
@@ -2789,6 +2822,9 @@ class QueryExecutor:
                 # Primitive array
                 elem_strs = [self._format_ttq_value(e, elem_base) for e in elements]
                 return f"[{', '.join(elem_strs)}]"
+
+        elif ref == NULL_REF:
+            return "null"
 
         elif isinstance(field_base, CompositeTypeDefinition):
             # Check if this reference has a variable binding
@@ -2903,11 +2939,10 @@ class QueryExecutor:
             field_value = values.get(field.name)
             field_base = field.type_def.resolve_base_type()
 
-            if field_value is None:
-                field_references[field.name] = NULL_REF
-                continue
-
             if isinstance(field_base, ArrayTypeDefinition):
+                if field_value is None:
+                    field_references[field.name] = NULL_ARRAY_REF
+                    continue
                 if isinstance(field_value, str):
                     field_value = list(field_value)
                 if isinstance(field_base.element_type.resolve_base_type(), CompositeTypeDefinition):
@@ -2927,9 +2962,14 @@ class QueryExecutor:
                         resolved.append(elem)
                     field_value = resolved
                 array_table = self.storage.get_array_table_for_type(field.type_def)
-                array_index = array_table.insert(field_value)
-                field_references[field.name] = array_index
-            elif isinstance(field_base, CompositeTypeDefinition):
+                field_references[field.name] = array_table.insert(field_value)
+                continue
+
+            if field_value is None:
+                field_references[field.name] = NULL_REF
+                continue
+
+            if isinstance(field_base, CompositeTypeDefinition):
                 if isinstance(field_value, int):
                     field_references[field.name] = field_value
                 else:

@@ -46,20 +46,11 @@ Composite types may be nested.
 
 Each type is stored in its own table. It is a requirement that a table be thought of as an array of fixed type members. In memory we reference a type by its name and index. The name matches the type name, which is used to name the data file on disk. The index points to the entry within that data file.
 
-**Composite types store references, not values.** When a Person is created, the uuid value is stored in the `uuid.bin` table, and the name characters are stored in the `name_elements.bin` table with a header in `name.bin`. The Person record in `Person.bin` stores only indices pointing to those values:
-- All fields: uint32 index (4 bytes) into the field's type table
-- For array fields, this index points to the array's header table (e.g., `name.bin`), which contains (start_index, length)
+**Composite types store references, not values.** When a Person is created, the uuid value is stored in the `uuid.bin` table, and the name characters are stored in the `name_elements.bin` table. The Person record in `Person.bin` stores references pointing to those values:
+- Non-array fields: uint32 index (4 bytes) into the field's type table
+- Array fields: `(start_index, length)` stored inline (8 bytes) — `start_index` is a uint32 index into the element table, and `length` is a uint32 count of elements. There is no separate header table for arrays.
 
-Tables for array types work a little differently. Remember, that it is a requirement that all entries in a table must be of a fixed size in order to gain quick access to the member. The array table consists of entries that could be defined like so:
-
-```
-UInt8Array {
-    startingIndex: uint32
-    length: uint32
-}
-```
-
-So, in order to load a UInt8Array, we must have an index into the UInt8Array table. The entry pointed to tells us what the starting and ending indices are for the uint8 table containing its values.
+Array elements are stored in element tables (e.g., `name_elements.bin`). The composite record directly contains the `(start_index, length)` pair needed to locate the elements, eliminating the extra indirection of a header table.
 
 Metadata about types is stored in `_metadata.json` in the data directory.
 

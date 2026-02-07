@@ -17,7 +17,7 @@ Person {
 """
 
 # Create a data directory for storage
-data_dir = Path("./example_data")
+data_dir = Path("./example_db")
 
 # Parse the schema and build an in-memory representation
 with Schema.parse(types, data_dir) as schema:

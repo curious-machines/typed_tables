@@ -60,6 +60,9 @@ REFERENCE_SIZE = 4  # uint32 index
 # Sentinel value: field points to no entry in the referenced table
 NULL_REF = 0xFFFFFFFF
 
+# Sentinel for null array references: (start=NULL_REF, length=0)
+NULL_ARRAY_REF = (NULL_REF, 0)
+
 
 @dataclass
 class TypeDefinition:
@@ -157,8 +160,8 @@ class ArrayTypeDefinition(TypeDefinition):
 
     @property
     def reference_size(self) -> int:
-        """Arrays use an index into the header table as their reference."""
-        return REFERENCE_SIZE
+        """Arrays store (start_index, length) inline = 8 bytes."""
+        return self.HEADER_SIZE
 
     @property
     def is_array(self) -> bool:
