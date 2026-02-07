@@ -48,8 +48,10 @@ from typed_tables.types import (
     FieldDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
+    StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
+    is_string_type,
 )
 
 
@@ -512,24 +514,20 @@ class QueryExecutor:
         # Build field definitions from query
         fields: list[FieldDefinition] = parent_fields.copy()
         for field_def in query.fields:
-            # Handle 'string' as alias for 'character[]'
             type_name = field_def.type_name
-            if type_name == "string":
-                field_type = self.registry.get_array_type("character")
+            # Check if it's an array type (ends with [])
+            if type_name.endswith("[]"):
+                base_name = type_name[:-2]
+                field_type = self.registry.get_array_type(base_name)
             else:
-                # Check if it's an array type (ends with [])
-                if type_name.endswith("[]"):
-                    base_name = type_name[:-2]
-                    field_type = self.registry.get_array_type(base_name)
-                else:
-                    field_type = self.registry.get(type_name)
-                    if field_type is None:
-                        return CreateResult(
-                            columns=[],
-                            rows=[],
-                            message=f"Unknown type: {type_name}",
-                            type_name=query.name,
-                        )
+                field_type = self.registry.get(type_name)
+                if field_type is None:
+                    return CreateResult(
+                        columns=[],
+                        rows=[],
+                        message=f"Unknown type: {type_name}",
+                        type_name=query.name,
+                    )
 
             fields.append(FieldDefinition(name=field_def.name, type_def=field_type))
 
@@ -1146,8 +1144,7 @@ class QueryExecutor:
                                 arr_table.element_table.get(start_index + j)
                                 for j in range(length)
                             ]
-                            # Convert character arrays to strings for easier querying
-                            if all(isinstance(e, str) and len(e) == 1 for e in elements):
+                            if is_string_type(field.type_def):
                                 resolved[field.name] = "".join(elements)
                             else:
                                 resolved[field.name] = elements
@@ -1237,7 +1234,7 @@ class QueryExecutor:
                             arr_table.element_table.get(start_index + j)
                             for j in range(length)
                         ]
-                        if all(isinstance(e, str) and len(e) == 1 for e in elements):
+                        if is_string_type(field.type_def):
                             resolved[field.name] = "".join(elements)
                         else:
                             resolved[field.name] = elements
@@ -1501,7 +1498,7 @@ class QueryExecutor:
                         arr_table.element_table.get(start_index + j)
                         for j in range(length)
                     ]
-                    if all(isinstance(e, str) and len(e) == 1 for e in elements):
+                    if is_string_type(f.type_def):
                         resolved[f.name] = "".join(elements)
                     else:
                         resolved[f.name] = elements
@@ -1801,9 +1798,7 @@ class QueryExecutor:
             field_strs = []
             for f in comp_def.fields:
                 field_type_name = f.type_def.name
-                if field_type_name == "character[]":
-                    field_type_name = "string"
-                elif field_type_name.endswith("[]"):
+                if field_type_name.endswith("[]"):
                     base_elem = field_type_name[:-2]
                     field_type_name = f"{base_elem}[]"
                 field_strs.append(f"{f.name}:{field_type_name}")
@@ -2212,8 +2207,8 @@ class QueryExecutor:
                 arr_table = self.storage.get_array_table_for_type(field_type)
                 elem_base = base.element_type.resolve_base_type()
 
-                # Character array → string
-                if isinstance(elem_base, PrimitiveTypeDefinition) and elem_base.primitive == PrimitiveType.CHARACTER:
+                # String type → joined string
+                if is_string_type(field_type):
                     chars = [arr_table.element_table.get(start_idx + j) for j in range(length)]
                     s = "".join(chars)
                     # YAML string - use double quotes
@@ -2372,8 +2367,8 @@ class QueryExecutor:
                 arr_table = self.storage.get_array_table_for_type(field_type)
                 elem_base = base.element_type.resolve_base_type()
 
-                # Character array → string
-                if isinstance(elem_base, PrimitiveTypeDefinition) and elem_base.primitive == PrimitiveType.CHARACTER:
+                # String type → joined string
+                if is_string_type(field_type):
                     chars = [arr_table.element_table.get(start_idx + j) for j in range(length)]
                     return "".join(chars)
 
@@ -2509,8 +2504,8 @@ class QueryExecutor:
                 arr_table = self.storage.get_array_table_for_type(field_type)
                 elem_base = base.element_type.resolve_base_type()
 
-                # Character array → string
-                if isinstance(elem_base, PrimitiveTypeDefinition) and elem_base.primitive == PrimitiveType.CHARACTER:
+                # String type → joined string
+                if is_string_type(field_type):
                     chars = [arr_table.element_table.get(start_idx + j) for j in range(length)]
                     text = escape("".join(chars))
                     return f"{ind}<{field_name}>{text}</{field_name}>"
@@ -2804,8 +2799,8 @@ class QueryExecutor:
 
             elem_base = field_base.element_type.resolve_base_type()
 
-            # Character array → string
-            if isinstance(elem_base, PrimitiveTypeDefinition) and elem_base.primitive == PrimitiveType.CHARACTER:
+            # String type → joined string
+            if is_string_type(field.type_def):
                 chars = [arr_table.element_table.get(start_index + j) for j in range(length)]
                 s = "".join(chars)
                 return self._format_ttq_string(s)

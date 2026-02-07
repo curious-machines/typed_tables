@@ -22,6 +22,8 @@ Eventually, the type DSL will be extended to a language, but for now, this is me
 
 The built-in primitive types that are supported: bit, character, uint8, int8, uint16, int16, uint32, int32, uint64, int64, uint128, int128, float32, float64
 
+There is also a built-in `string` type. It is stored as `character[]` but always displayed as a joined string (e.g., `"Alice"`). A bare `character[]` is displayed as an array of individual characters (e.g., `['A', 'l', 'i', 'c', 'e']`). Aliases to `string` inherit string display behavior; aliases to `character[]` do not.
+
 All types have array variants which is indicated by the type name followed by square brackets. For example, `character[]`
 
 A custom DSL is used to describe the schema. Types are by a capitalized name with a body surrounded by curly braces. The body contains a list of name:type pairs. An example follows:

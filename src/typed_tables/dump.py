@@ -15,8 +15,10 @@ from typed_tables.types import (
     CompositeTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
+    StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
+    is_string_type,
 )
 
 
@@ -94,6 +96,9 @@ def _create_type_from_spec(
     elif kind == "alias":
         base_type = registry.get_or_raise(spec["base_type"])
         return AliasTypeDefinition(name=name, base_type=base_type)
+    elif kind == "string":
+        element_type = registry.get_or_raise(spec["element_type"])
+        return StringTypeDefinition(name=name, element_type=element_type)
     elif kind == "array":
         element_type = registry.get_or_raise(spec["element_type"])
         return ArrayTypeDefinition(name=name, element_type=element_type)
@@ -149,8 +154,7 @@ def format_value(value: Any, type_def: TypeDefinition) -> str:
             return f"(start={start}, len={length})"
         elif isinstance(value, list):
             # Resolved array
-            if all(isinstance(v, str) and len(v) == 1 for v in value):
-                # Character array - show as string
+            if is_string_type(type_def):
                 return repr("".join(value))
             return str(value)
     elif isinstance(base, CompositeTypeDefinition):

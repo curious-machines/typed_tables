@@ -13,6 +13,7 @@ from typed_tables.types import (
     ArrayTypeDefinition,
     CompositeTypeDefinition,
     PrimitiveTypeDefinition,
+    StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
 )
@@ -78,6 +79,11 @@ class StorageManager:
             return {
                 "kind": "alias",
                 "base_type": type_def.base_type.name,
+            }
+        elif isinstance(type_def, StringTypeDefinition):
+            return {
+                "kind": "string",
+                "element_type": type_def.element_type.name,
             }
         elif isinstance(type_def, ArrayTypeDefinition):
             return {

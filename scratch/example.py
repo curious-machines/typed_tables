@@ -6,7 +6,7 @@ from typed_tables import Schema
 # Define a data structure of types using the DSL
 types = """
 define uuid as uint128
-define name as character[]
+define name as string
 define age as uint8
 
 Person {
@@ -23,16 +23,16 @@ data_dir = Path("./example_db")
 with Schema.parse(types, data_dir) as schema:
     # Create several Person instances
     people = [
-        {"id": 0x00000001_00000000_00000000_00000001, "name": list("Alice"), "age": 30},
-        {"id": 0x00000002_00000000_00000000_00000002, "name": list("Bob"), "age": 25},
-        {"id": 0x00000003_00000000_00000000_00000003, "name": list("Charlie"), "age": 35},
-        {"id": 0x00000004_00000000_00000000_00000004, "name": list("Diana"), "age": 28},
-        {"id": 0x00000005_00000000_00000000_00000005, "name": list("Eve"), "age": 22},
-        {"id": 0x00000006_00000000_00000000_00000006, "name": list("Frank"), "age": 45},
-        {"id": 0x00000007_00000000_00000000_00000007, "name": list("Grace"), "age": 30},
-        {"id": 0x00000008_00000000_00000000_00000008, "name": list("Henry"), "age": 55},
-        {"id": 0x00000009_00000000_00000000_00000009, "name": list("Ivy"), "age": 19},
-        {"id": 0x0000000A_00000000_00000000_0000000A, "name": list("Jack"), "age": 30},
+        {"id": 0x00000001_00000000_00000000_00000001, "name": "Alice", "age": 30},
+        {"id": 0x00000002_00000000_00000000_00000002, "name": "Bob", "age": 25},
+        {"id": 0x00000003_00000000_00000011_11111111, "name": "Charlie", "age": 35},
+        {"id": 99999999_99999999_99999999_88888888, "name": "Diana", "age": 28},
+        {"id": 77777777_77777777_77777777_66666666, "name": "Eve", "age": 22},
+        {"id": 55555555_55555555_55555555_44444444, "name": "Frank", "age": 45},
+        {"id": 0x00000007_00000000_00000000_00000007, "name": "Grace", "age": 30},
+        {"id": 0x00000008_00000000_00000000_00000008, "name": "Henry", "age": 55},
+        {"id": 0x00000009_00000011_11111111_11111111, "name": "Ivy", "age": 19},
+        {"id": 99999999_88887777_66665555_44443333, "name": "Jack", "age": 32},
     ]
 
     print("Creating Person instances...")

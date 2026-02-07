@@ -105,13 +105,6 @@ def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
             return repr(value[:max_width - 3] + "...")
         return repr(value)
     elif isinstance(value, list):
-        # Check if it's a character array (string-like)
-        if all(isinstance(v, str) and len(v) == 1 for v in value):
-            s = "".join(value)
-            if len(s) > max_width:
-                return repr(s[:max_width - 3] + "...")
-            return repr(s)
-
         # Format each element
         formatted = []
         for i, v in enumerate(value):
@@ -570,7 +563,7 @@ EXPRESSIONS (SELECT without FROM):
   select uuid() as "id"    Name the result column
 
 TYPES:
-  string                   Alias for character[]
+  string                   Built-in string type (stored as character[], displayed as string)
   Primitive types: bit, character, uint8, int8, uint16, int16,
                    uint32, int32, uint64, int64, uint128, int128,
                    float32, float64

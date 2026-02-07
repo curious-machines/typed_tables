@@ -12,8 +12,10 @@ from typed_tables.types import (
     FieldDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
+    StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
+    is_string_type,
 )
 
 __all__ = [
@@ -30,9 +32,11 @@ __all__ = [
     "PrimitiveTypeDefinition",
     "AliasTypeDefinition",
     "ArrayTypeDefinition",
+    "StringTypeDefinition",
     "CompositeTypeDefinition",
     "FieldDefinition",
     "TypeRegistry",
+    "is_string_type",
 ]
 
 __version__ = "0.1.0"

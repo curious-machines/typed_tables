@@ -174,6 +174,18 @@ class ArrayTypeDefinition(TypeDefinition):
 
 
 @dataclass
+class StringTypeDefinition(ArrayTypeDefinition):
+    """Built-in string type — stored as character[], displayed as a joined string."""
+
+    pass
+
+
+def is_string_type(type_def: TypeDefinition) -> bool:
+    """Check if a type resolves to the built-in string type."""
+    return isinstance(type_def.resolve_base_type(), StringTypeDefinition)
+
+
+@dataclass
 class FieldDefinition:
     """Definition of a field within a composite type."""
 
@@ -239,6 +251,9 @@ class TypeRegistry:
         """Register all primitive types."""
         for pt in PrimitiveType:
             self._types[pt.value] = PrimitiveTypeDefinition(name=pt.value, primitive=pt)
+        # Register built-in string type (stored as character[], displayed as string)
+        char_prim = self._types["character"]
+        self._types["string"] = StringTypeDefinition(name="string", element_type=char_prim)
 
     def register(self, type_def: TypeDefinition) -> None:
         """Register a type definition."""
