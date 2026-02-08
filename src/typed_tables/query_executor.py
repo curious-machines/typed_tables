@@ -95,7 +95,7 @@ class DeleteResult(QueryResult):
 class DropResult(QueryResult):
     """Result of a DROP database query."""
 
-    path: str = ""
+    path: str | None = None
 
 
 @dataclass

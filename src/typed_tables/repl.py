@@ -238,8 +238,8 @@ def run_repl(data_dir: Path | None) -> int:
         # Simple statements that are complete without ; or ) or }
         lower = stripped.lower()
         simple_prefixes = (
-            "show ", "describe ", "use ", "use", "drop ", "dump",
-            "delete ", "from ", "select ", "forward ",
+            "show ", "describe ", "use ", "use", "drop", "drop!", "drop ",
+            "drop! ", "dump", "delete ", "from ", "select ", "forward ",
         )
         for prefix in simple_prefixes:
             if lower.startswith(prefix) or lower == prefix.strip():
@@ -274,7 +274,7 @@ def run_repl(data_dir: Path | None) -> int:
                 continue
             elif line.lower().startswith("execute "):
                 # Execute a script file - requires quoted string
-                arg = line[8:].strip()
+                arg = line[8:].strip().rstrip(";").strip()
                 if not ((arg.startswith('"') and arg.endswith('"')) or
                         (arg.startswith("'") and arg.endswith("'"))):
                     print("Error: execute requires a quoted filename")
@@ -367,29 +367,50 @@ def run_repl(data_dir: Path | None) -> int:
 
                 # Handle DROP query specially - doesn't need executor
                 if isinstance(query, DropDatabaseQuery):
-                    drop_path = Path(query.path)
+                    # Resolve target path
+                    if query.path is None:
+                        if data_dir is None:
+                            print("No database selected. Nothing to drop.")
+                            print()
+                            continue
+                        drop_path = data_dir
+                    else:
+                        drop_path = Path(query.path)
+
                     if not drop_path.exists():
                         print(f"Database does not exist: {drop_path}")
-                    elif drop_path == data_dir:
-                        # Dropping current database - close it first
-                        if storage:
-                            storage.close()
-                        storage = None
-                        registry = None
-                        executor = None
-                        data_dir = None
-                        try:
-                            shutil.rmtree(drop_path)
-                            print(f"Dropped database: {drop_path}")
-                            print("No database selected.")
-                        except Exception as e:
-                            print(f"Error dropping database: {e}")
                     else:
-                        try:
-                            shutil.rmtree(drop_path)
-                            print(f"Dropped database: {drop_path}")
-                        except Exception as e:
-                            print(f"Error dropping database: {e}")
+                        # Confirm unless forced
+                        if not query.force:
+                            try:
+                                answer = input(f"Drop database '{drop_path}'? [y/N] ").strip().lower()
+                            except EOFError:
+                                answer = ""
+                            if answer not in ("y", "yes"):
+                                print("Cancelled.")
+                                print()
+                                continue
+
+                        if drop_path == data_dir:
+                            # Dropping current database - close it first
+                            if storage:
+                                storage.close()
+                            storage = None
+                            registry = None
+                            executor = None
+                            data_dir = None
+                            try:
+                                shutil.rmtree(drop_path)
+                                print(f"Dropped database: {drop_path}")
+                                print("No database selected.")
+                            except Exception as e:
+                                print(f"Error dropping database: {e}")
+                        else:
+                            try:
+                                shutil.rmtree(drop_path)
+                                print(f"Dropped database: {drop_path}")
+                            except Exception as e:
+                                print(f"Error dropping database: {e}")
                     print()
                     continue
 
@@ -464,7 +485,10 @@ TTQ - Typed Tables Query Language
 DATABASE:
   use <path>               Switch to (or create) a database directory
   use                      Exit current database (no database selected)
-  drop <path>              Delete a database directory (can drop current db)
+  drop                     Drop the current database (with confirmation)
+  drop!                    Drop the current database (no confirmation)
+  drop <path>              Drop a database directory (with confirmation)
+  drop! <path>             Drop a database directory (no confirmation)
   show tables              List all tables
   describe <table>         Show table structure (use quotes for special names)
 
@@ -745,7 +769,13 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
 
             # Handle DROP query specially
             if isinstance(query, DropDatabaseQuery):
-                drop_path = Path(query.path)
+                if query.path is None:
+                    if data_dir is None:
+                        print("No database selected. Nothing to drop.", file=sys.stderr)
+                        continue
+                    drop_path = data_dir
+                else:
+                    drop_path = Path(query.path)
                 if not drop_path.exists():
                     print(f"Database does not exist: {drop_path}")
                 elif drop_path == data_dir:
@@ -850,14 +880,14 @@ def main(argv: list[str] | None = None) -> int:
 
             # Handle special results
             if isinstance(result, DropResult):
-                drop_path = Path(result.path)
+                drop_path = Path(result.path) if result.path else args.data_dir
                 if not drop_path.exists():
                     print(f"Database does not exist: {drop_path}")
-                elif drop_path == args.data_dir:
-                    print("Cannot drop the currently active database.")
                 else:
+                    storage.close()
                     shutil.rmtree(drop_path)
                     print(f"Dropped database: {drop_path}")
+                    return 0
             elif isinstance(result, UseResult):
                 print(f"Use 'ttq {result.path}' to switch databases")
             else:

@@ -190,7 +190,8 @@ class DeleteQuery:
 class DropDatabaseQuery:
     """A DROP database query."""
 
-    path: str
+    path: str | None = None
+    force: bool = False
 
 
 @dataclass
@@ -555,6 +556,20 @@ class QueryParser:
                  | DROP PATH
                  | DROP STRING"""
         p[0] = DropDatabaseQuery(path=p[2])
+
+    def p_query_drop_current(self, p: yacc.YaccProduction) -> None:
+        """query : DROP"""
+        p[0] = DropDatabaseQuery()
+
+    def p_query_drop_force(self, p: yacc.YaccProduction) -> None:
+        """query : DROP BANG IDENTIFIER
+                 | DROP BANG PATH
+                 | DROP BANG STRING"""
+        p[0] = DropDatabaseQuery(path=p[3], force=True)
+
+    def p_query_drop_force_current(self, p: yacc.YaccProduction) -> None:
+        """query : DROP BANG"""
+        p[0] = DropDatabaseQuery(force=True)
 
     def p_query_variable_assignment(self, p: yacc.YaccProduction) -> None:
         """query : VARIABLE EQ CREATE IDENTIFIER LPAREN tagged_instance_field_list RPAREN

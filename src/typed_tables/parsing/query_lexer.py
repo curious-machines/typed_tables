@@ -81,6 +81,7 @@ class QueryLexer:
         "GT",
         "GTE",
         "SEMICOLON",
+        "BANG",
     ] + list(reserved.values())
 
     # Simple tokens
@@ -105,6 +106,7 @@ class QueryLexer:
     t_ignore = " \t"
 
     t_SEMICOLON = r";"
+    t_BANG = r"!"
 
     def __init__(self) -> None:
         self.lexer: lex.LexToken = None  # type: ignore
