@@ -77,8 +77,8 @@ class SelectQuery:
 
 
 @dataclass
-class ShowTablesQuery:
-    """A SHOW TABLES query."""
+class ShowTypesQuery:
+    """A SHOW TYPES query."""
 
     pass
 
@@ -315,7 +315,7 @@ class ScopeBlock:
     statements: list[Any] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTablesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
+Query = SelectQuery | ShowTypesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -364,9 +364,9 @@ class QueryParser:
         """query : select_query"""
         p[0] = p[1]
 
-    def p_query_show_tables(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW TABLES"""
-        p[0] = ShowTablesQuery()
+    def p_query_show_types(self, p: yacc.YaccProduction) -> None:
+        """query : SHOW TYPES"""
+        p[0] = ShowTypesQuery()
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
         """query : DESCRIBE IDENTIFIER

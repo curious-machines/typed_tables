@@ -56,7 +56,7 @@ Each composite type is stored in its own table as a `.bin` file. A table is an a
 - **Composite ref fields**: uint32 index (4 bytes) into the referenced type's table.
 - **Enum fields**: stored inline. C-style: discriminant only (1/2/4 bytes based on max value). Swift-style: discriminant + variant payload padded to largest variant's size. Variant payloads serialize fields identically to composite field data.
 
-Array elements are stored in element tables (e.g., `name_elements.bin`). The composite record directly contains the `(start_index, length)` pair needed to locate the elements.
+Array elements are stored in element tables (e.g., `name.bin`). The composite record directly contains the `(start_index, length)` pair needed to locate the elements.
 
 **Type-based querying**: `from <non-composite-type> select *` scans all composites containing a field of that type and extracts values, returning `_source`, `_index`, `_field`, and value columns.
 
@@ -433,10 +433,10 @@ from Person select name, age sort by age, name
 ### Special Queries
 
 ```ttq
-show tables
+show types
 ```
 
-List all type table names
+List all type names
 
 ```ttq
 describe Person
@@ -603,7 +603,7 @@ with Schema.parse(types, "./data") as schema:
     # At this point, tables have been created:
     # - uuid.bin: stores the uuid value
     # - name.bin: stores array headers (start_index, length)
-    # - name_elements.bin: stores the actual characters
+    # - name.bin: stores the actual characters
     # - Person.bin: stores Person records with references to uuid and name
 
     # Load the instance back

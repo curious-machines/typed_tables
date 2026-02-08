@@ -36,7 +36,7 @@ create Person(name="Alice", age=30)
 from Person select *
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
         assert db_path.exists()
 
@@ -49,7 +49,7 @@ from Person select *
 use {db_path}; create type Point {{ x: float32, y: float32 }}; create Point(x=1.0, y=2.0); from Point select *
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_run_file_with_initial_database(self, tmp_path: Path):
@@ -64,7 +64,7 @@ create Item(name="test");
 from Item select *;
 """)
 
-        result = run_file(script, db_path, verbose=False)
+        result, _ = run_file(script, db_path, verbose=False)
         assert result == 0
 
     def test_run_file_error_no_database(self, tmp_path: Path):
@@ -72,7 +72,7 @@ from Item select *;
         script = tmp_path / "test.ttq"
         script.write_text("from Person select *;")
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 1
 
     def test_run_file_syntax_error(self, tmp_path: Path):
@@ -85,7 +85,7 @@ use {db_path};
 from where;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 1
 
     def test_run_file_comments_ignored(self, tmp_path: Path):
@@ -101,7 +101,7 @@ create type Test {{ value: uint8 }}
 -- Final comment
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_run_file_multiline_create_instance(self, tmp_path: Path):
@@ -121,7 +121,7 @@ create Person(
 from Person select *
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
 
@@ -149,7 +149,7 @@ from Item select *;
 
         # Since execute is a REPL command, we need to test it differently
         # For now, test that run_file works with the subscript directly
-        result = run_file(subscript, db_path, verbose=False)
+        result, _ = run_file(subscript, db_path, verbose=False)
         assert result == 0
 
 
@@ -169,7 +169,7 @@ create Person(name="Alice", address=Address(street="123 Main", city="Springfield
 from Person select *;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_inline_instance_dot_notation_query(self, tmp_path: Path):
@@ -185,7 +185,7 @@ create Person(name="Alice", address=Address(street="123 Main", city="Springfield
 from Person select address.city;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_post_index_dot_notation(self, tmp_path: Path):
@@ -203,7 +203,7 @@ create Team(title="Engineering", employees=[0, 1]);
 from Team select employees[0].name;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_array_projection(self, tmp_path: Path):
@@ -221,7 +221,7 @@ create Team(title="Engineering", employees=[0, 1]);
 from Team select employees.name;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
 
@@ -241,7 +241,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         # Now dump
@@ -251,7 +251,7 @@ use {db_path};
 dump;
 """)
 
-        result = run_file(dump_script, None, verbose=False)
+        result, _ = run_file(dump_script, None, verbose=False)
         assert result == 0
 
     def test_dump_single_table(self, tmp_path: Path):
@@ -268,7 +268,7 @@ create Person(name="Alice", address=Address(street="456 Oak", city="Shelbyville"
 dump Person;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_dump_with_nested_composites(self, tmp_path: Path):
@@ -283,7 +283,7 @@ create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         # Dump and check output contains inline instances
@@ -315,7 +315,7 @@ create Person(name="Alice", age=30, address=Address(street="123 Main", city="Spr
 create Person(name="Bob", age=25, address=Address(street="456 Oak", city="Shelbyville"));
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         # Get dump output
@@ -337,7 +337,7 @@ create Person(name="Bob", age=25, address=Address(street="456 Oak", city="Shelby
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         # Query both databases and compare
@@ -370,7 +370,7 @@ create Team(title="Engineering", employees=[Employee(name="Alice"), Employee(nam
 from Team select *;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
 
@@ -387,7 +387,7 @@ create Person(name="Bob", age=25);
 dump to "{tmp_path / 'dump_output.ttq'}";
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         dump_file = tmp_path / "dump_output.ttq"
@@ -409,7 +409,7 @@ create Person(name="Alice", address=Address(street="123 Main", city="Springfield
 dump Person to "{tmp_path / 'person_dump.ttq'}";
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         dump_file = tmp_path / "person_dump.ttq"
@@ -430,7 +430,7 @@ create Person(name="Bob", age=25);
 dump to "{tmp_path / 'dump_output.ttq'}";
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         dump_file = tmp_path / "dump_output.ttq"
@@ -441,7 +441,7 @@ dump to "{tmp_path / 'dump_output.ttq'}";
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_file.read_text()}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         # Verify data
@@ -481,7 +481,7 @@ create Person(name="Alice", address=$addr);
 from Person select address.city;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_variable_binding_shared_reference(self, tmp_path: Path):
@@ -498,7 +498,7 @@ create Person(name="Alice", address=$addr);
 create Person(name="Bob", address=$addr);
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         # Query and verify both reference the same address
@@ -530,7 +530,7 @@ $addr = create Address(street="123 Main", city="Springfield");
 $addr = create Address(street="456 Oak", city="Shelbyville");
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         captured = capsys.readouterr()
@@ -548,7 +548,7 @@ create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=$undefined);
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 1
 
     def test_variable_in_array(self, tmp_path: Path):
@@ -566,7 +566,7 @@ create Team(title="Engineering", employees=[$e1, $e2]);
 from Team select employees.name;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_dump_uses_variables_for_shared_refs(self, tmp_path: Path):
@@ -583,7 +583,7 @@ create Person(name="Alice", address=$addr);
 create Person(name="Bob", address=$addr);
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         from typed_tables.dump import load_registry_from_metadata
@@ -616,7 +616,7 @@ create Person(name="Alice", address=$addr);
 create Person(name="Bob", address=$addr);
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         from typed_tables.dump import load_registry_from_metadata
@@ -637,7 +637,7 @@ create Person(name="Bob", address=$addr);
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         # Query the new database and verify data matches
@@ -669,7 +669,7 @@ create type Node {{ value: uint8, children: Node[] }}
 describe Node;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_self_referential_type_with_data(self, tmp_path: Path):
@@ -686,7 +686,7 @@ create Node(value=0, children=[Node(value=1, children=[]), Node(value=2, childre
 from Node select *;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_self_referential_direct(self, tmp_path: Path):
@@ -701,7 +701,7 @@ create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)));
 from LinkedNode select *;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_forward_declaration(self, tmp_path: Path):
@@ -718,7 +718,7 @@ describe A;
 describe B;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_mutual_reference_with_data(self, tmp_path: Path):
@@ -736,7 +736,7 @@ from A select *;
 from B select *;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_dump_roundtrip_self_referential(self, tmp_path: Path):
@@ -751,7 +751,7 @@ create Node(value=1, children=[]);
 create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, children=[])]);
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         # Get dump output
@@ -773,7 +773,7 @@ create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, childre
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         # Query the new database and verify
@@ -801,7 +801,7 @@ create type B {{ value: uint8, a: A }}
 create A(value=1, b=B(value=2, a=A(0)));
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         from typed_tables.dump import load_registry_from_metadata
@@ -824,7 +824,7 @@ create A(value=1, b=B(value=2, a=A(0)));
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         # Verify the types and data were recreated successfully
@@ -855,7 +855,7 @@ create type LinkedNode {{ value: uint8, next: LinkedNode }}
 create LinkedNode(value=42, next=LinkedNode(0));
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         from typed_tables.dump import load_registry_from_metadata
@@ -895,7 +895,7 @@ $seniors = collect Person where age >= 65;
 dump $seniors;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_collect_all(self, tmp_path: Path):
@@ -913,7 +913,7 @@ $all = collect Item;
 dump $all;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_collect_with_sort_limit(self, tmp_path: Path):
@@ -931,7 +931,7 @@ $top2 = collect Score sort by value limit 2;
 dump $top2;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_collect_immutability(self, tmp_path: Path, capsys):
@@ -947,7 +947,7 @@ $items = collect Item;
 $items = collect Item;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         captured = capsys.readouterr()
@@ -967,7 +967,7 @@ $items = collect Item;
 create Wrapper(item=$items);
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 1
 
     def test_dump_single_variable(self, tmp_path: Path):
@@ -984,7 +984,7 @@ create Person(name="Carol", age=40);
 dump $bob;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_dump_variable_to_file(self, tmp_path: Path):
@@ -1002,7 +1002,7 @@ $all = collect Person;
 dump $all to "{output_file}";
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
         assert output_file.exists()
         content = output_file.read_text()
@@ -1023,7 +1023,7 @@ $seniors = collect Person where age >= 65;
 dump $seniors to "{tmp_path / 'seniors.ttq'}";
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         dump_file = tmp_path / "seniors.ttq"
@@ -1034,7 +1034,7 @@ dump $seniors to "{tmp_path / 'seniors.ttq'}";
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_file.read_text()}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         # Verify only the filtered records are present
@@ -1067,7 +1067,7 @@ $nobody = collect Person where age >= 100;
 dump $nobody;
 """)
 
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
 
@@ -1087,7 +1087,7 @@ create Person(name="Carol", age=70);
 $seniors = collect Person where age >= 65;
 from $seniors select name, age sort by age;
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_from_variable_aggregate(self, tmp_path: Path):
@@ -1103,7 +1103,7 @@ create Person(name="Carol", age=90);
 $old = collect Person where age >= 60;
 from $old select average(age);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_from_variable_with_where(self, tmp_path: Path):
@@ -1123,7 +1123,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1151,7 +1151,7 @@ create Person(name="Carol", age=70);
 use {db_path};
 create type Person {{ name: string, age: uint8 }}
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1181,7 +1181,7 @@ create Person(name="Alice", age=30);
 $bob = create Person(name="Bob", age=25);
 create Person(name="Carol", age=40);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1217,7 +1217,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1247,7 +1247,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1272,7 +1272,7 @@ create Person(name="Alice", age=30);
 create Item(name="Widget");
 $mixed = collect Person, Item;
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0  # Collect reports error as message, doesn't fail script
 
     def test_collect_variable_source(self, tmp_path: Path):
@@ -1292,7 +1292,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1322,7 +1322,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1353,7 +1353,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1381,7 +1381,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 dump [Person];
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_dump_list_heterogeneous(self, tmp_path: Path):
@@ -1401,7 +1401,7 @@ create type Item {{ name: string }}
 create Person(name="Alice", age=30);
 create Item(name="Widget");
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1431,7 +1431,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1461,7 +1461,7 @@ create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 dump [Person] to "{output_file}";
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
         assert output_file.exists()
         content = output_file.read_text()
@@ -1484,7 +1484,7 @@ create type Item {{ name: string }}
 create Person(name="Alice", age=30);
 create Item(name="Widget");
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1500,7 +1500,7 @@ create Item(name="Widget");
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         # Verify
@@ -1575,7 +1575,7 @@ use {db_path};
 create type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1605,7 +1605,7 @@ create type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 create Node(value=2, next=null);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1622,7 +1622,7 @@ create Node(value=2, next=null);
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         registry2 = load_registry_from_metadata(db_path2)
@@ -1651,7 +1651,7 @@ use {db_path};
 create type Node {{ value: uint8, next: Node }}
 create Node(value=1);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1686,7 +1686,7 @@ $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=null);
 update $n1 set next=$n2;
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1720,7 +1720,7 @@ create type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 create Node(value=2, next=null);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1755,7 +1755,7 @@ $n3 = create Node(value=3, next=$n1);
 update $n1 set next=$n2;
 update $n2 set next=$n3;
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1785,7 +1785,7 @@ update $n2 set next=$n3;
 use {db_path};
 create type Node {{ value: uint8, next: Node }}
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1813,7 +1813,7 @@ use {db_path};
 create type Node {{ value: uint8, next: Node }}
 $n = create Node(value=1, next=null);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1849,7 +1849,7 @@ $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=$n1);
 update $n1 set next=$n2;
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1882,7 +1882,7 @@ $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=$n1);
 update $n1 set next=$n2;
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1898,7 +1898,7 @@ update $n1 set next=$n2;
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         registry2 = load_registry_from_metadata(db_path2)
@@ -1932,7 +1932,7 @@ $back = create Node(name="D", child=null);
 $top = create Node(name="A", child=Node(name="B", child=Node(name="C", child=$back)));
 update $back set child=$top;
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -1948,7 +1948,7 @@ update $back set child=$top;
         roundtrip_script = tmp_path / "roundtrip.ttq"
         roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
 
-        result = run_file(roundtrip_script, None, verbose=False)
+        result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
 
         registry2 = load_registry_from_metadata(db_path2)
@@ -1979,7 +1979,7 @@ create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -2014,7 +2014,7 @@ scope {{
 }};
 from Node select *;
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
     def test_create_cycle_with_tag(self, tmp_path: Path):
@@ -2034,7 +2034,7 @@ scope {{
     create Node(tag(TOP), name="A", child=Node(name="B", child=TOP));
 }};
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         # Verify the cycle exists
@@ -2066,7 +2066,7 @@ scope {{
     create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A))));
 }};
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -2092,7 +2092,7 @@ scope {{
     create Node(value=1, next=NONEXISTENT);
 }};
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         # Should fail because NONEXISTENT tag is not defined
         assert result == 0  # The REPL continues but prints an error
 
@@ -2111,7 +2111,7 @@ scope {{
     create Node(value=2, next=X);
 }};
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         # The second scope should fail because X is not visible
         assert result == 0  # The REPL continues but prints an error
 
@@ -2125,7 +2125,7 @@ use {db_path};
 create type Node {{ value: uint8, next: Node }}
 create Node(tag(X), value=1, next=null);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         # Should fail because tags require a scope
         assert result == 0  # The REPL continues but prints an error
 
@@ -2148,7 +2148,7 @@ use {db_path};
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -2176,7 +2176,7 @@ use {db_path};
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -2205,7 +2205,7 @@ create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)
@@ -2234,7 +2234,7 @@ create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         # Get pretty dump output
@@ -2252,7 +2252,7 @@ create Person(name="Bob", age=25);
         restore_script = tmp_path / "restore.ttq"
         restore_script.write_text(f"use {db_path2};\n{dump_script}\n")
 
-        result = run_file(restore_script, None, verbose=False)
+        result, _ = run_file(restore_script, None, verbose=False)
         assert result == 0
 
         # Verify round-trip: compact dump of both databases should match
@@ -2289,7 +2289,7 @@ use {db_path};
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
-        result = run_file(script, None, verbose=False)
+        result, _ = run_file(script, None, verbose=False)
         assert result == 0
 
         registry = load_registry_from_metadata(db_path)

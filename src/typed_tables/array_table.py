@@ -102,7 +102,7 @@ def create_array_table(
     element_type = array_type.element_type.resolve_base_type()
     element_table = Table(
         element_type,
-        data_dir / f"{table_name}_elements.bin",
+        data_dir / f"{table_name}.bin",
     )
 
     return ArrayTable(array_type, element_table)

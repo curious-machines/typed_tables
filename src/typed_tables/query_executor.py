@@ -35,7 +35,7 @@ from typed_tables.parsing.query_parser import (
     ScopeBlock,
     SelectField,
     SelectQuery,
-    ShowTablesQuery,
+    ShowTypesQuery,
     TagReference,
     UpdateQuery,
     UseQuery,
@@ -165,8 +165,8 @@ class QueryExecutor:
 
     def execute(self, query: Query) -> QueryResult:
         """Execute a query and return results."""
-        if isinstance(query, ShowTablesQuery):
-            return self._execute_show_tables()
+        if isinstance(query, ShowTypesQuery):
+            return self._execute_show_types()
         elif isinstance(query, DescribeQuery):
             return self._execute_describe(query)
         elif isinstance(query, SelectQuery):
@@ -322,8 +322,8 @@ class QueryExecutor:
             statement_count=len(results),
         )
 
-    def _execute_show_tables(self) -> QueryResult:
-        """Execute SHOW TABLES query."""
+    def _execute_show_types(self) -> QueryResult:
+        """Execute SHOW TYPES query."""
         rows = []
         for type_name in sorted(self.registry.list_types()):
             type_def = self.registry.get(type_name)
@@ -349,13 +349,13 @@ class QueryExecutor:
                 count = 0
 
             rows.append({
-                "table": type_name,
+                "type": type_name,
                 "kind": kind,
                 "count": count,
             })
 
         return QueryResult(
-            columns=["table", "kind", "count"],
+            columns=["type", "kind", "count"],
             rows=rows,
         )
 

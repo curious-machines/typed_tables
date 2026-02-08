@@ -24,7 +24,7 @@ from typed_tables.parsing.query_parser import (
     NullValue,
     QueryParser,
     SelectQuery,
-    ShowTablesQuery,
+    ShowTypesQuery,
     TagReference,
     UpdateQuery,
     UseQuery,
@@ -154,12 +154,12 @@ class TestQueryParser:
         assert query.fields[0].path == ["address", "city"]
         assert query.fields[1].name == "address.state"
 
-    def test_parse_show_tables(self):
-        """Test parsing show tables query."""
+    def test_parse_show_types(self):
+        """Test parsing show types query."""
         parser = QueryParser()
-        query = parser.parse("show tables")
+        query = parser.parse("show types")
 
-        assert isinstance(query, ShowTablesQuery)
+        assert isinstance(query, ShowTypesQuery)
 
     def test_parse_describe(self):
         """Test parsing describe query."""
@@ -497,8 +497,8 @@ class TestQueryParser:
         assert isinstance(query, SelectQuery)
         assert query.table == "Person"
 
-        query = parser.parse("show tables;")
-        assert isinstance(query, ShowTablesQuery)
+        query = parser.parse("show types;")
+        assert isinstance(query, ShowTypesQuery)
 
         query = parser.parse("describe Person;")
         assert isinstance(query, DescribeQuery)
@@ -1190,16 +1190,16 @@ class TestQueryParser:
         parser = QueryParser()
 
         # Multiple statements without semicolons
-        queries = parser.parse_program("from Person select *\nshow tables")
+        queries = parser.parse_program("from Person select *\nshow types")
         assert len(queries) == 2
         assert isinstance(queries[0], SelectQuery)
-        assert isinstance(queries[1], ShowTablesQuery)
+        assert isinstance(queries[1], ShowTypesQuery)
 
         # Multiple statements with semicolons
-        queries = parser.parse_program("from Person select *; show tables;")
+        queries = parser.parse_program("from Person select *; show types;")
         assert len(queries) == 2
         assert isinstance(queries[0], SelectQuery)
-        assert isinstance(queries[1], ShowTablesQuery)
+        assert isinstance(queries[1], ShowTypesQuery)
 
     def test_parse_create_type_trailing_comma(self):
         """Test that trailing comma is allowed in create type field list."""

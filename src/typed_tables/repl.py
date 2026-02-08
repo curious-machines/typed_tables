@@ -272,6 +272,13 @@ def run_repl(data_dir: Path | None) -> int:
             elif line.lower() == "clear":
                 print("\033[2J\033[H", end="")
                 continue
+            elif line.lower().rstrip(";").strip() == "status":
+                if data_dir:
+                    print(f"Database: {data_dir}")
+                else:
+                    print("No database selected.")
+                print()
+                continue
             elif line.lower().startswith("execute "):
                 # Execute a script file - requires quoted string
                 arg = line[8:].strip().rstrip(";").strip()
@@ -282,6 +289,8 @@ def run_repl(data_dir: Path | None) -> int:
                     print()
                     continue
                 script_path = Path(arg[1:-1])  # Remove quotes
+                if not script_path.exists() and not script_path.suffix == ".ttq":
+                    script_path = script_path.with_suffix(".ttq")
                 if not script_path.exists():
                     print(f"Error: File not found: {script_path}")
                     print()
@@ -289,18 +298,22 @@ def run_repl(data_dir: Path | None) -> int:
 
                 # Run the script file, passing current database state
                 print(f"Executing {script_path}...")
-                result = run_file(script_path, data_dir, verbose=True)
-                if result != 0:
+                exit_code, new_data_dir = run_file(script_path, data_dir, verbose=True)
+                if exit_code != 0:
                     print(f"Script execution failed with errors.")
                 else:
                     print(f"Script execution completed.")
 
-                # Reload database state after script execution
-                # (script may have changed database or created new types)
+                # Adopt the script's final database state
+                # (script may have used 'use' to switch or create a database)
+                if storage:
+                    storage.close()
+                    storage = None
+                    registry = None
+                    executor = None
+                data_dir = new_data_dir
                 if data_dir and data_dir.exists():
                     try:
-                        if storage:
-                            storage.close()
                         registry, storage, executor, _ = load_database(data_dir)
                     except Exception as e:
                         print(f"Warning: Could not reload database: {e}")
@@ -483,14 +496,15 @@ def print_help() -> None:
 TTQ - Typed Tables Query Language
 
 DATABASE:
+  status                   Show the currently active database
   use <path>               Switch to (or create) a database directory
   use                      Exit current database (no database selected)
   drop                     Drop the current database (with confirmation)
   drop!                    Drop the current database (no confirmation)
   drop <path>              Drop a database directory (with confirmation)
   drop! <path>             Drop a database directory (no confirmation)
-  show tables              List all tables
-  describe <table>         Show table structure (use quotes for special names)
+  show types               List all types
+  describe <type>          Show type structure (use quotes for special names)
 
 CREATE:
   create type <Name> { field: type, ... }
@@ -509,8 +523,8 @@ CREATE:
                            Declare a tag for cyclic references (see CYCLIC DATA)
 
 DELETE:
-  delete <table> where ... Delete matching records (soft delete)
-  delete <table>           Delete all records in table
+  delete <type> where ...  Delete matching records (soft delete)
+  delete <type>            Delete all records of a type
 
 UPDATE:
   update $var set field=value, ...
@@ -523,14 +537,14 @@ NULL VALUES:
   Missing fields default to null
 
 QUERIES:
-  from <table> select *               Select all records
-  from "<table>" select *             Use quotes for special names (e.g., "character[]")
-  from <table> select field1, field2  Select specific fields
-  from <table> select field.nested    Select nested composite fields (dot notation)
-  from <table> select * where <cond>  Filter records
-  from <table> select * sort by f1    Sort results
-  from <table> select * offset N limit M  Paginate results
-  from <table> select * group by field    Group results
+  from <type> select *               Select all records
+  from "<type>" select *             Use quotes for special names (e.g., "character[]")
+  from <type> select field1, field2  Select specific fields
+  from <type> select field.nested    Select nested composite fields (dot notation)
+  from <type> select * where <cond>  Filter records
+  from <type> select * sort by f1    Sort results
+  from <type> select * offset N limit M  Paginate results
+  from <type> select * group by field    Group results
   from $var select *                  Select from a variable (set or single ref)
   from $var select * where <cond>     Filter variable records further
 
@@ -601,17 +615,17 @@ COLLECT:
 
 DUMP:
   dump                     Dump entire database as executable TTQ script
-  dump <table>             Dump a single table as TTQ script
+  dump <type>              Dump a single type as TTQ script
   dump to "file"           Dump entire database to a file
-  dump <table> to "file"   Dump a single table to a file
+  dump <type> to "file"    Dump a single type to a file
   dump $var                Dump records referenced by a variable
   dump $var to "file"      Dump variable records to a file
   dump [Person, $var, ...]
-                           Dump a list of tables and/or variables
+                           Dump a list of types and/or variables
   dump [...] to "file"     Dump list to a file
                            Shared references are emitted as $var bindings
   dump pretty              Pretty-print with multi-line indented formatting
-  dump pretty <table>      Pretty-print a single table
+  dump pretty <type>       Pretty-print a single type
                            (pretty can be added to any dump variant above)
   dump yaml                Dump as YAML (uses anchors/aliases for references)
   dump yaml pretty         Pretty-print YAML output
@@ -654,7 +668,7 @@ End with closing ) or }, or press Enter on empty line.
 """)
 
 
-def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> int:
+def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> tuple[int, Path | None]:
     """Execute queries from a file.
 
     Args:
@@ -663,7 +677,7 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
         verbose: If True, print each query before executing
 
     Returns:
-        0 on success, 1 on error
+        (exit_code, final_data_dir) — 0 on success, 1 on error
     """
     from typed_tables.types import TypeRegistry
 
@@ -672,7 +686,7 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
         content = file_path.read_text()
     except Exception as e:
         print(f"Error reading file: {e}", file=sys.stderr)
-        return 1
+        return 1, data_dir
 
     # Initialize state
     registry: TypeRegistry | None = None
@@ -701,7 +715,7 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
                 print(f"Created new database: {data_dir}")
         except Exception as e:
             print(f"Error loading database: {e}", file=sys.stderr)
-            return 1
+            return 1, data_dir
 
     # Parse all queries at once using multi-statement parser
     try:
@@ -710,13 +724,13 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
         print(f"Syntax error: {e}", file=sys.stderr)
         if storage:
             storage.close()
-        return 1
+        return 1, data_dir
 
     if not queries:
         # Empty file is okay — no error
         if storage:
             storage.close()
-        return 0
+        return 0, data_dir
 
     # Execute each query
     for query in queries:
@@ -737,7 +751,7 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
                 print("Error: No database selected. Use 'use <path>' first.", file=sys.stderr)
                 if storage:
                     storage.close()
-                return 1
+                return 1, data_dir
 
             # Handle USE query specially
             if isinstance(query, UseQuery):
@@ -764,7 +778,7 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
                                 print(f"Switched to database: {new_path}")
                     except Exception as e:
                         print(f"Error loading database: {e}", file=sys.stderr)
-                        return 1
+                        return 1, data_dir
                 continue
 
             # Handle DROP query specially
@@ -791,7 +805,7 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
                             print(f"Dropped database: {drop_path}")
                     except Exception as e:
                         print(f"Error dropping database: {e}", file=sys.stderr)
-                        return 1
+                        return 1, data_dir
                 else:
                     try:
                         shutil.rmtree(drop_path)
@@ -799,7 +813,7 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
                             print(f"Dropped database: {drop_path}")
                     except Exception as e:
                         print(f"Error dropping database: {e}", file=sys.stderr)
-                        return 1
+                        return 1, data_dir
                 continue
 
             # Execute query
@@ -810,18 +824,18 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> i
             print(f"Syntax error: {e}", file=sys.stderr)
             if storage:
                 storage.close()
-            return 1
+            return 1, data_dir
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
             if storage:
                 storage.close()
-            return 1
+            return 1, data_dir
 
     # Cleanup
     if storage:
         storage.close()
 
-    return 0
+    return 0, data_dir
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -859,7 +873,8 @@ def main(argv: list[str] | None = None) -> int:
         if not args.file.exists():
             print(f"Error: File not found: {args.file}", file=sys.stderr)
             return 1
-        return run_file(args.file, args.data_dir, args.verbose)
+        exit_code, _ = run_file(args.file, args.data_dir, args.verbose)
+        return exit_code
 
     if args.command:
         if not args.data_dir:

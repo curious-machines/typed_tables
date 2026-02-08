@@ -47,5 +47,6 @@ from HttpStatus select *
 from LogLevel select *
 
 describe HttpStatus
+describe LogEntry
 
 dump

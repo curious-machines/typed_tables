@@ -25,7 +25,7 @@ class QueryLexer:
         "with": "WITH",
         "matches": "MATCHES",
         "show": "SHOW",
-        "tables": "TABLES",
+        "types": "TYPES",
         "describe": "DESCRIBE",
         "count": "COUNT",
         "average": "AVERAGE",
