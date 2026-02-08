@@ -865,8 +865,8 @@ class QueryExecutor:
         )
 
     def _execute_update(self, query: UpdateQuery) -> UpdateResult:
-        """Execute UPDATE query — modify fields on an existing record."""
-        # Resolve target: variable or direct Type(index)
+        """Execute UPDATE query — modify fields on an existing record or bulk update."""
+        # Resolve target: variable, direct Type(index), or bulk Type
         if query.var_name:
             var_binding = self._lookup_variable(query.var_name)
             if var_binding is None:
@@ -881,9 +881,12 @@ class QueryExecutor:
                     message=f"Cannot update a set variable ${query.var_name} (contains multiple records)",
                 )
             index = ref
-        else:
+        elif query.index is not None:
             type_name = query.type_name
             index = query.index
+        else:
+            # Bulk update: UPDATE Type SET ... [WHERE ...]
+            return self._execute_bulk_update(query)
 
         type_def = self.registry.get(type_name)
         if type_def is None:
@@ -911,11 +914,30 @@ class QueryExecutor:
                 message=f"{type_name}[{index}] has been deleted",
             )
 
-        # Read current raw record
+        error = self._apply_update_fields(type_name, base, table, index, query.fields)
+        if error:
+            return error
+
+        return UpdateResult(
+            columns=["type", "index"],
+            rows=[{"type": type_name, "index": index}],
+            message=f"Updated {type_name}[{index}]",
+            type_name=type_name,
+            index=index,
+        )
+
+    def _apply_update_fields(
+        self,
+        type_name: str,
+        base: CompositeTypeDefinition,
+        table: Any,
+        index: int,
+        fields: list,
+    ) -> UpdateResult | None:
+        """Apply SET field assignments to a single record. Returns an error UpdateResult or None on success."""
         raw_record = table.get(index)
 
-        # Apply SET fields
-        for fv in query.fields:
+        for fv in fields:
             field_def = base.get_field(fv.name)
             if field_def is None:
                 return UpdateResult(
@@ -926,10 +948,13 @@ class QueryExecutor:
             resolved_value = self._resolve_instance_value(fv.value)
             field_base = field_def.type_def.resolve_base_type()
 
+            # Resolve shorthand enum expressions for update context
+            if isinstance(resolved_value, EnumValueExpr) and isinstance(field_base, EnumTypeDefinition):
+                resolved_value = self._resolve_enum_value_expr(resolved_value, field_def.type_def.name)
+
             if resolved_value is None:
                 raw_record[fv.name] = None
             elif isinstance(field_base, EnumTypeDefinition):
-                # Enum field — resolved_value should be an EnumValue
                 raw_record[fv.name] = resolved_value
             elif isinstance(field_base, ArrayTypeDefinition):
                 if isinstance(resolved_value, str):
@@ -943,19 +968,98 @@ class QueryExecutor:
                     nested_index = self._create_instance(field_def.type_def, field_base, resolved_value)
                     raw_record[fv.name] = nested_index
             else:
-                # Primitive — store value inline
                 raw_record[fv.name] = resolved_value
 
-        # Write back modified record
         table.update(index, raw_record)
+        return None
+
+    def _execute_bulk_update(self, query: UpdateQuery) -> UpdateResult:
+        """Execute bulk UPDATE: UPDATE Type SET ... [WHERE ...]."""
+        type_name = query.type_name
+        type_def = self.registry.get(type_name)
+        if type_def is None:
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Unknown type: {type_name}",
+            )
+
+        base = type_def.resolve_base_type()
+        if not isinstance(base, CompositeTypeDefinition):
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Cannot update non-composite type: {type_name}",
+            )
+
+        # Load all records with resolved values for condition evaluation
+        records = list(self._load_all_records(type_name, type_def))
+
+        if query.where:
+            # Resolve enum value expressions in the WHERE condition
+            self._resolve_condition_enum_values(query.where, base)
+            matching = [r for r in records if self._evaluate_condition(r, query.where)]
+        else:
+            matching = records
+
+        if not matching:
+            return UpdateResult(
+                columns=[], rows=[],
+                message="No matching records to update",
+            )
+
+        # Validate fields exist before applying any updates
+        for fv in query.fields:
+            if base.get_field(fv.name) is None:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"Unknown field '{fv.name}' on type {type_name}",
+                )
+
+        table = self.storage.get_table(type_name)
+        count = 0
+        for record in matching:
+            index = record["_index"]
+            error = self._apply_update_fields(type_name, base, table, index, query.fields)
+            if error:
+                return error
+            count += 1
 
         return UpdateResult(
-            columns=["type", "index"],
-            rows=[{"type": type_name, "index": index}],
-            message=f"Updated {type_name}[{index}]",
-            type_name=type_name,
-            index=index,
+            columns=["updated"],
+            rows=[{"updated": count}],
+            message=f"Updated {count} record(s) in {type_name}",
         )
+
+    def _resolve_condition_enum_values(
+        self, condition: Any, base: CompositeTypeDefinition,
+    ) -> None:
+        """Resolve EnumValueExpr values in a condition tree to EnumValue objects."""
+        if isinstance(condition, CompoundCondition):
+            self._resolve_condition_enum_values(condition.left, base)
+            self._resolve_condition_enum_values(condition.right, base)
+            return
+
+        if not isinstance(condition, Condition):
+            return
+
+        if isinstance(condition.value, EnumValueExpr):
+            expr = condition.value
+            # Determine the enum type from the field
+            enum_base = None
+            if expr.enum_name is None:
+                field_def = base.get_field(condition.field)
+                if field_def is not None:
+                    field_base = field_def.type_def.resolve_base_type()
+                    if isinstance(field_base, EnumTypeDefinition):
+                        condition.value = self._resolve_enum_value_expr(expr, field_def.type_def.name)
+                        enum_base = field_base
+            else:
+                condition.value = self._resolve_enum_value_expr(expr)
+                enum_type = self.registry.get(expr.enum_name)
+                if enum_type is not None:
+                    enum_base = enum_type.resolve_base_type()
+            # Resolve array fields so condition values match loaded records
+            if isinstance(condition.value, EnumValue) and isinstance(enum_base, EnumTypeDefinition):
+                self._resolve_enum_associated_values(condition.value, enum_base)
 
     def _resolve_instance_value(self, value: Any) -> Any:
         """Resolve a value from CREATE instance, handling function calls, composite refs, inline instances, variable refs, tag refs, and null."""
@@ -1059,6 +1163,35 @@ class QueryExecutor:
             discriminant=variant.discriminant,
             fields=fields_dict,
         )
+
+    def _resolve_enum_associated_values(
+        self, enum_val: EnumValue, enum_base: EnumTypeDefinition,
+    ) -> None:
+        """Resolve array/string fields inside an EnumValue in-place."""
+        if not enum_val.fields:
+            return
+        variant = enum_base.get_variant(enum_val.variant_name)
+        if variant is None:
+            return
+        for vf in variant.fields:
+            fval = enum_val.fields.get(vf.name)
+            if fval is None:
+                continue
+            vf_base = vf.type_def.resolve_base_type()
+            if isinstance(vf_base, ArrayTypeDefinition) and isinstance(fval, tuple):
+                start_index, length = fval
+                if length == 0:
+                    enum_val.fields[vf.name] = [] if not is_string_type(vf.type_def) else ""
+                else:
+                    arr_table = self.storage.get_array_table_for_type(vf.type_def)
+                    elements = [
+                        arr_table.element_table.get(start_index + j)
+                        for j in range(length)
+                    ]
+                    if is_string_type(vf.type_def):
+                        enum_val.fields[vf.name] = "".join(elements)
+                    else:
+                        enum_val.fields[vf.name] = elements
 
     def _create_instance(
         self,
@@ -1374,7 +1507,8 @@ class QueryExecutor:
                     field_base = field.type_def.resolve_base_type()
 
                     if isinstance(field_base, EnumTypeDefinition):
-                        # ref is already an EnumValue from deserialization
+                        # ref is an EnumValue — resolve array fields inside it
+                        self._resolve_enum_associated_values(ref, field_base)
                         resolved[field.name] = ref
                     elif isinstance(field_base, ArrayTypeDefinition):
                         start_index, length = ref
@@ -1572,6 +1706,7 @@ class QueryExecutor:
                 field_base = field.type_def.resolve_base_type()
 
                 if isinstance(field_base, EnumTypeDefinition):
+                    self._resolve_enum_associated_values(ref, field_base)
                     resolved[field.name] = ref
                 elif isinstance(field_base, ArrayTypeDefinition):
                     start_index, length = ref
@@ -1609,6 +1744,10 @@ class QueryExecutor:
 
         field_value = record.get(condition.field)
         if field_value is None:
+            # Allow null comparisons: field = null, field != null
+            if isinstance(condition.value, NullValue):
+                result = condition.operator == "eq"
+                return not result if condition.negate else result
             return condition.negate
 
         result = self._compare(field_value, condition.operator, condition.value)
@@ -1617,6 +1756,23 @@ class QueryExecutor:
     def _compare(self, field_value: Any, operator: str, value: Any) -> bool:
         """Compare a field value against a condition value."""
         try:
+            # Resolve EnumValueExpr against the actual field value's type
+            if isinstance(field_value, EnumValue) and isinstance(value, EnumValueExpr):
+                value = self._resolve_and_expand_enum_expr(value, field_value)
+            # Enum-aware comparison
+            if isinstance(field_value, EnumValue) and isinstance(value, EnumValue):
+                eq = self._enum_values_equal(field_value, value)
+                if operator == "eq":
+                    return eq
+                elif operator == "neq":
+                    return not eq
+                return False
+            if isinstance(value, NullValue):
+                if operator == "eq":
+                    return field_value is None
+                elif operator == "neq":
+                    return field_value is not None
+                return False
             if operator == "eq":
                 return field_value == value
             elif operator == "neq":
@@ -1647,6 +1803,39 @@ class QueryExecutor:
             return False
 
         return False
+
+    def _resolve_and_expand_enum_expr(self, expr: EnumValueExpr, field_value: EnumValue) -> EnumValue:
+        """Resolve an EnumValueExpr by inferring the enum type from a field's EnumValue."""
+        # Find the enum type from the registry using the field_value's variant
+        enum_name = expr.enum_name
+        if enum_name is None:
+            # Shorthand: search registry for an enum type that has this variant
+            for name in self.registry.list_types():
+                td = self.registry.get(name)
+                base = td.resolve_base_type()
+                if isinstance(base, EnumTypeDefinition) and base.get_variant(expr.variant_name):
+                    # Verify this enum also has the field_value's variant (same enum)
+                    if base.get_variant(field_value.variant_name):
+                        enum_name = name
+                        break
+        if enum_name is None:
+            return EnumValue(variant_name=expr.variant_name, discriminant=-1)
+        resolved = self._resolve_enum_value_expr(expr, enum_name)
+        # Resolve associated values so they match the loaded record's resolved fields
+        enum_type = self.registry.get(enum_name)
+        if enum_type is not None:
+            enum_base = enum_type.resolve_base_type()
+            if isinstance(enum_base, EnumTypeDefinition):
+                self._resolve_enum_associated_values(resolved, enum_base)
+        return resolved
+
+    def _enum_values_equal(self, a: EnumValue, b: EnumValue) -> bool:
+        """Compare two EnumValue objects by variant name and resolved fields."""
+        if a.variant_name != b.variant_name:
+            return False
+        if not a.fields and not b.fields:
+            return True
+        return a.fields == b.fields
 
     def _apply_group_by(
         self, records: list[dict[str, Any]], group_by: list[str]

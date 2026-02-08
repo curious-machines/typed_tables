@@ -546,6 +546,37 @@ class TestEnumExecution:
         circle = shape.get_variant("circle")
         assert len(circle.fields) == 3
 
+    def test_select_where_enum_shorthand(self, executor):
+        """SELECT with WHERE on enum field using shorthand syntax."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Color { none, red, green, hex(value: string) }
+            create type Style { fill: Color, stroke: Color }
+            create Style(fill=.hex(value="#87CEEB"), stroke=.none)
+            create Style(fill=.green, stroke=.none)
+            create Style(fill=.green, stroke=.red)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        # C-style variant match
+        query = parser.parse("from Style select * where fill=.green")
+        result = executor.execute(query)
+        assert len(result.rows) == 2
+        assert all(r["fill"].variant_name == "green" for r in result.rows)
+
+        # Swift-style variant match with associated values
+        query = parser.parse('from Style select * where fill=.hex(value="#87CEEB")')
+        result = executor.execute(query)
+        assert len(result.rows) == 1
+        assert result.rows[0]["fill"].variant_name == "hex"
+        assert result.rows[0]["fill"].fields["value"] == "#87CEEB"
+
+        # No match
+        query = parser.parse("from Style select * where fill=.red")
+        result = executor.execute(query)
+        assert len(result.rows) == 0
+
     def test_enum_where_disallowed_on_overview(self, executor):
         """WHERE should not be allowed on enum overview queries."""
         parser = QueryParser()
@@ -648,6 +679,161 @@ class TestEnumExecution:
         result = executor.execute(query)
         assert result.rows[0]["color"].variant_name == "red"
         assert result.rows[1]["color"].variant_name == "blue"
+
+    def test_bulk_update_where_c_style(self, executor):
+        """Bulk update with WHERE on C-style enum field."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Color { red, green, blue }
+            create type Pixel { x: uint16, y: uint16, color: Color }
+            create Pixel(x=0, y=0, color=.red)
+            create Pixel(x=1, y=1, color=.green)
+            create Pixel(x=2, y=2, color=.green)
+            create Pixel(x=3, y=3, color=.blue)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        # Update all green pixels to blue
+        query = parser.parse("update Pixel set color=.blue where color=.green")
+        result = executor.execute(query)
+        assert "Updated 2 record(s)" in result.message
+
+        # Verify
+        query = parser.parse("from Pixel select *")
+        result = executor.execute(query)
+        assert result.rows[0]["color"].variant_name == "red"
+        assert result.rows[1]["color"].variant_name == "blue"
+        assert result.rows[2]["color"].variant_name == "blue"
+        assert result.rows[3]["color"].variant_name == "blue"
+
+    def test_bulk_update_where_swift_style(self, executor):
+        """Bulk update with WHERE on Swift-style enum field with associated values."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Color { none, red, green, blue, hex(value: string) }
+            create type Style { fill: Color, stroke: Color }
+            create Style(fill=.hex(value="#87CEEB"), stroke=.none)
+            create Style(fill=.green, stroke=.none)
+            create Style(fill=.hex(value="#87CEEB"), stroke=.red)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        # Update hex sky-blue fills to green
+        query = parser.parse('update Style set fill=.green where fill=.hex(value="#87CEEB")')
+        result = executor.execute(query)
+        assert "Updated 2 record(s)" in result.message
+
+        query = parser.parse("from Style select *")
+        result = executor.execute(query)
+        assert result.rows[0]["fill"].variant_name == "green"
+        assert result.rows[1]["fill"].variant_name == "green"
+        assert result.rows[2]["fill"].variant_name == "green"
+
+    def test_bulk_update_where_qualified_enum(self, executor):
+        """Bulk update with fully-qualified enum value in WHERE."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Color { red, green, blue }
+            create type Pixel { x: uint16, y: uint16, color: Color }
+            create Pixel(x=0, y=0, color=Color.red)
+            create Pixel(x=1, y=1, color=Color.green)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        query = parser.parse("update Pixel set color=Color.blue where color=Color.red")
+        result = executor.execute(query)
+        assert "Updated 1 record(s)" in result.message
+
+        query = parser.parse("from Pixel select *")
+        result = executor.execute(query)
+        assert result.rows[0]["color"].variant_name == "blue"
+        assert result.rows[1]["color"].variant_name == "green"
+
+    def test_bulk_update_no_where(self, executor):
+        """Bulk update without WHERE updates all records."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Color { red, green, blue }
+            create type Pixel { x: uint16, y: uint16, color: Color }
+            create Pixel(x=0, y=0, color=.red)
+            create Pixel(x=1, y=1, color=.green)
+            create Pixel(x=2, y=2, color=.blue)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        query = parser.parse("update Pixel set color=.red")
+        result = executor.execute(query)
+        assert "Updated 3 record(s)" in result.message
+
+        query = parser.parse("from Pixel select *")
+        result = executor.execute(query)
+        for row in result.rows:
+            assert row["color"].variant_name == "red"
+
+    def test_bulk_update_no_match(self, executor):
+        """Bulk update with WHERE that matches no records."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Color { red, green, blue }
+            create type Pixel { x: uint16, y: uint16, color: Color }
+            create Pixel(x=0, y=0, color=.red)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        query = parser.parse("update Pixel set color=.blue where color=.green")
+        result = executor.execute(query)
+        assert "No matching records" in result.message
+
+    def test_bulk_update_with_primitive_where(self, executor):
+        """Bulk update with WHERE on a primitive field."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create type Item { name: string, value: uint8 }
+            create Item(name="a", value=10)
+            create Item(name="b", value=20)
+            create Item(name="c", value=10)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        query = parser.parse("update Item set value=99 where value=10")
+        result = executor.execute(query)
+        assert "Updated 2 record(s)" in result.message
+
+        query = parser.parse("from Item select *")
+        result = executor.execute(query)
+        assert result.rows[0]["value"] == 99
+        assert result.rows[1]["value"] == 20
+        assert result.rows[2]["value"] == 99
+
+    def test_parser_enum_value_in_where(self):
+        """Parser produces EnumValueExpr for enum values in WHERE conditions."""
+        parser = QueryParser()
+
+        # Shorthand bare
+        query = parser.parse("update Pixel set color=.blue where color=.green")
+        assert query.where.value.variant_name == "green"
+        assert query.where.value.enum_name is None
+
+        # Shorthand with args
+        query = parser.parse('update Style set fill=.green where fill=.hex(value="#FFF")')
+        assert query.where.value.variant_name == "hex"
+        assert query.where.value.args[0].value == "#FFF"
+
+        # Fully qualified
+        query = parser.parse("update Pixel set color=.blue where color=Color.red")
+        assert query.where.value.enum_name == "Color"
+        assert query.where.value.variant_name == "red"
+
+        # Fully qualified with args
+        query = parser.parse('update S set f=.x where f=Color.hex(value="#FFF")')
+        assert query.where.value.enum_name == "Color"
+        assert query.where.value.variant_name == "hex"
 
     def test_enum_shorthand_bad_variant(self, executor):
         """Shorthand with unknown variant name returns error."""

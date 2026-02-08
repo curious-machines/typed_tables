@@ -272,6 +272,7 @@ class UpdateQuery:
     index: int | None = None
     var_name: str | None = None
     fields: list[FieldValue] = field(default_factory=list)
+    where: Condition | CompoundCondition | None = None
 
 
 @dataclass
@@ -612,6 +613,14 @@ class QueryParser:
     def p_query_update_ref(self, p: yacc.YaccProduction) -> None:
         """query : UPDATE IDENTIFIER LPAREN INTEGER RPAREN SET instance_field_list"""
         p[0] = UpdateQuery(type_name=p[2], index=p[4], fields=p[7])
+
+    def p_query_update_bulk_where(self, p: yacc.YaccProduction) -> None:
+        """query : UPDATE IDENTIFIER SET instance_field_list WHERE condition"""
+        p[0] = UpdateQuery(type_name=p[2], fields=p[4], where=p[6])
+
+    def p_query_update_bulk_all(self, p: yacc.YaccProduction) -> None:
+        """query : UPDATE IDENTIFIER SET instance_field_list"""
+        p[0] = UpdateQuery(type_name=p[2], fields=p[4])
 
     def p_query_scope(self, p: yacc.YaccProduction) -> None:
         """query : SCOPE LBRACE scope_statement_list RBRACE"""
@@ -981,6 +990,34 @@ class QueryParser:
     def p_value_string(self, p: yacc.YaccProduction) -> None:
         """value : STRING"""
         p[0] = p[1]
+
+    def p_value_null(self, p: yacc.YaccProduction) -> None:
+        """value : NULL"""
+        p[0] = NullValue()
+
+    def p_value_enum_shorthand_bare(self, p: yacc.YaccProduction) -> None:
+        """value : DOT IDENTIFIER"""
+        p[0] = EnumValueExpr(enum_name=None, variant_name=p[2])
+
+    def p_value_enum_shorthand_with_args(self, p: yacc.YaccProduction) -> None:
+        """value : DOT IDENTIFIER LPAREN instance_field_list RPAREN"""
+        p[0] = EnumValueExpr(enum_name=None, variant_name=p[2], args=p[4])
+
+    def p_value_enum_shorthand_with_args_empty(self, p: yacc.YaccProduction) -> None:
+        """value : DOT IDENTIFIER LPAREN RPAREN"""
+        p[0] = EnumValueExpr(enum_name=None, variant_name=p[2], args=[])
+
+    def p_value_enum_qualified_bare(self, p: yacc.YaccProduction) -> None:
+        """value : IDENTIFIER DOT IDENTIFIER"""
+        p[0] = EnumValueExpr(enum_name=p[1], variant_name=p[3])
+
+    def p_value_enum_qualified_with_args(self, p: yacc.YaccProduction) -> None:
+        """value : IDENTIFIER DOT IDENTIFIER LPAREN instance_field_list RPAREN"""
+        p[0] = EnumValueExpr(enum_name=p[1], variant_name=p[3], args=p[5])
+
+    def p_value_enum_qualified_with_args_empty(self, p: yacc.YaccProduction) -> None:
+        """value : IDENTIFIER DOT IDENTIFIER LPAREN RPAREN"""
+        p[0] = EnumValueExpr(enum_name=p[1], variant_name=p[3], args=[])
 
     def p_group_clause_empty(self, p: yacc.YaccProduction) -> None:
         """group_clause : """

@@ -240,3 +240,9 @@ from Text select *
 
 -- All Color usage across the database
 from Color select *
+
+-- Bulk update: change all green fills to a dark-green hex
+-- update Style set fill=.hex(value="#006400") where fill=.green
+
+-- Verify updated styles
+-- from Style select *

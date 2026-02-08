@@ -284,6 +284,23 @@ update Node(0) set value=42
 update $n set value=10, next=null
 ```
 
+Bulk update with a WHERE clause updates all matching records:
+```ttq
+update Pixel set color=.blue where color=.green
+update Style set fill=.hex(value="#00FF00") where fill=.hex(value="#87CEEB")
+```
+
+Bulk update without WHERE updates all records of the type:
+```ttq
+update Pixel set color=.red
+```
+
+Enum values (both shorthand and fully-qualified) are supported in WHERE conditions:
+```ttq
+update Pixel set color=.blue where color=.green
+update Pixel set color=Color.blue where color=Color.red
+```
+
 ### Cyclic Data Structures
 
 Cycles in composite references (e.g., linked lists, graphs) are supported using **tag syntax** within **scope blocks**. Tags allow creating cycles by declaring a name for the record being created that nested records can reference.
