@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">
+
+  <!-- Background sky -->
+  <rect x="0" y="0" width="800" height="400" fill="#87CEEB" stroke="none"/>
+
+  <!-- Ground -->
+  <rect x="0" y="400" width="800" height="200" fill="green" stroke="none"/>
+
+  <!-- Sun -->
+  <circle cx="680" cy="100" r="50" fill="yellow" stroke="orange" stroke-width="3"/>
+
+  <!-- Sun rays -->
+  <line x1="680" y1="30" x2="680" y2="5" stroke="orange" stroke-width="2" stroke-linecap="round"/>
+  <line x1="620" y1="50" x2="600" y2="35" stroke="orange" stroke-width="2" stroke-linecap="round"/>
+  <line x1="740" y1="50" x2="760" y2="35" stroke="orange" stroke-width="2" stroke-linecap="round"/>
+  <line x1="620" y1="150" x2="600" y2="165" stroke="orange" stroke-width="2" stroke-linecap="round"/>
+  <line x1="740" y1="150" x2="760" y2="165" stroke="orange" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Clouds -->
+  <ellipse cx="150" cy="90" rx="70" ry="30" fill="white" fill-opacity="0.9"/>
+  <ellipse cx="210" cy="75" rx="50" ry="25" fill="white" fill-opacity="0.9"/>
+  <ellipse cx="450" cy="60" rx="60" ry="22" fill="white" fill-opacity="0.9"/>
+
+  <!-- Mountains -->
+  <polygon points="0,400 120,260 240,400" fill="gray" stroke="#556B2F" stroke-width="2"/>
+  <polygon points="160,400 350,190 540,400" fill="#696969" stroke="#556B2F" stroke-width="2"/>
+  <polygon points="400,400 530,280 660,400" fill="gray" stroke="#556B2F" stroke-width="2"/>
+
+  <!-- Road -->
+  <path d="M 400 600 Q 380 500 420 440 Q 460 380 400 350"
+        fill="none" stroke="#555555" stroke-width="40" stroke-linecap="round"/>
+  <path d="M 400 600 Q 380 500 420 440 Q 460 380 400 350"
+        fill="none" stroke="#FFD700" stroke-width="2" stroke-dasharray="10 8"/>
+
+  <!-- House body -->
+  <rect x="100" y="310" width="160" height="90" fill="#CD853F" stroke="black" stroke-width="2"/>
+
+  <!-- Roof -->
+  <polygon points="90,310 180,240 270,310" fill="maroon" stroke="black" stroke-width="2"/>
+
+  <!-- Windows -->
+  <rect x="115" y="330" width="30" height="30" rx="2" ry="2" fill="#87CEEB" stroke="black" stroke-width="1"/>
+  <rect x="215" y="330" width="30" height="30" rx="2" ry="2" fill="#87CEEB" stroke="black" stroke-width="1"/>
+
+  <!-- Door -->
+  <rect x="160" y="350" width="40" height="50" rx="3" ry="3" fill="#8B4513" stroke="black" stroke-width="1"/>
+
+  <!-- Door knob -->
+  <circle cx="190" cy="378" r="3" fill="gold" stroke="none"/>
+
+  <!-- Fence -->
+  <polyline points="280,400 280,375 290,375 290,400 310,400 310,375 320,375 320,400 340,400 340,375 350,375 350,400"
+            fill="none" stroke="white" stroke-width="2" stroke-linejoin="miter"/>
+
+  <!-- Tree trunk -->
+  <rect x="580" y="340" width="20" height="60" fill="#8B4513" stroke="none"/>
+
+  <!-- Tree canopy -->
+  <path d="M 590 345 C 555 335 545 295 565 275 C 575 255 590 245 600 260 C 610 245 625 255 635 275 C 655 295 645 335 610 345 Z"
+        fill="#006400" stroke="none"/>
+
+  <!-- Bushes -->
+  <ellipse cx="630" cy="395" rx="25" ry="15" fill="green" stroke="#006400" stroke-width="1"/>
+  <ellipse cx="660" cy="398" rx="20" ry="12" fill="#006400" stroke="none"/>
+
+  <!-- Flower stem -->
+  <line x1="710" y1="400" x2="710" y2="365" stroke="green" stroke-width="2"/>
+
+  <!-- Flower petals -->
+  <circle cx="703" cy="362" r="5" fill="red" stroke="none"/>
+  <circle cx="717" cy="362" r="5" fill="red" stroke="none"/>
+  <circle cx="710" cy="355" r="5" fill="red" stroke="none"/>
+  <circle cx="710" cy="369" r="5" fill="red" stroke="none"/>
+
+  <!-- Flower center -->
+  <circle cx="710" cy="362" r="4" fill="yellow" stroke="none"/>
+
+  <!-- Star -->
+  <polygon points="750,80 757,100 778,100 761,113 768,133 750,122 732,133 739,113 722,100 743,100"
+           fill="#FFD700" stroke="orange" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="400" y="570" font-family="Arial" font-size="28" font-weight="700"
+        fill="white" stroke="navy" stroke-width="1" text-anchor="middle">SVG Landscape</text>
+
+</svg>

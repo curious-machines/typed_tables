@@ -1,0 +1,242 @@
+-- SVG Landscape: Models the shapes and styles from landscape.svg
+
+use /tmp/ttq_svg_landscape
+
+-- Color: named SVG colors and hex values
+create enum Color {
+    none,
+    red,
+    orange,
+    yellow,
+    gold,
+    green,
+    navy,
+    white,
+    gray,
+    black,
+    maroon,
+    hex(value: string)
+}
+
+-- Stroke line cap and line join
+create enum LineCap { butt, round, square }
+create enum LineJoin { miter, round, bevel }
+
+-- Presentation attributes shared by all SVG elements
+create type Style {
+    fill: Color,
+    fill_opacity: float32,
+    stroke: Color,
+    stroke_width: float32,
+    stroke_linecap: LineCap,
+    stroke_linejoin: LineJoin,
+    opacity: float32
+}
+
+-- Coordinate pair for polyline/polygon points
+create type Point { x: float32, y: float32 }
+
+-- SVG shape types
+create type Rect {
+    x: float32, y: float32,
+    width: float32, height: float32,
+    rx: float32, ry: float32,
+    style: Style
+}
+
+create type Circle {
+    cx: float32, cy: float32, r: float32,
+    style: Style
+}
+
+create type Ellipse {
+    cx: float32, cy: float32,
+    rx: float32, ry: float32,
+    style: Style
+}
+
+create type Line {
+    x1: float32, y1: float32,
+    x2: float32, y2: float32,
+    style: Style
+}
+
+create type Polyline {
+    points: Point[],
+    style: Style
+}
+
+create type Polygon {
+    points: Point[],
+    style: Style
+}
+
+create type Path {
+    d: string,
+    style: Style
+}
+
+create type Text {
+    x: float32, y: float32,
+    content: string,
+    font_family: string,
+    font_size: float32,
+    font_weight: uint16,
+    style: Style
+}
+
+------------------------------------------------------------------------
+-- Instances: one per SVG element in landscape.svg
+------------------------------------------------------------------------
+
+-- Background sky
+create Rect(x=0, y=0, width=800, height=400, style=Style(fill=.hex(value="#87CEEB"), stroke=.none))
+
+-- Ground
+create Rect(x=0, y=400, width=800, height=200, style=Style(fill=.green, stroke=.none))
+
+-- Sun
+create Circle(cx=680, cy=100, r=50, style=Style(fill=.yellow, stroke=.orange, stroke_width=3))
+
+-- Sun rays
+$ray_style = create Style(stroke=.orange, stroke_width=2, stroke_linecap=.round)
+create Line(x1=680, y1=30, x2=680, y2=5, style=$ray_style)
+create Line(x1=620, y1=50, x2=600, y2=35, style=$ray_style)
+create Line(x1=740, y1=50, x2=760, y2=35, style=$ray_style)
+create Line(x1=620, y1=150, x2=600, y2=165, style=$ray_style)
+create Line(x1=740, y1=150, x2=760, y2=165, style=$ray_style)
+
+-- Clouds
+$cloud_style = create Style(fill=.white, fill_opacity=0.9)
+create Ellipse(cx=150, cy=90, rx=70, ry=30, style=$cloud_style)
+create Ellipse(cx=210, cy=75, rx=50, ry=25, style=$cloud_style)
+create Ellipse(cx=450, cy=60, rx=60, ry=22, style=$cloud_style)
+
+-- Mountains
+$mtn_style = create Style(fill=.gray, stroke=.hex(value="#556B2F"), stroke_width=2)
+$mtn_dark_style = create Style(fill=.hex(value="#696969"), stroke=.hex(value="#556B2F"), stroke_width=2)
+create Polygon(
+    points=[Point(x=0, y=400), Point(x=120, y=260), Point(x=240, y=400)],
+    style=$mtn_style
+)
+create Polygon(
+    points=[Point(x=160, y=400), Point(x=350, y=190), Point(x=540, y=400)],
+    style=$mtn_dark_style
+)
+create Polygon(
+    points=[Point(x=400, y=400), Point(x=530, y=280), Point(x=660, y=400)],
+    style=$mtn_style
+)
+
+-- Road (two overlapping paths: asphalt + center line)
+create Path(
+    d="M 400 600 Q 380 500 420 440 Q 460 380 400 350",
+    style=Style(stroke=.hex(value="#555555"), stroke_width=40, stroke_linecap=.round)
+)
+create Path(
+    d="M 400 600 Q 380 500 420 440 Q 460 380 400 350",
+    style=Style(stroke=.hex(value="#FFD700"), stroke_width=2)
+)
+
+-- House body
+create Rect(
+    x=100, y=310, width=160, height=90,
+    style=Style(fill=.hex(value="#CD853F"), stroke=.black, stroke_width=2)
+)
+
+-- Roof
+create Polygon(
+    points=[Point(x=90, y=310), Point(x=180, y=240), Point(x=270, y=310)],
+    style=Style(fill=.maroon, stroke=.black, stroke_width=2)
+)
+
+-- Windows
+$window_style = create Style(fill=.hex(value="#87CEEB"), stroke=.black, stroke_width=1)
+create Rect(x=115, y=330, width=30, height=30, rx=2, ry=2, style=$window_style)
+create Rect(x=215, y=330, width=30, height=30, rx=2, ry=2, style=$window_style)
+
+-- Door
+create Rect(
+    x=160, y=350, width=40, height=50, rx=3, ry=3,
+    style=Style(fill=.hex(value="#8B4513"), stroke=.black, stroke_width=1)
+)
+
+-- Door knob
+create Circle(cx=190, cy=378, r=3, style=Style(fill=.gold, stroke=.none))
+
+-- Fence
+create Polyline(
+    points=[
+        Point(x=280, y=400), Point(x=280, y=375), Point(x=290, y=375), Point(x=290, y=400),
+        Point(x=310, y=400), Point(x=310, y=375), Point(x=320, y=375), Point(x=320, y=400),
+        Point(x=340, y=400), Point(x=340, y=375), Point(x=350, y=375), Point(x=350, y=400)
+    ],
+    style=Style(stroke=.white, stroke_width=2, stroke_linejoin=.miter)
+)
+
+-- Tree trunk
+create Rect(
+    x=580, y=340, width=20, height=60,
+    style=Style(fill=.hex(value="#8B4513"), stroke=.none)
+)
+
+-- Tree canopy
+create Path(
+    d="M 590 345 C 555 335 545 295 565 275 C 575 255 590 245 600 260 C 610 245 625 255 635 275 C 655 295 645 335 610 345 Z",
+    style=Style(fill=.hex(value="#006400"))
+)
+
+-- Bushes
+create Ellipse(cx=630, cy=395, rx=25, ry=15, style=Style(fill=.green, stroke=.hex(value="#006400"), stroke_width=1))
+create Ellipse(cx=660, cy=398, rx=20, ry=12, style=Style(fill=.hex(value="#006400"), stroke=.none))
+
+-- Flower stem
+create Line(x1=710, y1=400, x2=710, y2=365, style=Style(stroke=.green, stroke_width=2))
+
+-- Flower petals
+$petal_style = create Style(fill=.red, stroke=.none)
+create Circle(cx=703, cy=362, r=5, style=$petal_style)
+create Circle(cx=717, cy=362, r=5, style=$petal_style)
+create Circle(cx=710, cy=355, r=5, style=$petal_style)
+create Circle(cx=710, cy=369, r=5, style=$petal_style)
+
+-- Flower center
+create Circle(cx=710, cy=362, r=4, style=Style(fill=.yellow, stroke=.none))
+
+-- Star
+create Polygon(
+    points=[
+        Point(x=750, y=80), Point(x=757, y=100), Point(x=778, y=100),
+        Point(x=761, y=113), Point(x=768, y=133), Point(x=750, y=122),
+        Point(x=732, y=133), Point(x=739, y=113), Point(x=722, y=100),
+        Point(x=743, y=100)
+    ],
+    style=Style(fill=.hex(value="#FFD700"), stroke=.orange, stroke_width=1)
+)
+
+-- Title
+create Text(
+    x=400, y=570, content="SVG Landscape",
+    font_family="Arial", font_size=28, font_weight=700,
+    style=Style(fill=.white, stroke=.navy, stroke_width=1)
+)
+
+------------------------------------------------------------------------
+-- Queries
+------------------------------------------------------------------------
+
+-- Show all types
+show types
+
+-- Count shapes
+from Rect select *
+from Circle select *
+from Ellipse select *
+from Line select *
+from Polyline select *
+from Polygon select *
+from Path select *
+from Text select *
+
+-- All Color usage across the database
+from Color select *
