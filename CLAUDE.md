@@ -74,6 +74,11 @@ This will create a new database if one does not exist already
 use example_data
 ```
 
+Mark a database as temporary — it will be automatically deleted when the REPL exits:
+```ttq
+use test_db as temp
+```
+
 ### Delete Database
 
 ```ttq

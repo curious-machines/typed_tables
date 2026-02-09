@@ -141,6 +141,7 @@ class UseQuery:
     """A USE query to select a database directory."""
 
     path: str
+    temporary: bool = False
 
 
 @dataclass
@@ -504,6 +505,18 @@ class QueryParser:
     def p_query_use_string(self, p: yacc.YaccProduction) -> None:
         """query : USE STRING"""
         p[0] = UseQuery(path=p[2])
+
+    def p_query_use_identifier_temp(self, p: yacc.YaccProduction) -> None:
+        """query : USE IDENTIFIER AS TEMP"""
+        p[0] = UseQuery(path=p[2], temporary=True)
+
+    def p_query_use_path_temp(self, p: yacc.YaccProduction) -> None:
+        """query : USE PATH AS TEMP"""
+        p[0] = UseQuery(path=p[2], temporary=True)
+
+    def p_query_use_string_temp(self, p: yacc.YaccProduction) -> None:
+        """query : USE STRING AS TEMP"""
+        p[0] = UseQuery(path=p[2], temporary=True)
 
     def p_query_create_alias(self, p: yacc.YaccProduction) -> None:
         """query : CREATE ALIAS IDENTIFIER AS IDENTIFIER

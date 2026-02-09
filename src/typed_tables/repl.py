@@ -176,6 +176,7 @@ def run_repl(data_dir: Path | None) -> int:
     registry: TypeRegistry | None = None
     storage: StorageManager | None = None
     executor: QueryExecutor | None = None
+    temp_databases: set[Path] = set()
 
     def load_database(path: Path) -> tuple[TypeRegistry, StorageManager, QueryExecutor, bool]:
         """Load a database from the given path. Returns (registry, storage, executor, is_new)."""
@@ -330,6 +331,8 @@ def run_repl(data_dir: Path | None) -> int:
                                 storage.close()
                             registry, storage, executor, is_new = load_database(new_path)
                             data_dir = new_path
+                            if query.temporary:
+                                temp_databases.add(new_path.resolve())
                             if is_new:
                                 print(f"Created new database: {new_path}")
                             else:
@@ -456,6 +459,8 @@ def run_repl(data_dir: Path | None) -> int:
                                 storage.close()
                             registry, storage, executor, is_new = load_database(new_path)
                             data_dir = new_path
+                            if result.temporary:
+                                temp_databases.add(new_path.resolve())
                             if is_new:
                                 print(f"Created new database: {new_path}")
                             else:
@@ -496,6 +501,15 @@ def run_repl(data_dir: Path | None) -> int:
         if storage:
             storage.close()
 
+        # Clean up temporary databases
+        for temp_path in temp_databases:
+            if temp_path.exists():
+                try:
+                    shutil.rmtree(temp_path)
+                    print(f"Cleaning up temporary database: {temp_path}")
+                except Exception as e:
+                    print(f"Error cleaning up temporary database {temp_path}: {e}")
+
     return 0
 
 
@@ -507,6 +521,7 @@ TTQ - Typed Tables Query Language
 DATABASE:
   status                   Show the currently active database
   use <path>               Switch to (or create) a database directory
+  use <path> as temp       Switch to a temporary database (deleted on exit)
   use                      Exit current database (no database selected)
   drop                     Drop the current database (with confirmation)
   drop!                    Drop the current database (no confirmation)

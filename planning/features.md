@@ -59,3 +59,7 @@ This may be a pretty large feature, so lets discuss pros and cons and possible a
 ## Import
 
 I'm wondering if we should support some type of import command. For instance, I'm thinking about SVG types again. There are a lot of interfaces and elements defined by the full SVG specificiation. I wouldn't want to have to define those each and every time I'm going to build an SVG document representation in my database. It would be nice to have that defined once and then I could import that or run it as a script to serve the same purpose as an import. I can do this manually in the REPL using "execute", but I don't think I can use execute in a script. Is that something we could move into the query language? Are there any dangers that need to be considered if we allow execution within a script? Maybe it would be better to save a compacted binary of the SVG types and then load that compacted binary into the new database.
+
+## Delete Database on Exit
+
+This is summary of what I typed into Claude Code. Basically, we want to tag a database as being temporary. We can switch to multiple databases and get back to the temporary one. However, when we exit the REPL, it gets deleted. There could be multiple temporary databases in the session that will need to be deleted.

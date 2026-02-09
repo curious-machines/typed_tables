@@ -65,6 +65,7 @@ class QueryLexer:
         "archive": "ARCHIVE",
         "restore": "RESTORE",
         "execute": "EXECUTE",
+        "temp": "TEMP",
     }
 
     # Token list

@@ -90,6 +90,7 @@ class UseResult(QueryResult):
     """Result of a USE query - signals REPL to switch databases."""
 
     path: str = ""
+    temporary: bool = False
 
 
 @dataclass
@@ -811,6 +812,7 @@ class QueryExecutor:
             columns=[],
             rows=[],
             path=query.path,
+            temporary=query.temporary,
             message=f"Switching to database: {query.path}",
         )
 
