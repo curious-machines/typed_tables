@@ -103,6 +103,7 @@ class FieldDef:
 
     name: str
     type_name: str
+    default_value: Any = None
 
 
 @dataclass
@@ -111,8 +112,7 @@ class CreateTypeQuery:
 
     name: str
     fields: list[FieldDef] = field(default_factory=list)
-    parent: str | None = None  # For single-parent backward compat (deprecated in favor of parents)
-    parents: list[str] = field(default_factory=list)  # For multi-parent inheritance
+    parents: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -441,12 +441,12 @@ class QueryParser:
     def p_query_create_type_inherit(self, p: yacc.YaccProduction) -> None:
         """query : CREATE TYPE IDENTIFIER FROM parent_list type_field_list"""
         parents = p[5]
-        p[0] = CreateTypeQuery(name=p[3], fields=p[6], parent=parents[0] if len(parents) == 1 else None, parents=parents)
+        p[0] = CreateTypeQuery(name=p[3], fields=p[6], parents=parents)
 
     def p_query_create_type_inherit_empty(self, p: yacc.YaccProduction) -> None:
         """query : CREATE TYPE IDENTIFIER FROM parent_list"""
         parents = p[5]
-        p[0] = CreateTypeQuery(name=p[3], fields=[], parent=parents[0] if len(parents) == 1 else None, parents=parents)
+        p[0] = CreateTypeQuery(name=p[3], fields=[], parents=parents)
 
     def p_parent_list_single(self, p: yacc.YaccProduction) -> None:
         """parent_list : IDENTIFIER"""
@@ -710,6 +710,14 @@ class QueryParser:
             p[0] = FieldDef(name=p[1], type_name=p[3] + "[]")
         else:
             p[0] = FieldDef(name=p[1], type_name=p[3])
+
+    def p_type_field_def_default(self, p: yacc.YaccProduction) -> None:
+        """type_field_def : IDENTIFIER COLON IDENTIFIER EQ instance_value
+                          | IDENTIFIER COLON IDENTIFIER LBRACKET RBRACKET EQ instance_value"""
+        if len(p) == 6:
+            p[0] = FieldDef(name=p[1], type_name=p[3], default_value=p[5])
+        else:
+            p[0] = FieldDef(name=p[1], type_name=p[3] + "[]", default_value=p[7])
 
     def p_instance_field_list_single(self, p: yacc.YaccProduction) -> None:
         """instance_field_list : instance_field"""

@@ -204,6 +204,7 @@ class FieldDefinition:
 
     name: str
     type_def: TypeDefinition
+    default_value: Any = None  # None = NULL default (current behavior)
 
 
 @dataclass
@@ -340,18 +341,15 @@ class EnumTypeDefinition(TypeDefinition):
         return 4
 
     @property
-    def max_payload_size(self) -> int:
-        """Size of largest variant payload."""
-        if not self.variants:
-            return 0
-        return max(
-            sum(f.type_def.reference_size for f in v.fields)
-            for v in self.variants
-        )
+    def has_associated_values(self) -> bool:
+        """True if any variant has fields (Swift-style)."""
+        return any(v.fields for v in self.variants)
 
     @property
     def size_bytes(self) -> int:
-        return self.discriminant_size + self.max_payload_size
+        if self.has_associated_values:
+            return self.discriminant_size + REFERENCE_SIZE  # disc + uint32 variant table index
+        return self.discriminant_size  # C-style: discriminant only
 
     @property
     def reference_size(self) -> int:

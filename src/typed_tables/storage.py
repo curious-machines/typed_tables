@@ -13,7 +13,11 @@ from typed_tables.types import (
     ArrayTypeDefinition,
     CompositeTypeDefinition,
     EnumTypeDefinition,
+    EnumValue,
+    EnumVariantDefinition,
+    FieldDefinition,
     InterfaceTypeDefinition,
+    PrimitiveType,
     PrimitiveTypeDefinition,
     StringTypeDefinition,
     TypeDefinition,
@@ -40,6 +44,7 @@ class StorageManager:
         self.registry = registry
         self._tables: dict[str, Table] = {}
         self._array_tables: dict[str, ArrayTable] = {}
+        self._variant_tables: dict[str, dict[str, Table]] = {}  # enum_name → {variant_name → Table}
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._save_metadata()
@@ -110,22 +115,41 @@ class StorageManager:
         elif isinstance(type_def, InterfaceTypeDefinition):
             return {
                 "kind": "interface",
-                "fields": [
-                    {"name": f.name, "type": f.type_def.name} for f in type_def.fields
-                ],
+                "fields": [self._serialize_field_def(f) for f in type_def.fields],
             }
         elif isinstance(type_def, CompositeTypeDefinition):
             result: dict[str, Any] = {
                 "kind": "composite",
-                "fields": [
-                    {"name": f.name, "type": f.type_def.name} for f in type_def.fields
-                ],
+                "fields": [self._serialize_field_def(f) for f in type_def.fields],
             }
             if type_def.interfaces:
                 result["interfaces"] = type_def.interfaces
             return result
         else:
             return {"kind": "unknown"}
+
+    def _serialize_field_def(self, f: FieldDefinition) -> dict[str, Any]:
+        """Serialize a field definition including optional default value."""
+        entry: dict[str, Any] = {"name": f.name, "type": f.type_def.name}
+        if f.default_value is not None:
+            entry["default"] = self._serialize_default_value(f.default_value, f.type_def)
+        return entry
+
+    def _serialize_default_value(self, value: Any, type_def: TypeDefinition) -> Any:
+        """Serialize a default value to JSON-compatible format."""
+        if value is None:
+            return None
+        if isinstance(value, EnumValue):
+            if value.fields:
+                result: dict[str, Any] = {"_variant": value.variant_name}
+                result.update(value.fields)
+                return result
+            return value.variant_name
+        base = type_def.resolve_base_type()
+        if isinstance(base, PrimitiveTypeDefinition):
+            if base.primitive in (PrimitiveType.UINT128, PrimitiveType.INT128):
+                return f"0x{value:032x}"
+        return value
 
     def get_table(self, type_name: str) -> Table:
         """Get or create a table for the given type.
@@ -213,14 +237,48 @@ class StorageManager:
         else:
             return self.get_table(type_def.name)
 
+    def get_variant_table(self, enum_def: EnumTypeDefinition, variant_name: str) -> Table:
+        """Get or create a variant table for a Swift-style enum variant.
+
+        Variant tables store the associated value fields for each variant
+        in per-variant .bin files inside a folder named after the enum.
+        """
+        enum_name = enum_def.name
+        if enum_name not in self._variant_tables:
+            self._variant_tables[enum_name] = {}
+
+        if variant_name in self._variant_tables[enum_name]:
+            return self._variant_tables[enum_name][variant_name]
+
+        variant = enum_def.get_variant(variant_name)
+        if variant is None:
+            raise ValueError(f"Unknown variant '{variant_name}' on enum '{enum_name}'")
+
+        # Create a synthetic CompositeTypeDefinition for the variant's fields
+        variant_type = CompositeTypeDefinition(
+            name=f"_{enum_name}_{variant_name}",
+            fields=list(variant.fields),
+        )
+
+        # Create folder and table
+        enum_dir = self.data_dir / enum_name
+        enum_dir.mkdir(exist_ok=True)
+        table = Table(variant_type, enum_dir / f"{variant_name}.bin")
+        self._variant_tables[enum_name][variant_name] = table
+        return table
+
     def close(self) -> None:
         """Close all tables."""
         for table in self._tables.values():
             table.close()
         for array_table in self._array_tables.values():
             array_table.close()
+        for variant_dict in self._variant_tables.values():
+            for table in variant_dict.values():
+                table.close()
         self._tables.clear()
         self._array_tables.clear()
+        self._variant_tables.clear()
 
     def __enter__(self) -> StorageManager:
         return self

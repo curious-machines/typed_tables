@@ -38,7 +38,7 @@ class TestEnumTypeDefinition:
         ]
         enum_def = EnumTypeDefinition(name="Color", variants=variants)
         assert enum_def.discriminant_size == 1
-        assert enum_def.max_payload_size == 0
+        assert enum_def.has_associated_values is False
         assert enum_def.size_bytes == 1
         assert enum_def.reference_size == 1
 
@@ -53,7 +53,7 @@ class TestEnumTypeDefinition:
         assert enum_def.size_bytes == 2
 
     def test_swift_style_payload_size(self):
-        """Swift-style enum payload is padded to largest variant."""
+        """Swift-style enum uses variant tables: disc + uint32 index."""
         registry = TypeRegistry()
         float32_type = registry.get_or_raise("float32")
 
@@ -81,8 +81,9 @@ class TestEnumTypeDefinition:
         ]
         enum_def = EnumTypeDefinition(name="Shape", variants=variants)
         assert enum_def.discriminant_size == 1
-        assert enum_def.max_payload_size == 16  # 4 * float32 = 16
-        assert enum_def.size_bytes == 17  # 1 + 16
+        assert enum_def.has_associated_values is True
+        assert enum_def.size_bytes == 5  # 1 (disc) + 4 (uint32 variant table index)
+        assert enum_def.reference_size == 5
 
     def test_get_variant(self):
         variants = [
@@ -848,3 +849,110 @@ class TestEnumExecution:
         query = parser.parse("create Pixel(x=0, y=0, color=.purple)")
         result = executor.execute(query)
         assert "Unknown variant 'purple'" in result.message
+
+    def test_variant_table_folder_structure(self, executor, db_dir):
+        """Swift-style enum creates variant table files in enum folder."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            create type Canvas { name: string, bg: Shape }
+            create Canvas(name="test", bg=.circle(cx=50.0, cy=50.0, r=25.0))
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        # Verify folder structure
+        shape_dir = db_dir / "Shape"
+        assert shape_dir.exists()
+        assert (shape_dir / "circle.bin").exists()
+        # 'none' variant has no fields, so no table file unless used
+        # C-style enum should NOT create folders
+        assert not (db_dir / "Color").exists()
+
+    def test_c_style_no_variant_folder(self, executor, db_dir):
+        """C-style enum should not create any variant folders."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Color { red, green, blue }
+            create type Pixel { x: uint16, y: uint16, color: Color }
+            create Pixel(x=0, y=0, color=.red)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        assert not (db_dir / "Color").exists()
+
+    def test_variant_table_roundtrip(self, executor):
+        """Swift-style enum values roundtrip through variant tables."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Shape {
+                none,
+                line(x1: float32, y1: float32, x2: float32, y2: float32),
+                circle(cx: float32, cy: float32, r: float32)
+            }
+            create type Canvas { name: string, bg: Shape }
+            create Canvas(name="circle", bg=.circle(cx=50.0, cy=50.0, r=25.0))
+            create Canvas(name="line", bg=.line(x1=0.0, y1=0.0, x2=100.0, y2=100.0))
+            create Canvas(name="empty", bg=.none)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        query = parser.parse("from Canvas select *")
+        result = executor.execute(query)
+        assert len(result.rows) == 3
+
+        # circle
+        ev = result.rows[0]["bg"]
+        assert isinstance(ev, EnumValue)
+        assert ev.variant_name == "circle"
+        assert abs(ev.fields["cx"] - 50.0) < 0.001
+        assert abs(ev.fields["r"] - 25.0) < 0.001
+
+        # line
+        ev = result.rows[1]["bg"]
+        assert ev.variant_name == "line"
+        assert abs(ev.fields["x1"] - 0.0) < 0.001
+        assert abs(ev.fields["x2"] - 100.0) < 0.001
+
+        # none
+        ev = result.rows[2]["bg"]
+        assert ev.variant_name == "none"
+        assert not ev.fields
+
+    def test_bare_variant_null_ref(self, executor):
+        """Bare variant in Swift-style enum uses NULL_REF index."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Shape { none, circle(r: float32) }
+            create type Canvas { bg: Shape }
+            create Canvas(bg=.none)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        query = parser.parse("from Canvas select *")
+        result = executor.execute(query)
+        ev = result.rows[0]["bg"]
+        assert isinstance(ev, EnumValue)
+        assert ev.variant_name == "none"
+        assert not ev.fields
+
+    def test_dump_roundtrip_variant_tables(self, executor):
+        """Dump and re-execute should produce identical results with variant tables."""
+        parser = QueryParser()
+        stmts = parser.parse_program("""
+            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            create type Canvas { name: string, bg: Shape }
+            create Canvas(name="test", bg=.circle(cx=50.0, cy=50.0, r=25.0))
+            create Canvas(name="empty", bg=.none)
+        """)
+        for stmt in stmts:
+            executor.execute(stmt)
+
+        # Dump
+        query = parser.parse("dump")
+        dump_result = executor.execute(query)
+        assert "Shape.circle" in dump_result.script
+        assert "Shape.none" in dump_result.script

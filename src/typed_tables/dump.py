@@ -132,6 +132,33 @@ def _create_type_from_spec(
     return None
 
 
+def _deserialize_default_value(json_val: Any, type_def: TypeDefinition) -> Any:
+    """Deserialize a default value from JSON metadata."""
+    if json_val is None:
+        return None
+    base = type_def.resolve_base_type()
+    if isinstance(base, EnumTypeDefinition):
+        if isinstance(json_val, str):
+            # C-style enum: variant name string
+            variant = base.get_variant(json_val)
+            if variant is None:
+                return None
+            return EnumValue(variant_name=variant.name, discriminant=variant.discriminant, fields={})
+        elif isinstance(json_val, dict) and "_variant" in json_val:
+            # Swift-style enum: {"_variant": name, field: val, ...}
+            variant_name = json_val["_variant"]
+            variant = base.get_variant(variant_name)
+            if variant is None:
+                return None
+            fields = {k: v for k, v in json_val.items() if k != "_variant"}
+            return EnumValue(variant_name=variant.name, discriminant=variant.discriminant, fields=fields)
+    if isinstance(base, PrimitiveTypeDefinition):
+        from typed_tables.types import PrimitiveType as PT
+        if base.primitive in (PT.UINT128, PT.INT128) and isinstance(json_val, str):
+            return int(json_val, 16)
+    return json_val
+
+
 def _populate_interface_from_spec(
     name: str, spec: dict[str, Any], registry: TypeRegistry
 ) -> None:
@@ -150,7 +177,8 @@ def _populate_interface_from_spec(
     fields = []
     for field_spec in spec.get("fields", []):
         field_type = registry.get_or_raise(field_spec["type"])
-        fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type))
+        default = _deserialize_default_value(field_spec.get("default"), field_type)
+        fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type, default_value=default))
     stub.fields = fields
 
 
@@ -174,7 +202,8 @@ def _populate_composite_from_spec(
     fields = []
     for field_spec in spec["fields"]:
         field_type = registry.get_or_raise(field_spec["type"])
-        fields.append(FD(name=field_spec["name"], type_def=field_type))
+        default = _deserialize_default_value(field_spec.get("default"), field_type)
+        fields.append(FD(name=field_spec["name"], type_def=field_type, default_value=default))
     stub.fields = fields
     stub.interfaces = spec.get("interfaces", [])
 
@@ -239,6 +268,11 @@ def format_value(value: Any, type_def: TypeDefinition) -> str:
                 field_strs = [f"{k}={v}" for k, v in value.fields.items()]
                 return f"{base.name}.{value.variant_name}({', '.join(field_strs)})"
             return f"{base.name}.{value.variant_name}"
+        if isinstance(value, tuple) and len(value) == 2 and base.has_associated_values:
+            disc, index = value
+            variant = base.get_variant_by_discriminant(disc)
+            vname = variant.name if variant else "?"
+            return f"{base.name}.{vname}(variant_index={index})"
         return str(value)
     elif isinstance(base, InterfaceTypeDefinition):
         if isinstance(value, tuple) and len(value) == 2:

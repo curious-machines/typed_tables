@@ -252,7 +252,7 @@ class TestQueryParser:
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Employee"
-        assert query.parent == "Person"
+        assert query.parents == ["Person"]
         assert len(query.fields) == 1
         assert query.fields[0].name == "department"
 

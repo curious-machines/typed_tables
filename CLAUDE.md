@@ -54,7 +54,7 @@ Each composite type is stored in its own table as a `.bin` file. A table is an a
 - **Primitive/alias-to-primitive fields**: actual value stored inline (1–16 bytes depending on type). No separate table is created for primitive fields.
 - **Array fields**: `(start_index, length)` stored inline (8 bytes) — `start_index` is a uint32 index into the element table, `length` is a uint32 element count.
 - **Composite ref fields**: uint32 index (4 bytes) into the referenced type's table.
-- **Enum fields**: stored inline. C-style: discriminant only (1/2/4 bytes based on max value). Swift-style: discriminant + variant payload padded to largest variant's size. Variant payloads serialize fields identically to composite field data.
+- **Enum fields**: stored inline. C-style: discriminant only (1/2/4 bytes based on max value). Swift-style: `[discriminant (1-4 bytes)][uint32 variant_table_index]` (disc + 4 bytes); variant fields are stored in per-variant `.bin` tables in `{data_dir}/{enum_name}/`.
 
 Array elements are stored in element tables (e.g., `name.bin`). The composite record directly contains the `(start_index, length)` pair needed to locate the elements.
 
@@ -119,6 +119,35 @@ Trailing commas are allowed:
 ```ttq
 create type Point { x: float32, y: float32, }
 ```
+
+### Default Values
+
+Fields can have default values that are used when the field is omitted during instance creation:
+```ttq
+create type Person {
+    name: string,
+    age: uint8 = 0,
+    status: string = "active"
+}
+
+create Person(name="Alice")  -- age defaults to 0, status to "active"
+```
+
+Default values are supported for primitive types, strings, arrays, and enums (both C-style and Swift-style). Enum defaults use dot notation:
+```ttq
+create enum Color { red, green, blue }
+create type Pixel { x: uint16 = 0, y: uint16 = 0, color: Color = .red }
+create Pixel()  -- all fields use defaults
+```
+
+Interface fields can also have defaults, which are inherited by implementing types:
+```ttq
+create interface Positioned { x: float32 = 0.0, y: float32 = 0.0 }
+create type Point from Positioned { label: string }
+create Point(label="origin")  -- x and y default to 0.0
+```
+
+Default values must be static (no function calls like `uuid()`, no inline instances, no composite references). If no default is specified, the field defaults to NULL (preserving existing behavior).
 
 ### Self-Referential Types
 
@@ -206,7 +235,7 @@ create Canvas(name="empty", bg=.none)
 
 Both forms can be mixed freely. The `dump` command always outputs the fully-qualified form.
 
-**Storage:** Enums are stored inline in composite records. C-style enums store only the discriminant (1/2/4 bytes). Swift-style enums store discriminant + variant payload padded to the largest variant's size.
+**Storage:** C-style enums store only the discriminant inline (1/2/4 bytes). Swift-style enums store `[discriminant][uint32 variant_table_index]` inline; variant fields live in per-variant `.bin` tables under `{data_dir}/{enum_name}/`. Bare variants (no fields) use a sentinel index (`NULL_REF`).
 
 **Querying enums:**
 ```ttq
