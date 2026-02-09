@@ -549,6 +549,39 @@ contain `use`, `drop`, and `restore` — the REPL adopts the script's final
 database state. When `execute` is used inside another script (nested execute),
 these lifecycle commands are not allowed.
 
+### Import Script (Execute Once)
+
+Import a script that will only execute once per database. Subsequent imports
+of the same file are silently skipped:
+```ttq
+import "setup.ttq"
+import "setup.ttq"          -- silently skipped (already imported)
+import "setup.ttq.gz"       -- gzip-compressed files supported
+```
+
+Import tracking is stored in the database itself. Dropping and recreating the
+database resets import history. The stored path preserves whatever the user
+provided (relative or absolute), normalized so that `setup.ttq` and
+`./setup.ttq` are treated as the same import.
+
+### System Types
+
+Types starting with `_` are reserved for internal use and hidden from
+`show types` and `dump`:
+```ttq
+show system types            -- show internal system types
+delete _ImportRecord         -- blocked (system type)
+delete! _ImportRecord        -- force-delete (! = you know what you're doing)
+```
+
+Use `dump archive` to include system types in a dump (equivalent to archiving
+the full database state):
+```ttq
+dump archive                 -- dump including system types
+dump archive to "full.ttq"   -- dump archive to file
+dump archive yaml            -- dump archive as YAML
+```
+
 ### Dump Database
 
 Serialize database contents as an executable TTQ script:

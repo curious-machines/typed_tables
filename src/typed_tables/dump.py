@@ -507,6 +507,8 @@ def list_tables(storage: StorageManager, registry: TypeRegistry) -> None:
     print("-" * 40)
 
     for type_name in sorted(registry.list_types()):
+        if type_name.startswith("_"):
+            continue
         type_def = registry.get(type_name)
         if type_def is None:
             continue

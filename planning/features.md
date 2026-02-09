@@ -1,5 +1,19 @@
 # TODO
 
+## Data Integrity
+
+When we delete a type, should we have an option to delete all referenced types? The only issue I can think of is the case when a given record that is to be deleted is referenced outside of that type's graph; think de-duped data, for example. We wouldn't want to delete it in that case. To check this, we would have to find if there are any references to that record anywhere else outside of the type-to-delete's graph. We do that already, so maybe that isn't too expensive, but this will occur on every delete, which might make it expensive.
+
+When we delete a type table, can we reset the first index to zero, or is it safer not to do that and then rely on compaction later, if needed?
+
+---
+
+# Questions
+
+---
+
+# For Consideration
+
 ## Executor as a VM
 
 We should consider if we can approach the query executor as a type of vm. We would need to identify the atomic operations that are being performed repeatedly throughout the code base. Each of these operations would become an instruction in the VM.
@@ -56,7 +70,7 @@ Some questions: Does dump already meet this requirement? Would a binary version 
 
 This may be a pretty large feature, so lets discuss pros and cons and possible alternate implementations.
 
-## Import
+## Execute Script in Script
 
 I'm wondering if we should support some type of import command. For instance, I'm thinking about SVG types again. There are a lot of interfaces and elements defined by the full SVG specificiation. I wouldn't want to have to define those each and every time I'm going to build an SVG document representation in my database. It would be nice to have that defined once and then I could import that or run it as a script to serve the same purpose as an import. I can do this manually in the REPL using "execute", but I don't think I can use execute in a script. Is that something we could move into the query language? Are there any dangers that need to be considered if we allow execution within a script? Maybe it would be better to save a compacted binary of the SVG types and then load that compacted binary into the new database.
 

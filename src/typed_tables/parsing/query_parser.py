@@ -129,6 +129,13 @@ class ExecuteQuery:
 
 
 @dataclass
+class ImportQuery:
+    """An IMPORT query — execute a script once per database."""
+
+    file_path: str
+
+
+@dataclass
 class DescribeQuery:
     """A DESCRIBE query."""
 
@@ -240,6 +247,7 @@ class DeleteQuery:
 
     table: str
     where: Condition | CompoundCondition | None = None
+    force: bool = False
 
 
 @dataclass
@@ -268,6 +276,7 @@ class DumpQuery:
     items: list[DumpItem] | None = None
     pretty: bool = False
     format: str = "ttq"  # "ttq", "yaml", or "json"
+    include_system: bool = False
 
 
 @dataclass
@@ -372,7 +381,7 @@ class ScopeBlock:
     statements: list[Any] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
+Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | ImportQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -424,6 +433,10 @@ class QueryParser:
     def p_query_show_types(self, p: yacc.YaccProduction) -> None:
         """query : SHOW TYPES sort_clause"""
         p[0] = ShowTypesQuery(sort_by=p[3])
+
+    def p_query_show_system_types(self, p: yacc.YaccProduction) -> None:
+        """query : SHOW SYSTEM TYPES sort_clause"""
+        p[0] = ShowTypesQuery(filter="system", sort_by=p[4])
 
     def p_query_show_interfaces(self, p: yacc.YaccProduction) -> None:
         """query : SHOW INTERFACES sort_clause"""
@@ -480,6 +493,10 @@ class QueryParser:
     def p_query_execute(self, p: yacc.YaccProduction) -> None:
         """query : EXECUTE STRING"""
         p[0] = ExecuteQuery(file_path=p[2])
+
+    def p_query_import(self, p: yacc.YaccProduction) -> None:
+        """query : IMPORT STRING"""
+        p[0] = ImportQuery(file_path=p[2])
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
         """query : DESCRIBE IDENTIFIER sort_clause
@@ -600,10 +617,22 @@ class QueryParser:
                        | DUMP PRETTY JSON
                        | DUMP XML
                        | DUMP XML PRETTY
-                       | DUMP PRETTY XML"""
-        # Returns (pretty: bool, format: str)
+                       | DUMP PRETTY XML
+                       | DUMP ARCHIVE
+                       | DUMP ARCHIVE PRETTY
+                       | DUMP ARCHIVE YAML
+                       | DUMP ARCHIVE YAML PRETTY
+                       | DUMP ARCHIVE PRETTY YAML
+                       | DUMP ARCHIVE JSON
+                       | DUMP ARCHIVE JSON PRETTY
+                       | DUMP ARCHIVE PRETTY JSON
+                       | DUMP ARCHIVE XML
+                       | DUMP ARCHIVE XML PRETTY
+                       | DUMP ARCHIVE PRETTY XML"""
+        # Returns (pretty: bool, format: str, archive: bool)
         tokens = [p[i].lower() if isinstance(p[i], str) else p[i] for i in range(1, len(p))]
         pretty = "pretty" in tokens
+        archive = "archive" in tokens
         if "yaml" in tokens:
             fmt = "yaml"
         elif "json" in tokens:
@@ -612,49 +641,49 @@ class QueryParser:
             fmt = "xml"
         else:
             fmt = "ttq"
-        p[0] = (pretty, fmt)
+        p[0] = (pretty, fmt, archive)
 
     def p_query_dump(self, p: yacc.YaccProduction) -> None:
         """query : dump_prefix"""
-        pretty, fmt = p[1]
-        p[0] = DumpQuery(pretty=pretty, format=fmt)
+        pretty, fmt, archive = p[1]
+        p[0] = DumpQuery(pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_table(self, p: yacc.YaccProduction) -> None:
         """query : dump_prefix IDENTIFIER
                  | dump_prefix STRING"""
-        pretty, fmt = p[1]
-        p[0] = DumpQuery(table=p[2], pretty=pretty, format=fmt)
+        pretty, fmt, archive = p[1]
+        p[0] = DumpQuery(table=p[2], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_to(self, p: yacc.YaccProduction) -> None:
         """query : dump_prefix TO STRING"""
-        pretty, fmt = p[1]
-        p[0] = DumpQuery(output_file=p[3], pretty=pretty, format=fmt)
+        pretty, fmt, archive = p[1]
+        p[0] = DumpQuery(output_file=p[3], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_table_to(self, p: yacc.YaccProduction) -> None:
         """query : dump_prefix IDENTIFIER TO STRING
                  | dump_prefix STRING TO STRING"""
-        pretty, fmt = p[1]
-        p[0] = DumpQuery(table=p[2], output_file=p[4], pretty=pretty, format=fmt)
+        pretty, fmt, archive = p[1]
+        p[0] = DumpQuery(table=p[2], output_file=p[4], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_variable(self, p: yacc.YaccProduction) -> None:
         """query : dump_prefix VARIABLE"""
-        pretty, fmt = p[1]
-        p[0] = DumpQuery(variable=p[2], pretty=pretty, format=fmt)
+        pretty, fmt, archive = p[1]
+        p[0] = DumpQuery(variable=p[2], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_variable_to(self, p: yacc.YaccProduction) -> None:
         """query : dump_prefix VARIABLE TO STRING"""
-        pretty, fmt = p[1]
-        p[0] = DumpQuery(variable=p[2], output_file=p[4], pretty=pretty, format=fmt)
+        pretty, fmt, archive = p[1]
+        p[0] = DumpQuery(variable=p[2], output_file=p[4], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_list(self, p: yacc.YaccProduction) -> None:
         """query : dump_prefix LBRACKET dump_item_list RBRACKET"""
-        pretty, fmt = p[1]
-        p[0] = DumpQuery(items=p[3], pretty=pretty, format=fmt)
+        pretty, fmt, archive = p[1]
+        p[0] = DumpQuery(items=p[3], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_list_to(self, p: yacc.YaccProduction) -> None:
         """query : dump_prefix LBRACKET dump_item_list RBRACKET TO STRING"""
-        pretty, fmt = p[1]
-        p[0] = DumpQuery(items=p[3], output_file=p[6], pretty=pretty, format=fmt)
+        pretty, fmt, archive = p[1]
+        p[0] = DumpQuery(items=p[3], output_file=p[6], pretty=pretty, format=fmt, include_system=archive)
 
     def p_dump_item_list_single(self, p: yacc.YaccProduction) -> None:
         """dump_item_list : dump_item"""
@@ -747,6 +776,16 @@ class QueryParser:
         """query : DELETE IDENTIFIER
                  | DELETE STRING"""
         p[0] = DeleteQuery(table=p[2], where=None)
+
+    def p_query_delete_force(self, p: yacc.YaccProduction) -> None:
+        """query : DELETE BANG IDENTIFIER WHERE condition
+                 | DELETE BANG STRING WHERE condition"""
+        p[0] = DeleteQuery(table=p[3], where=p[5], force=True)
+
+    def p_query_delete_force_all(self, p: yacc.YaccProduction) -> None:
+        """query : DELETE BANG IDENTIFIER
+                 | DELETE BANG STRING"""
+        p[0] = DeleteQuery(table=p[3], where=None, force=True)
 
     def p_query_update_var(self, p: yacc.YaccProduction) -> None:
         """query : UPDATE VARIABLE SET instance_field_list"""

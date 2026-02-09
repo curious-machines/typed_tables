@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
-from typed_tables.parsing.query_parser import DropDatabaseQuery, ExecuteQuery, QueryParser, RestoreQuery, UseQuery
-from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, ExecuteResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
+from typed_tables.parsing.query_parser import DropDatabaseQuery, ExecuteQuery, ImportQuery, QueryParser, RestoreQuery, UseQuery
+from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, ExecuteResult, ImportResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
 from typed_tables.storage import StorageManager
 from typed_tables.types import EnumValue, TypeRegistry
 
@@ -118,7 +118,7 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
         return
 
     # Special handling for UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, ScopeResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult, CompactResult, ArchiveResult, RestoreResult, ExecuteResult)):
+    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult, CompactResult, ArchiveResult, RestoreResult, ExecuteResult, ImportResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -245,8 +245,9 @@ def run_repl(data_dir: Path | None) -> int:
         lower = stripped.lower()
         simple_prefixes = (
             "show ", "describe ", "use ", "use", "drop", "drop!", "drop ",
-            "drop! ", "dump", "delete ", "from ", "select ", "forward ",
-            "compact ", "archive ", "restore ", "execute ",
+            "drop! ", "dump", "delete ", "delete!", "delete! ", "from ",
+            "select ", "forward ",
+            "compact ", "archive ", "restore ", "execute ", "import ",
         )
         for prefix in simple_prefixes:
             if lower.startswith(prefix) or lower == prefix.strip():
@@ -661,6 +662,14 @@ DUMP:
   dump xml pretty          Pretty-print XML output
                            (xml can be combined with other dump options)
   dump to "file.ttq.gz"   Gzip-compress the output (.gz suffix on any format)
+  dump archive             Dump including system types (full database state)
+  dump archive yaml        Dump archive as YAML (combinable with other options)
+
+DELETE:
+  delete <type>            Delete all records of a type
+  delete <type> where ...  Delete matching records
+  delete! <type>           Force-delete (bypasses system type protection)
+  delete! <type> where ... Force-delete matching records
 
 ARCHIVE & RESTORE:
   archive to "file.ttar"   Compact and bundle database into a single file
@@ -702,6 +711,12 @@ EXECUTE SCRIPT:
                            In nested scripts: use/drop/restore not allowed
                            Paths resolve relative to the calling script
                            Re-executing an already-loaded script is an error
+
+IMPORT SCRIPT (execute once):
+  import "file.ttq"        Execute a script once per database
+  import "file.ttq"        Subsequent imports are silently skipped
+  import "file.ttq.gz"     Gzip-compressed files supported
+                           Import tracking is stored in the database
 
 OTHER:
   help                     Show this help

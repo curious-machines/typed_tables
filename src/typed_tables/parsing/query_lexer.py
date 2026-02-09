@@ -65,6 +65,8 @@ class QueryLexer:
         "archive": "ARCHIVE",
         "restore": "RESTORE",
         "execute": "EXECUTE",
+        "import": "IMPORT",
+        "system": "SYSTEM",
         "temp": "TEMP",
     }
 

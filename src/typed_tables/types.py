@@ -389,6 +389,8 @@ class TypeRegistry:
         # Register built-in string type (stored as character[], displayed as string)
         char_prim = self._types["character"]
         self._types["string"] = StringTypeDefinition(name="string", element_type=char_prim)
+        # Register built-in path alias (alias for string)
+        self._types["path"] = AliasTypeDefinition(name="path", base_type=self._types["string"])
 
     def register(self, type_def: TypeDefinition) -> None:
         """Register a type definition."""

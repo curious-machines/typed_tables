@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import re
 import shutil
 import struct
@@ -33,6 +34,7 @@ from typed_tables.parsing.query_parser import (
     EnumValueExpr,
     ExecuteQuery,
     ForwardTypeQuery,
+    ImportQuery,
     DescribeQuery,
     DropDatabaseQuery,
     DumpItem,
@@ -158,6 +160,14 @@ class ExecuteResult(QueryResult):
 
 
 @dataclass
+class ImportResult(QueryResult):
+    """Result of an IMPORT query."""
+
+    file_path: str = ""
+    skipped: bool = False
+
+
+@dataclass
 class VariableAssignmentResult(QueryResult):
     """Result of a variable assignment."""
 
@@ -280,6 +290,8 @@ class QueryExecutor:
             return execute_restore(query)
         elif isinstance(query, ExecuteQuery):
             return self._execute_execute(query)
+        elif isinstance(query, ImportQuery):
+            return self._execute_import(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -409,6 +421,8 @@ class QueryExecutor:
         referenced_primitives: set[str] = set()
         referenced_aliases: set[str] = set()
         for type_name in self.registry.list_types():
+            if type_name.startswith("_"):
+                continue
             type_def = self.registry.get(type_name)
             if type_def is None:
                 continue
@@ -427,6 +441,13 @@ class QueryExecutor:
         for type_name in self.registry.list_types():
             type_def = self.registry.get(type_name)
             if type_def is None:
+                continue
+
+            # Filter system types (prefixed with _)
+            if query.filter == "system":
+                if not type_name.startswith("_"):
+                    continue
+            elif type_name.startswith("_"):
                 continue
 
             base = type_def.resolve_base_type()
@@ -471,16 +492,17 @@ class QueryExecutor:
             else:
                 continue
 
-            # Apply filter
-            _KIND_TO_FILTER = {
-                "Interface": "interfaces",
-                "Composite": "composites",
-                "Enum": "enums",
-                "Primitive": "primitives",
-                "Alias": "aliases",
-            }
-            if query.filter is not None and _KIND_TO_FILTER.get(kind) != query.filter:
-                continue
+            # Apply kind filter (skip for "system" — already filtered by prefix above)
+            if query.filter is not None and query.filter != "system":
+                _KIND_TO_FILTER = {
+                    "Interface": "interfaces",
+                    "Composite": "composites",
+                    "Enum": "enums",
+                    "Primitive": "primitives",
+                    "Alias": "aliases",
+                }
+                if _KIND_TO_FILTER.get(kind) != query.filter:
+                    continue
 
             rows.append({
                 "type": type_name,
@@ -533,7 +555,26 @@ class QueryExecutor:
 
         Each edge is {"source": str, "kind": str, "target": str, "field": str}.
         Arrow direction: referrer → referent (source depends on target).
+        System types (_-prefixed) are excluded. Aliases are only included if
+        referenced by at least one user-defined type.
         """
+        # Pre-collect aliases referenced by user-defined types
+        referenced_aliases: set[str] = set()
+        for type_name in self.registry.list_types():
+            if type_name.startswith("_"):
+                continue
+            type_def = self.registry.get(type_name)
+            if type_def is None:
+                continue
+            base = type_def.resolve_base_type()
+            if isinstance(base, (CompositeTypeDefinition, InterfaceTypeDefinition)):
+                for f in base.fields:
+                    self._collect_referenced_types(f.type_def, set(), referenced_aliases)
+            elif isinstance(base, EnumTypeDefinition):
+                for v in base.variants:
+                    for f in v.fields:
+                        self._collect_referenced_types(f.type_def, set(), referenced_aliases)
+
         seen_edges: set[tuple[str, str, str]] = set()
         edges: list[dict[str, str]] = []
         visited_array_types: set[str] = set()
@@ -554,6 +595,8 @@ class QueryExecutor:
                 add_edge(type_def.name, arr_kind, base.element_type.name, "[]")
 
         for type_name in self.registry.list_types():
+            if type_name.startswith("_"):
+                continue
             type_def = self.registry.get(type_name)
             if type_def is None:
                 continue
@@ -561,7 +604,8 @@ class QueryExecutor:
             kind = self._classify_type(type_def)
 
             if isinstance(type_def, AliasTypeDefinition):
-                add_edge(type_name, kind, type_def.base_type.name, "(alias)")
+                if type_name in referenced_aliases:
+                    add_edge(type_name, kind, type_def.base_type.name, "(alias)")
             elif isinstance(type_def, EnumTypeDefinition):
                 for variant in type_def.variants:
                     for f in variant.fields:
@@ -827,6 +871,12 @@ class QueryExecutor:
 
     def _execute_create_alias(self, query: CreateAliasQuery) -> CreateResult:
         """Execute CREATE ALIAS query."""
+        if query.name.startswith("_"):
+            return CreateResult(
+                columns=[], rows=[],
+                message="Type names starting with '_' are reserved for system use",
+                type_name=query.name,
+            )
         # Check if alias name already exists
         if self.registry.get(query.name) is not None:
             return CreateResult(
@@ -862,6 +912,12 @@ class QueryExecutor:
 
     def _execute_create_interface(self, query: CreateInterfaceQuery) -> CreateResult:
         """Execute CREATE INTERFACE query."""
+        if query.name.startswith("_"):
+            return CreateResult(
+                columns=[], rows=[],
+                message="Type names starting with '_' are reserved for system use",
+                type_name=query.name,
+            )
         existing = self.registry.get(query.name)
 
         if existing is not None:
@@ -929,6 +985,12 @@ class QueryExecutor:
         - `forward type B` then `create type B a:A` → populates the stub
         - `create type Node children:Node[]` → self-referential (stub registered first)
         """
+        if query.name.startswith("_"):
+            return CreateResult(
+                columns=[], rows=[],
+                message="Type names starting with '_' are reserved for system use",
+                type_name=query.name,
+            )
         existing = self.registry.get(query.name)
 
         if existing is not None:
@@ -1076,6 +1138,12 @@ class QueryExecutor:
 
     def _execute_forward_type(self, query: ForwardTypeQuery) -> CreateResult:
         """Execute FORWARD TYPE query - register a stub for forward references."""
+        if query.name.startswith("_"):
+            return CreateResult(
+                columns=[], rows=[],
+                message="Type names starting with '_' are reserved for system use",
+                type_name=query.name,
+            )
         existing = self.registry.get(query.name)
 
         if existing is not None:
@@ -1098,6 +1166,12 @@ class QueryExecutor:
 
     def _execute_create_enum(self, query: CreateEnumQuery) -> CreateResult:
         """Execute CREATE ENUM query."""
+        if query.name.startswith("_"):
+            return CreateResult(
+                columns=[], rows=[],
+                message="Type names starting with '_' are reserved for system use",
+                type_name=query.name,
+            )
         existing = self.registry.get(query.name)
         if existing is not None:
             return CreateResult(
@@ -1964,6 +2038,12 @@ class QueryExecutor:
 
     def _execute_delete(self, query: DeleteQuery) -> DeleteResult:
         """Execute DELETE query."""
+        if query.table.startswith("_") and not query.force:
+            return DeleteResult(
+                columns=[], rows=[],
+                message=f"Cannot delete system type records (use delete! to force)",
+                deleted_count=0,
+            )
         type_def = self.registry.get(query.table)
         if type_def is None:
             return DeleteResult(
@@ -3073,6 +3153,8 @@ class QueryExecutor:
         interfaces: list[tuple[str, InterfaceTypeDefinition]] = []
 
         for type_name in self.registry.list_types():
+            if type_name.startswith("_") and not query.include_system:
+                continue
             type_def = self.registry.get(type_name)
             if type_def is None:
                 continue
@@ -4552,6 +4634,96 @@ class QueryExecutor:
             message=f"Executed {script_path} ({count} statement{'s' if count != 1 else ''})",
             file_path=str(script_path),
             statements_executed=count,
+        )
+
+    # --- Import ---
+
+    def _ensure_import_record_type(self) -> None:
+        """Lazily create the _ImportRecord system type if it doesn't exist."""
+        if self.registry.get("_ImportRecord") is not None:
+            return
+        path_type = self.registry.get_or_raise("path")
+        import_type = CompositeTypeDefinition(
+            name="_ImportRecord",
+            fields=[FieldDefinition(name="script", type_def=path_type)],
+        )
+        self.registry.register(import_type)
+        self.storage.save_metadata()
+
+    def _is_imported(self, import_key: str) -> bool:
+        """Check if a script has already been imported into the database."""
+        table_file = self.storage.data_dir / "_ImportRecord.bin"
+        if not table_file.exists():
+            return False
+        type_def = self.registry.get_or_raise("_ImportRecord")
+        base = type_def.resolve_base_type()
+        table = self.storage.get_table("_ImportRecord")
+        for i in range(table.count):
+            raw = table.get(i)
+            if raw is None:
+                continue
+            resolved = self._resolve_raw_composite(raw, base, type_def)
+            if resolved.get("script") == import_key:
+                return True
+        return False
+
+    def _record_import(self, import_key: str) -> None:
+        """Record that a script has been imported."""
+        type_def = self.registry.get_or_raise("_ImportRecord")
+        base = type_def.resolve_base_type()
+        values = {"script": import_key}
+        self._create_instance(type_def, base, values)
+
+    def _execute_import(self, query: ImportQuery) -> ImportResult:
+        """Execute an IMPORT query — run a script once per database."""
+        user_file = query.file_path
+
+        # Resolve file path for execution (same logic as _execute_execute)
+        raw_path = Path(user_file)
+        if not raw_path.is_absolute() and self._script_stack:
+            raw_path = self._script_stack[-1] / raw_path
+
+        script_path = raw_path
+        auto_ext = ""
+        if not script_path.exists() and not script_path.suffix:
+            for ext in (".ttq", ".ttq.gz"):
+                candidate = Path(str(script_path) + ext)
+                if candidate.exists():
+                    script_path = candidate
+                    auto_ext = ext
+                    break
+
+        if not script_path.exists():
+            raise FileNotFoundError(f"Script file not found: {script_path}")
+
+        # Build normalized import key from the user's original path
+        # Relative paths stay relative, absolute stay absolute.
+        # normpath collapses "./" so "setup.ttq" == "./setup.ttq".
+        import_key = os.path.normpath(user_file + auto_ext)
+
+        # Ensure tracking type exists
+        self._ensure_import_record_type()
+
+        # Check if already imported
+        if self._is_imported(import_key):
+            return ImportResult(
+                columns=[], rows=[],
+                message=f"Already imported: {import_key}",
+                file_path=import_key,
+                skipped=True,
+            )
+
+        # Delegate to execute
+        exec_result = self._execute_execute(ExecuteQuery(file_path=query.file_path))
+
+        # Record the import
+        self._record_import(import_key)
+
+        return ImportResult(
+            columns=[], rows=[],
+            message=f"Imported {import_key} ({exec_result.statements_executed} statement{'s' if exec_result.statements_executed != 1 else ''})",
+            file_path=import_key,
+            skipped=False,
         )
 
     # --- Compact ---
