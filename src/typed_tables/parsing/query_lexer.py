@@ -61,6 +61,7 @@ class QueryLexer:
         "yaml": "YAML",
         "json": "JSON",
         "xml": "XML",
+        "compact": "COMPACT",
     }
 
     # Token list

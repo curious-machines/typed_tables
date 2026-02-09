@@ -600,6 +600,20 @@ Example XML output with cyclic references:
 </database>
 ```
 
+### Compact Database
+
+Create a compacted copy of the database, removing deleted records (tombstones) and unreferenced data:
+```ttq
+compact to "path/to/output"
+```
+
+The original database is left untouched. The output path must not already exist. All three table types are compacted:
+- **Composite tables**: tombstoned records removed, remaining records renumbered
+- **Array element tables**: unreferenced elements removed, start indices remapped
+- **Variant tables**: unreferenced variant records removed, variant indices remapped
+
+All reference types (composite refs, interface refs, array refs, Swift-style enum refs) are remapped to the new indices. If a live record references a deleted record, the reference becomes null.
+
 To be determined, but here is a list of features that will be expected to be supported:
 
 

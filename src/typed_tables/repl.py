@@ -11,7 +11,7 @@ from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import DropDatabaseQuery, QueryParser, UseQuery
-from typed_tables.query_executor import CollectResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult
+from typed_tables.query_executor import CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult
 from typed_tables.storage import StorageManager
 from typed_tables.types import EnumValue, TypeRegistry
 
@@ -113,7 +113,7 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
         return
 
     # Special handling for UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, ScopeResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult)):
+    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult, CompactResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -240,6 +240,7 @@ def run_repl(data_dir: Path | None) -> int:
         simple_prefixes = (
             "show ", "describe ", "use ", "use", "drop", "drop!", "drop ",
             "drop! ", "dump", "delete ", "from ", "select ", "forward ",
+            "compact ",
         )
         for prefix in simple_prefixes:
             if lower.startswith(prefix) or lower == prefix.strip():

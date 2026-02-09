@@ -100,6 +100,13 @@ class DumpGraphQuery:
 
 
 @dataclass
+class CompactQuery:
+    """A COMPACT TO query."""
+
+    output_path: str
+
+
+@dataclass
 class DescribeQuery:
     """A DESCRIBE query."""
 
@@ -342,7 +349,7 @@ class ScopeBlock:
     statements: list[Any] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
+Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -430,6 +437,10 @@ class QueryParser:
     def p_query_dump_graph_to(self, p: yacc.YaccProduction) -> None:
         """query : DUMP GRAPH TO STRING"""
         p[0] = DumpGraphQuery(output_file=p[4])
+
+    def p_query_compact_to(self, p: yacc.YaccProduction) -> None:
+        """query : COMPACT TO STRING"""
+        p[0] = CompactQuery(output_path=p[3])
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
         """query : DESCRIBE IDENTIFIER sort_clause

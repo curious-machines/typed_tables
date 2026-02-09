@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
 import uuid as uuid_module
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterator
 
 from typed_tables.parsing.query_parser import (
@@ -12,6 +15,7 @@ from typed_tables.parsing.query_parser import (
     ArraySlice,
     CollectQuery,
     CollectSource,
+    CompactQuery,
     CompoundCondition,
     CompositeRef,
     Condition,
@@ -109,6 +113,15 @@ class DumpResult(QueryResult):
 
     script: str = ""
     output_file: str | None = None
+
+
+@dataclass
+class CompactResult(QueryResult):
+    """Result of a COMPACT query."""
+
+    output_path: str = ""
+    records_before: int = 0
+    records_after: int = 0
 
 
 @dataclass
@@ -223,6 +236,8 @@ class QueryExecutor:
             return self._execute_update(query)
         elif isinstance(query, ScopeBlock):
             return self._execute_scope_block(query)
+        elif isinstance(query, CompactQuery):
+            return self._execute_compact(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -4413,3 +4428,277 @@ class QueryExecutor:
                 field_references[field.name] = field_value
 
         return field_references
+
+    # --- Compact ---
+
+    def _execute_compact(self, query: CompactQuery) -> CompactResult:
+        """Execute a COMPACT TO query: create a compacted copy of the database."""
+        output_path = Path(query.output_path)
+
+        # Error if output path already exists
+        if output_path.exists():
+            return CompactResult(
+                columns=[], rows=[],
+                message=f"Output path already exists: {output_path}",
+            )
+
+        # Collect all composite type names that have .bin files
+        composite_types: list[tuple[str, CompositeTypeDefinition]] = []
+        for type_name in self.registry.list_types():
+            type_def = self.registry.get(type_name)
+            if isinstance(type_def, CompositeTypeDefinition):
+                bin_file = self.storage.data_dir / f"{type_name}.bin"
+                if bin_file.exists():
+                    composite_types.append((type_name, type_def))
+
+        # Phase 1: Build composite index mappings
+        comp_index_map: dict[str, dict[int, int]] = {}  # type_name → {old_idx: new_idx}
+        total_before = 0
+        total_after = 0
+
+        for type_name, type_def in composite_types:
+            table = self.storage.get_table(type_name)
+            old_to_new: dict[int, int] = {}
+            new_idx = 0
+            for old_idx in range(table.count):
+                if not table.is_deleted(old_idx):
+                    old_to_new[old_idx] = new_idx
+                    new_idx += 1
+            comp_index_map[type_name] = old_to_new
+            total_before += table.count
+            total_after += new_idx
+
+        # Phase 2: Collect referenced array ranges and variant indices
+        # array_refs[type_name] = set of (start_index, length) tuples
+        array_refs: dict[str, set[tuple[int, int]]] = {}
+        # variant_refs[enum_name][variant_name] = set of variant_table indices
+        variant_refs: dict[str, dict[str, set[int]]] = {}
+
+        def _collect_refs_from_record(
+            record: dict[str, Any],
+            fields: list[FieldDefinition],
+        ) -> None:
+            """Collect array and variant references from a record's fields."""
+            for fld in fields:
+                val = record.get(fld.name)
+                if val is None:
+                    continue
+                fld_base = fld.type_def.resolve_base_type()
+                if isinstance(fld_base, ArrayTypeDefinition):
+                    start_idx, length = val
+                    if length > 0:
+                        arr_type_name = fld.type_def.name
+                        if arr_type_name not in array_refs:
+                            array_refs[arr_type_name] = set()
+                        array_refs[arr_type_name].add((start_idx, length))
+                elif isinstance(fld_base, EnumTypeDefinition) and fld_base.has_associated_values:
+                    disc, variant_idx = val
+                    if variant_idx != NULL_REF:
+                        enum_name = fld_base.name
+                        variant = fld_base.get_variant_by_discriminant(disc)
+                        if variant is not None:
+                            if enum_name not in variant_refs:
+                                variant_refs[enum_name] = {}
+                            if variant.name not in variant_refs[enum_name]:
+                                variant_refs[enum_name][variant.name] = set()
+                            variant_refs[enum_name][variant.name].add(variant_idx)
+
+        # Walk all live composite records
+        for type_name, type_def in composite_types:
+            table = self.storage.get_table(type_name)
+            for old_idx in comp_index_map[type_name]:
+                record = table.get(old_idx)
+                _collect_refs_from_record(record, type_def.fields)
+
+        # Walk all live variant records to collect nested array refs
+        for enum_name, variants_dict in variant_refs.items():
+            enum_def = self.registry.get(enum_name)
+            if not isinstance(enum_def, EnumTypeDefinition):
+                continue
+            for variant_name, indices in variants_dict.items():
+                variant = enum_def.get_variant(variant_name)
+                if variant is None or not variant.fields:
+                    continue
+                variant_table = self.storage.get_variant_table(enum_def, variant_name)
+                for vidx in indices:
+                    vrecord = variant_table.get(vidx)
+                    _collect_refs_from_record(vrecord, variant.fields)
+
+        # Phase 3: Build array start_index mapping
+        array_start_map: dict[str, dict[int, int]] = {}  # type_name → {old_start: new_start}
+        for arr_type_name, ranges in array_refs.items():
+            sorted_ranges = sorted(ranges, key=lambda r: r[0])
+            mapping: dict[int, int] = {}
+            new_start = 0
+            for old_start, length in sorted_ranges:
+                mapping[old_start] = new_start
+                new_start += length
+            array_start_map[arr_type_name] = mapping
+
+        # Phase 4: Build variant index mapping
+        variant_index_map: dict[str, dict[str, dict[int, int]]] = {}  # enum → variant → {old: new}
+        for enum_name, variants_dict in variant_refs.items():
+            variant_index_map[enum_name] = {}
+            for variant_name, indices in variants_dict.items():
+                sorted_indices = sorted(indices)
+                mapping = {}
+                for new_idx, old_idx in enumerate(sorted_indices):
+                    mapping[old_idx] = new_idx
+                variant_index_map[enum_name][variant_name] = mapping
+
+        # Phase 5: Create output database
+        output_path.mkdir(parents=True, exist_ok=True)
+        # Copy metadata
+        src_metadata = self.storage.data_dir / "_metadata.json"
+        if src_metadata.exists():
+            shutil.copy2(src_metadata, output_path / "_metadata.json")
+
+        # Create output storage
+        out_registry = self.registry  # Share registry (read-only)
+        out_storage = StorageManager(output_path, out_registry)
+
+        try:
+            # Phase 6: Write compacted array element tables
+            for arr_type_name, ranges in array_refs.items():
+                sorted_ranges = sorted(ranges, key=lambda r: r[0])
+                type_def = self.registry.get(arr_type_name)
+                if type_def is None:
+                    continue
+                base = type_def.resolve_base_type()
+                element_base = base.element_type.resolve_base_type() if isinstance(base, ArrayTypeDefinition) else None
+                src_array_table = self.storage.get_array_table_for_type(type_def)
+                dst_array_table = out_storage.get_array_table_for_type(type_def)
+                for old_start, length in sorted_ranges:
+                    elements = src_array_table.get(old_start, length)
+                    # Remap composite ref elements (e.g., Person[] stores uint32 indices)
+                    if isinstance(element_base, CompositeTypeDefinition):
+                        ref_type_name = element_base.name
+                        remapped_elements = []
+                        for elem in elements:
+                            if ref_type_name in comp_index_map:
+                                new_idx = comp_index_map[ref_type_name].get(elem)
+                                if new_idx is not None:
+                                    remapped_elements.append(new_idx)
+                                else:
+                                    # Dangling ref — skip element (can't store null in element table)
+                                    # Use NULL_REF as sentinel
+                                    remapped_elements.append(NULL_REF)
+                            else:
+                                remapped_elements.append(elem)
+                        elements = remapped_elements
+                    dst_array_table.insert(elements)
+
+            # Phase 7: Write compacted variant tables
+            for enum_name, variants_dict in variant_index_map.items():
+                enum_def = self.registry.get(enum_name)
+                if not isinstance(enum_def, EnumTypeDefinition):
+                    continue
+                for variant_name, idx_mapping in variants_dict.items():
+                    variant = enum_def.get_variant(variant_name)
+                    if variant is None or not variant.fields:
+                        continue
+                    src_vtable = self.storage.get_variant_table(enum_def, variant_name)
+                    dst_vtable = out_storage.get_variant_table(enum_def, variant_name)
+                    for old_vidx in sorted(idx_mapping.keys()):
+                        vrecord = src_vtable.get(old_vidx)
+                        remapped = self._remap_record(
+                            vrecord, variant.fields,
+                            comp_index_map, array_start_map, variant_index_map,
+                        )
+                        dst_vtable.insert(remapped)
+
+            # Phase 8: Write compacted composite tables
+            for type_name, type_def in composite_types:
+                if not comp_index_map[type_name]:
+                    continue  # No live records
+                src_table = self.storage.get_table(type_name)
+                dst_table = out_storage.get_table(type_name)
+                for old_idx in sorted(comp_index_map[type_name].keys()):
+                    record = src_table.get(old_idx)
+                    remapped = self._remap_record(
+                        record, type_def.fields,
+                        comp_index_map, array_start_map, variant_index_map,
+                    )
+                    dst_table.insert(remapped)
+
+        finally:
+            out_storage.close()
+
+        return CompactResult(
+            columns=[], rows=[],
+            output_path=str(output_path),
+            records_before=total_before,
+            records_after=total_after,
+            message=f"Compacted to {output_path} ({total_before} -> {total_after} records)",
+        )
+
+    def _remap_record(
+        self,
+        record: dict[str, Any],
+        fields: list[FieldDefinition],
+        comp_index_map: dict[str, dict[int, int]],
+        array_start_map: dict[str, dict[int, int]],
+        variant_index_map: dict[str, dict[str, dict[int, int]]],
+    ) -> dict[str, Any]:
+        """Remap references in a record for compaction."""
+        remapped: dict[str, Any] = {}
+        for fld in fields:
+            val = record.get(fld.name)
+            if val is None:
+                remapped[fld.name] = None
+                continue
+
+            fld_base = fld.type_def.resolve_base_type()
+
+            if isinstance(fld_base, InterfaceTypeDefinition):
+                type_id, old_idx = val
+                ref_type_name = self.registry.get_type_name_by_id(type_id)
+                if ref_type_name and ref_type_name in comp_index_map:
+                    new_idx = comp_index_map[ref_type_name].get(old_idx)
+                    if new_idx is not None:
+                        remapped[fld.name] = (type_id, new_idx)
+                    else:
+                        remapped[fld.name] = None  # Dangling ref
+                else:
+                    remapped[fld.name] = None  # Unknown type
+            elif isinstance(fld_base, CompositeTypeDefinition):
+                old_idx = val
+                ref_type_name = fld_base.name
+                if ref_type_name in comp_index_map:
+                    new_idx = comp_index_map[ref_type_name].get(old_idx)
+                    if new_idx is not None:
+                        remapped[fld.name] = new_idx
+                    else:
+                        remapped[fld.name] = None  # Dangling ref
+                else:
+                    remapped[fld.name] = val
+            elif isinstance(fld_base, ArrayTypeDefinition):
+                old_start, length = val
+                if length == 0:
+                    remapped[fld.name] = (0, 0)
+                else:
+                    arr_type_name = fld.type_def.name
+                    if arr_type_name in array_start_map and old_start in array_start_map[arr_type_name]:
+                        remapped[fld.name] = (array_start_map[arr_type_name][old_start], length)
+                    else:
+                        remapped[fld.name] = val
+            elif isinstance(fld_base, EnumTypeDefinition) and fld_base.has_associated_values:
+                disc, variant_idx = val
+                if variant_idx == NULL_REF:
+                    remapped[fld.name] = (disc, NULL_REF)
+                else:
+                    enum_name = fld_base.name
+                    variant = fld_base.get_variant_by_discriminant(disc)
+                    if (variant is not None
+                            and enum_name in variant_index_map
+                            and variant.name in variant_index_map[enum_name]
+                            and variant_idx in variant_index_map[enum_name][variant.name]):
+                        new_vidx = variant_index_map[enum_name][variant.name][variant_idx]
+                        remapped[fld.name] = (disc, new_vidx)
+                    else:
+                        remapped[fld.name] = val
+            else:
+                # Primitive, C-style enum — pass through unchanged
+                remapped[fld.name] = val
+
+        return remapped

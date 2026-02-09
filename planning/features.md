@@ -8,19 +8,13 @@ We would need to figure out how information is passed between instructions. We c
 
 This would require turning a query into a sequence of instructions; a mini-compiler of sorts. This will be useful for debugging and could serve as a way to distribute queries between multiple running instances.
 
-## Compact Export Format
+## Support Deletion
 
-This will be used for backup and for sharing copies of databases between processes and other machines. It might be thought of as a serialization of the database.
+Deleting, I guess, anything. But what happens when we delete something other things are dependent upon. Maybe we can only delete composites and arrays.
 
-Currently, we use mmap to load tables into memory. I assume the file size is a multiple of page size for efficiency. However, this wastes space if we want to send the database to another process or machine or if we want to backup the data. For these use cases, we would like to end up with a single file that is compacted and maybe even compressed. It should be easy to consume and our code will need to support recreating a database from that file.
+## Import
 
-Compacting the database will require updates to all references since records will change position in the database. It seems like this could be a useful tool to run from the command line. This tool would perform the compaction step, but not inline. I would expect it to write to a new database folder, preserving the original in case there is some sort of failure during the compaction step.
-
-Perhaps this could be another variant of the dump command.
-
-Some questions: Does dump already meet this requirement? Would a binary version be smaller?
-
-This may be a pretty large feature, so lets discuss pros and cons and possible alternate implementations.
+I'm wondering if we should support some type of import command. For instance, I'm thinking about SVG types again. There are a lot of interfaces and elements defined by the full SVG specificiation. I wouldn't want to have to define those each and every time I'm going to build an SVG document representation in my database. It would be nice to have that defined once and then I could import that or run it as a script to serve the same purpose as an import4. I can do this manually in the REPL using "execute", but I don't think I can use execute in a script. Is that something we could move into the query language? Are there any dangers that need to be considered if we allow execution within a script? Maybe it would be better to save a compacted binary of the SVG types and them load that compacted binary into the new database.
 
 ---
 
@@ -55,3 +49,17 @@ I'd also like to be able to see a graph of every single reference, from a type p
 I'd like to be able to dump this calculated graph into its own database, so we need nodes for each type, along with a description of what kind of type it is. Then we need an array of references to other types that use that. If we want a name for the edge, then we'll need a different edge type that has that name and then points back to the owning type. This could be handled by using a ttq script that builds the database. We would let the user choose the database name, so no use statement should be in the ttq script. Creating a svg or graphviz file of this database should create a similar graph as described earlier, so this would be an alternate way to create a reference graph for a database. Ask questions if you need for me to clarify this last point.
 
 We should discuss anything that is vague in these descriptions.
+
+## Compact Export Format
+
+This will be used for backup and for sharing copies of databases between processes and other machines. It might be thought of as a serialization of the database.
+
+Currently, we use mmap to load tables into memory. I assume the file size is a multiple of page size for efficiency. However, this wastes space if we want to send the database to another process or machine or if we want to backup the data. For these use cases, we would like to end up with a single file that is compacted and maybe even compressed. It should be easy to consume and our code will need to support recreating a database from that file.
+
+Compacting the database will require updates to all references since records will change position in the database. It seems like this could be a useful tool to run from the command line. This tool would perform the compaction step, but not inline. I would expect it to write to a new database folder, preserving the original in case there is some sort of failure during the compaction step.
+
+Perhaps this could be another variant of the dump command.
+
+Some questions: Does dump already meet this requirement? Would a binary version be smaller?
+
+This may be a pretty large feature, so lets discuss pros and cons and possible alternate implementations.
