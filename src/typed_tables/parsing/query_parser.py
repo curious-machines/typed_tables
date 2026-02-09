@@ -107,6 +107,21 @@ class CompactQuery:
 
 
 @dataclass
+class ArchiveQuery:
+    """An ARCHIVE TO query."""
+
+    output_file: str
+
+
+@dataclass
+class RestoreQuery:
+    """A RESTORE query."""
+
+    archive_file: str
+    output_path: str | None = None
+
+
+@dataclass
 class DescribeQuery:
     """A DESCRIBE query."""
 
@@ -349,7 +364,7 @@ class ScopeBlock:
     statements: list[Any] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
+Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | ArchiveQuery | RestoreQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -441,6 +456,18 @@ class QueryParser:
     def p_query_compact_to(self, p: yacc.YaccProduction) -> None:
         """query : COMPACT TO STRING"""
         p[0] = CompactQuery(output_path=p[3])
+
+    def p_query_archive_to(self, p: yacc.YaccProduction) -> None:
+        """query : ARCHIVE TO STRING"""
+        p[0] = ArchiveQuery(output_file=p[3])
+
+    def p_query_restore_to(self, p: yacc.YaccProduction) -> None:
+        """query : RESTORE STRING TO STRING"""
+        p[0] = RestoreQuery(archive_file=p[2], output_path=p[4])
+
+    def p_query_restore(self, p: yacc.YaccProduction) -> None:
+        """query : RESTORE STRING"""
+        p[0] = RestoreQuery(archive_file=p[2])
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
         """query : DESCRIBE IDENTIFIER sort_clause

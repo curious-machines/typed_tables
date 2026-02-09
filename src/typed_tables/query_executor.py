@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import re
 import shutil
+import struct
+import tempfile
 import uuid as uuid_module
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
 from typed_tables.parsing.query_parser import (
+    ArchiveQuery,
     ArrayIndex,
     ArraySlice,
     CollectQuery,
@@ -38,6 +42,7 @@ from typed_tables.parsing.query_parser import (
     InlineInstance,
     NullValue,
     Query,
+    RestoreQuery,
     ScopeBlock,
     SelectField,
     SelectQuery,
@@ -122,6 +127,23 @@ class CompactResult(QueryResult):
     output_path: str = ""
     records_before: int = 0
     records_after: int = 0
+
+
+@dataclass
+class ArchiveResult(QueryResult):
+    """Result of an ARCHIVE query."""
+
+    output_file: str = ""
+    file_count: int = 0
+    total_bytes: int = 0
+
+
+@dataclass
+class RestoreResult(QueryResult):
+    """Result of a RESTORE query."""
+
+    output_path: str = ""
+    file_count: int = 0
 
 
 @dataclass
@@ -238,6 +260,10 @@ class QueryExecutor:
             return self._execute_scope_block(query)
         elif isinstance(query, CompactQuery):
             return self._execute_compact(query)
+        elif isinstance(query, ArchiveQuery):
+            return self._execute_archive(query)
+        elif isinstance(query, RestoreQuery):
+            return execute_restore(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -3015,6 +3041,11 @@ class QueryExecutor:
 
         pretty = query.pretty
 
+        # Auto-append extension if output_file has none
+        if query.output_file and not Path(query.output_file).suffix:
+            ext_map = {"yaml": ".yaml", "json": ".json", "xml": ".xml", "ttq": ".ttq"}
+            query.output_file += ext_map.get(query.format, ".ttq")
+
         lines: list[str] = []
         lines.append("-- TTQ dump")
 
@@ -4702,3 +4733,233 @@ class QueryExecutor:
                 remapped[fld.name] = val
 
         return remapped
+
+    def _execute_archive(self, query: ArchiveQuery) -> ArchiveResult:
+        """Execute an ARCHIVE TO query: compact then bundle into a .ttar file."""
+        output_file = query.output_file
+        # Append .ttar if no extension
+        if not Path(output_file).suffix:
+            output_file += ".ttar"
+
+        output_path = Path(output_file)
+        if output_path.exists():
+            return ArchiveResult(
+                columns=[], rows=[],
+                message=f"Output file already exists: {output_path}",
+            )
+
+        tmp_dir = None
+        try:
+            # Compact into a temp directory
+            tmp_dir = Path(tempfile.mkdtemp(prefix="ttar_"))
+            compact_dir = tmp_dir / "db"
+            compact_result = self._execute_compact(CompactQuery(output_path=str(compact_dir)))
+            if compact_result.message and "already exists" in compact_result.message:
+                return ArchiveResult(columns=[], rows=[], message=compact_result.message)
+
+            # Read metadata
+            metadata_path = compact_dir / "_metadata.json"
+            metadata_bytes = metadata_path.read_bytes() if metadata_path.exists() else b"{}"
+
+            # Enumerate .bin files sorted by relative path
+            bin_files: list[tuple[str, Path]] = []
+            for f in sorted(compact_dir.rglob("*.bin")):
+                rel = f.relative_to(compact_dir)
+                bin_files.append((str(rel), f))
+
+            # Compute trimmed sizes and build file index
+            file_entries: list[tuple[str, int, int]] = []  # (rel_path, data_offset, data_length)
+            data_offset = 0
+            for rel_path, abs_path in bin_files:
+                trimmed = self._calc_trimmed_bin_size(abs_path, rel_path)
+                file_entries.append((rel_path, data_offset, trimmed))
+                data_offset += trimmed
+
+            # Write the archive
+            total_bytes = _write_ttar(output_path, metadata_bytes, file_entries, bin_files)
+
+            return ArchiveResult(
+                columns=[], rows=[],
+                output_file=str(output_path),
+                file_count=len(bin_files),
+                total_bytes=total_bytes,
+                message=f"Archived to {output_path} ({len(bin_files)} files, {total_bytes} bytes)",
+            )
+        finally:
+            if tmp_dir and tmp_dir.exists():
+                shutil.rmtree(tmp_dir)
+
+    def _calc_trimmed_bin_size(self, abs_path: Path, rel_path: str) -> int:
+        """Calculate the trimmed size of a .bin file (header + actual records only)."""
+        file_size = abs_path.stat().st_size
+        if file_size < 8:
+            return file_size
+
+        with open(abs_path, "rb") as f:
+            count = struct.unpack("<Q", f.read(8))[0]
+
+        record_size = self._get_record_size_for_bin(rel_path)
+        if record_size is not None:
+            return 8 + count * record_size
+        # Fallback: use actual file size (compacted db has minimal padding)
+        return file_size
+
+    def _get_record_size_for_bin(self, rel_path: str) -> int | None:
+        """Look up the record size for a .bin file by its relative path."""
+        parts = Path(rel_path).parts
+        if len(parts) == 1:
+            # Root file: Person.bin → type name "Person"
+            type_name = Path(parts[0]).stem
+            type_def = self.registry.get(type_name)
+            if type_def is not None:
+                return type_def.size_bytes
+        elif len(parts) == 2:
+            # Subdirectory: Shape/circle.bin → enum "Shape", variant "circle"
+            enum_name = parts[0]
+            variant_name = Path(parts[1]).stem
+            enum_def = self.registry.get(enum_name)
+            if isinstance(enum_def, EnumTypeDefinition):
+                variant = enum_def.get_variant(variant_name)
+                if variant is not None and variant.fields:
+                    synth = CompositeTypeDefinition(
+                        name=f"_{enum_name}_{variant_name}",
+                        fields=list(variant.fields),
+                    )
+                    return synth.size_bytes
+        return None
+
+
+def _write_ttar(
+    output_path: Path,
+    metadata_bytes: bytes,
+    file_entries: list[tuple[str, int, int]],
+    bin_files: list[tuple[str, Path]],
+) -> int:
+    """Write a .ttar archive file. Returns total bytes written."""
+    MAGIC = b"TTAR"
+    VERSION = 1
+
+    opener = gzip.open if output_path.suffix == ".gz" else open
+    with opener(output_path, "wb") as f:
+        # Header
+        f.write(MAGIC)
+        f.write(struct.pack("<H", VERSION))
+        f.write(struct.pack("<I", len(metadata_bytes)))
+        f.write(metadata_bytes)
+        f.write(struct.pack("<I", len(file_entries)))
+
+        # File index
+        for rel_path, data_offset, data_length in file_entries:
+            path_bytes = rel_path.encode("utf-8")
+            f.write(struct.pack("<H", len(path_bytes)))
+            f.write(path_bytes)
+            f.write(struct.pack("<I", data_offset))
+            f.write(struct.pack("<I", data_length))
+
+        # Data section
+        for (rel_path, abs_path), (_, _, data_length) in zip(bin_files, file_entries):
+            with open(abs_path, "rb") as src:
+                data = src.read(data_length)
+                f.write(data)
+
+        total = f.tell()
+    return total
+
+
+def execute_restore(query: RestoreQuery) -> RestoreResult:
+    """Execute a RESTORE query: extract a .ttar archive into a new database directory.
+
+    This is a module-level function so it can be called without an executor instance.
+    """
+    archive_path = Path(query.archive_file)
+
+    if query.output_path is not None:
+        output_path = Path(query.output_path)
+    else:
+        # Derive from archive filename: strip .gz then .ttar
+        name = archive_path.name
+        for ext in (".gz", ".ttar"):
+            if name.endswith(ext):
+                name = name[: -len(ext)]
+        output_path = archive_path.parent / name
+
+    if not archive_path.exists():
+        return RestoreResult(
+            columns=[], rows=[],
+            message=f"Archive file not found: {archive_path}",
+        )
+
+    if output_path.exists():
+        return RestoreResult(
+            columns=[], rows=[],
+            message=f"Output path already exists: {output_path}",
+        )
+
+    MAGIC = b"TTAR"
+
+    try:
+        opener = gzip.open if archive_path.suffix == ".gz" else open
+        with opener(archive_path, "rb") as f:
+            # Validate magic
+            magic = f.read(4)
+            if magic != MAGIC:
+                return RestoreResult(
+                    columns=[], rows=[],
+                    message=f"Invalid archive file (bad magic bytes): {archive_path}",
+                )
+
+            # Read version
+            version = struct.unpack("<H", f.read(2))[0]
+            if version != 1:
+                return RestoreResult(
+                    columns=[], rows=[],
+                    message=f"Unsupported archive version: {version}",
+                )
+
+            # Read metadata
+            metadata_len = struct.unpack("<I", f.read(4))[0]
+            metadata_bytes = f.read(metadata_len)
+
+            # Read file count
+            file_count = struct.unpack("<I", f.read(4))[0]
+
+            # Read file index
+            file_index: list[tuple[str, int, int]] = []
+            for _ in range(file_count):
+                path_len = struct.unpack("<H", f.read(2))[0]
+                rel_path = f.read(path_len).decode("utf-8")
+                data_offset = struct.unpack("<I", f.read(4))[0]
+                data_length = struct.unpack("<I", f.read(4))[0]
+                file_index.append((rel_path, data_offset, data_length))
+
+            # Record where data section starts
+            data_section_start = f.tell()
+
+            # Create output directory and write metadata
+            output_path.mkdir(parents=True, exist_ok=True)
+            (output_path / "_metadata.json").write_bytes(metadata_bytes)
+
+            # Write each .bin file
+            for rel_path, data_offset, data_length in file_index:
+                bin_path = output_path / rel_path
+                bin_path.parent.mkdir(parents=True, exist_ok=True)
+                f.seek(data_section_start + data_offset)
+                data = f.read(data_length)
+                with open(bin_path, "wb") as out:
+                    out.write(data)
+
+    except Exception as e:
+        # Clean up partial output on error
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        return RestoreResult(
+            columns=[], rows=[],
+            message=f"Error restoring archive: {e}",
+        )
+
+    return RestoreResult(
+        columns=[], rows=[],
+        output_path=str(output_path),
+        file_count=file_count,
+        message=f"Restored to {output_path} ({file_count} files)",
+    )

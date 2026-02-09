@@ -1,0 +1,51 @@
+-- TTQ dump
+create enum Color { none, red, orange, yellow, gold, green, navy, white, gray, black, maroon, hex(value: string) }
+create enum LineCap { butt, round, square }
+create enum LineJoin { miter, round, bevel }
+create interface Styled { fill: Color, fill_opacity: float32, stroke: Color, stroke_width: float32, stroke_linecap: LineCap, stroke_linejoin: LineJoin, opacity: float32 }
+create interface Positioned { x: float32, y: float32 }
+create interface Sized { width: float32, height: float32 }
+create type Point { x: float32, y: float32 }
+create type Rect from Styled, Positioned, Sized { rx: float32, ry: float32 }
+create type Circle from Styled { cx: float32, cy: float32, r: float32 }
+create type Ellipse from Styled { cx: float32, cy: float32, rx: float32, ry: float32 }
+create type Line from Styled { x1: float32, y1: float32, x2: float32, y2: float32 }
+create type Polyline from Styled { points: Point[] }
+create type Polygon from Styled { points: Point[] }
+create type Path from Styled { d: string }
+create type Text from Styled, Positioned { content: string, font_family: string, font_size: float32, font_weight: uint16 }
+create Rect(fill=Color.hex(value="#87CEEB"), fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, x=0.0, y=0.0, width=800.0, height=400.0, rx=null, ry=null)
+create Rect(fill=Color.green, fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, x=0.0, y=400.0, width=800.0, height=200.0, rx=null, ry=null)
+create Rect(fill=Color.hex(value="#CD853F"), fill_opacity=null, stroke=Color.black, stroke_width=2.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, x=100.0, y=310.0, width=160.0, height=90.0, rx=null, ry=null)
+create Rect(fill=Color.hex(value="#87CEEB"), fill_opacity=null, stroke=Color.black, stroke_width=1.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, x=115.0, y=330.0, width=30.0, height=30.0, rx=2.0, ry=2.0)
+create Rect(fill=Color.hex(value="#87CEEB"), fill_opacity=null, stroke=Color.black, stroke_width=1.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, x=215.0, y=330.0, width=30.0, height=30.0, rx=2.0, ry=2.0)
+create Rect(fill=Color.hex(value="#8B4513"), fill_opacity=null, stroke=Color.black, stroke_width=1.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, x=160.0, y=350.0, width=40.0, height=50.0, rx=3.0, ry=3.0)
+create Rect(fill=Color.hex(value="#8B4513"), fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, x=580.0, y=340.0, width=20.0, height=60.0, rx=null, ry=null)
+create Circle(fill=Color.yellow, fill_opacity=null, stroke=Color.orange, stroke_width=3.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=680.0, cy=100.0, r=50.0)
+create Circle(fill=Color.gold, fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=190.0, cy=378.0, r=3.0)
+create Circle(fill=Color.red, fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=703.0, cy=362.0, r=5.0)
+create Circle(fill=Color.red, fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=717.0, cy=362.0, r=5.0)
+create Circle(fill=Color.red, fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=710.0, cy=355.0, r=5.0)
+create Circle(fill=Color.red, fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=710.0, cy=369.0, r=5.0)
+create Circle(fill=Color.yellow, fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=710.0, cy=362.0, r=4.0)
+create Ellipse(fill=Color.white, fill_opacity=0.8999999761581421, stroke=null, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=150.0, cy=90.0, rx=70.0, ry=30.0)
+create Ellipse(fill=Color.white, fill_opacity=0.8999999761581421, stroke=null, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=210.0, cy=75.0, rx=50.0, ry=25.0)
+create Ellipse(fill=Color.white, fill_opacity=0.8999999761581421, stroke=null, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=450.0, cy=60.0, rx=60.0, ry=22.0)
+create Ellipse(fill=Color.green, fill_opacity=null, stroke=Color.hex(value="#006400"), stroke_width=1.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=630.0, cy=395.0, rx=25.0, ry=15.0)
+create Ellipse(fill=Color.hex(value="#006400"), fill_opacity=null, stroke=Color.none, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, cx=660.0, cy=398.0, rx=20.0, ry=12.0)
+create Line(fill=null, fill_opacity=null, stroke=Color.orange, stroke_width=2.0, stroke_linecap=LineCap.round, stroke_linejoin=null, opacity=null, x1=680.0, y1=30.0, x2=680.0, y2=5.0)
+create Line(fill=null, fill_opacity=null, stroke=Color.orange, stroke_width=2.0, stroke_linecap=LineCap.round, stroke_linejoin=null, opacity=null, x1=620.0, y1=50.0, x2=600.0, y2=35.0)
+create Line(fill=null, fill_opacity=null, stroke=Color.orange, stroke_width=2.0, stroke_linecap=LineCap.round, stroke_linejoin=null, opacity=null, x1=740.0, y1=50.0, x2=760.0, y2=35.0)
+create Line(fill=null, fill_opacity=null, stroke=Color.orange, stroke_width=2.0, stroke_linecap=LineCap.round, stroke_linejoin=null, opacity=null, x1=620.0, y1=150.0, x2=600.0, y2=165.0)
+create Line(fill=null, fill_opacity=null, stroke=Color.orange, stroke_width=2.0, stroke_linecap=LineCap.round, stroke_linejoin=null, opacity=null, x1=740.0, y1=150.0, x2=760.0, y2=165.0)
+create Line(fill=null, fill_opacity=null, stroke=Color.green, stroke_width=2.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, x1=710.0, y1=400.0, x2=710.0, y2=365.0)
+create Polyline(fill=null, fill_opacity=null, stroke=Color.white, stroke_width=2.0, stroke_linecap=null, stroke_linejoin=LineJoin.miter, opacity=null, points=[Point(x=280.0, y=400.0), Point(x=280.0, y=375.0), Point(x=290.0, y=375.0), Point(x=290.0, y=400.0), Point(x=310.0, y=400.0), Point(x=310.0, y=375.0), Point(x=320.0, y=375.0), Point(x=320.0, y=400.0), Point(x=340.0, y=400.0), Point(x=340.0, y=375.0), Point(x=350.0, y=375.0), Point(x=350.0, y=400.0)])
+create Polygon(fill=Color.gray, fill_opacity=null, stroke=Color.hex(value="#556B2F"), stroke_width=2.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, points=[Point(x=0.0, y=400.0), Point(x=120.0, y=260.0), Point(x=240.0, y=400.0)])
+create Polygon(fill=Color.hex(value="#696969"), fill_opacity=null, stroke=Color.hex(value="#556B2F"), stroke_width=2.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, points=[Point(x=160.0, y=400.0), Point(x=350.0, y=190.0), Point(x=540.0, y=400.0)])
+create Polygon(fill=Color.gray, fill_opacity=null, stroke=Color.hex(value="#556B2F"), stroke_width=2.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, points=[Point(x=400.0, y=400.0), Point(x=530.0, y=280.0), Point(x=660.0, y=400.0)])
+create Polygon(fill=Color.maroon, fill_opacity=null, stroke=Color.black, stroke_width=2.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, points=[Point(x=90.0, y=310.0), Point(x=180.0, y=240.0), Point(x=270.0, y=310.0)])
+create Polygon(fill=Color.hex(value="#FFD700"), fill_opacity=null, stroke=Color.orange, stroke_width=1.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, points=[Point(x=750.0, y=80.0), Point(x=757.0, y=100.0), Point(x=778.0, y=100.0), Point(x=761.0, y=113.0), Point(x=768.0, y=133.0), Point(x=750.0, y=122.0), Point(x=732.0, y=133.0), Point(x=739.0, y=113.0), Point(x=722.0, y=100.0), Point(x=743.0, y=100.0)])
+create Path(fill=null, fill_opacity=null, stroke=Color.hex(value="#555555"), stroke_width=40.0, stroke_linecap=LineCap.round, stroke_linejoin=null, opacity=null, d="M 400 600 Q 380 500 420 440 Q 460 380 400 350")
+create Path(fill=null, fill_opacity=null, stroke=Color.hex(value="#FFD700"), stroke_width=2.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, d="M 400 600 Q 380 500 420 440 Q 460 380 400 350")
+create Path(fill=Color.hex(value="#006400"), fill_opacity=null, stroke=null, stroke_width=null, stroke_linecap=null, stroke_linejoin=null, opacity=null, d="M 590 345 C 555 335 545 295 565 275 C 575 255 590 245 600 260 C 610 245 625 255 635 275 C 655 295 645 335 610 345 Z")
+create Text(fill=Color.white, fill_opacity=null, stroke=Color.navy, stroke_width=1.0, stroke_linecap=null, stroke_linejoin=null, opacity=null, x=400.0, y=570.0, content="SVG Landscape", font_family="Arial", font_size=28.0, font_weight=700)

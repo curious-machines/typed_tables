@@ -62,6 +62,8 @@ class QueryLexer:
         "json": "JSON",
         "xml": "XML",
         "compact": "COMPACT",
+        "archive": "ARCHIVE",
+        "restore": "RESTORE",
     }
 
     # Token list

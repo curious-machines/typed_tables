@@ -525,6 +525,7 @@ Execute queries from a file within the REPL:
 ```ttq
 execute "setup.ttq"
 execute "./path/to/script.ttq"
+execute "setup.ttq.gz"          -- execute from a gzip-compressed file
 ```
 
 ### Dump Database
@@ -539,6 +540,9 @@ dump $var                     -- dump records referenced by a variable
 dump $var to "backup.ttq"     -- dump variable records to file
 dump [Person, $seniors, Employee]             -- dump a list of tables/variables
 dump [Person, $seniors, Employee] to "backup.ttq"  -- dump list to file
+dump to "backup"              -- no extension → appends .ttq (or .yaml/.json/.xml)
+dump to "backup.ttq.gz"      -- gzip-compressed output (any format)
+dump yaml to "backup.yaml.gz"
 ```
 
 YAML format is also supported using anchors and aliases for references:
@@ -613,6 +617,30 @@ The original database is left untouched. The output path must not already exist.
 - **Variant tables**: unreferenced variant records removed, variant indices remapped
 
 All reference types (composite refs, interface refs, array refs, Swift-style enum refs) are remapped to the new indices. If a live record references a deleted record, the reference becomes null.
+
+### Archive Database
+
+Bundle the current database into a single binary archive file (`.ttar`). The database is automatically compacted before archiving:
+```ttq
+archive to "backup.ttar"
+archive to "backup.ttar.gz"   -- gzip-compressed archive
+```
+
+The `.ttar` extension is added automatically if not present.
+
+### Restore Database
+
+Extract a `.ttar` archive into a new database directory:
+```ttq
+restore "backup.ttar" to "restored_db"
+restore "backup.ttar.gz" to "restored_db"   -- restore from gzip-compressed archive
+restore "backup.ttar"                        -- restores to "backup" directory
+restore "backup.ttar.gz"                     -- restores to "backup" directory
+```
+
+The `to` clause is optional. When omitted, the output directory is derived from the archive filename by stripping `.ttar` and `.gz` extensions. The output path must not already exist.
+
+Restore does not require a database to be currently loaded.
 
 To be determined, but here is a list of features that will be expected to be supported:
 
@@ -723,6 +751,7 @@ tt-dump <data_dir> <table_name> -n 10 # Limit to 10 records
 ttq <data_dir>                        # Start interactive REPL
 ttq <data_dir> -c "from Person select *"  # Execute single query
 ttq -f script.ttq                     # Execute queries from file
+ttq -f script.ttq.gz                  # Execute from gzip-compressed file
 ttq <data_dir> -f script.ttq          # Execute with initial database
 ttq -f script.ttq -v                  # Verbose mode (print each query)
 ```

@@ -8,10 +8,6 @@ We would need to figure out how information is passed between instructions. We c
 
 This would require turning a query into a sequence of instructions; a mini-compiler of sorts. This will be useful for debugging and could serve as a way to distribute queries between multiple running instances.
 
-## Support Deletion
-
-Deleting, I guess, anything. But what happens when we delete something other things are dependent upon. Maybe we can only delete composites and arrays.
-
 ## Import
 
 I'm wondering if we should support some type of import command. For instance, I'm thinking about SVG types again. There are a lot of interfaces and elements defined by the full SVG specificiation. I wouldn't want to have to define those each and every time I'm going to build an SVG document representation in my database. It would be nice to have that defined once and then I could import that or run it as a script to serve the same purpose as an import4. I can do this manually in the REPL using "execute", but I don't think I can use execute in a script. Is that something we could move into the query language? Are there any dangers that need to be considered if we allow execution within a script? Maybe it would be better to save a compacted binary of the SVG types and them load that compacted binary into the new database.

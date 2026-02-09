@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import readline  # noqa: F401 - enables line editing in input()
 import shutil
 import sys
@@ -10,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
-from typed_tables.parsing.query_parser import DropDatabaseQuery, QueryParser, UseQuery
-from typed_tables.query_executor import CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult
+from typed_tables.parsing.query_parser import DropDatabaseQuery, QueryParser, RestoreQuery, UseQuery
+from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
 from typed_tables.storage import StorageManager
 from typed_tables.types import EnumValue, TypeRegistry
 
@@ -104,7 +105,11 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
     if isinstance(result, DumpResult):
         if result.output_file:
             try:
-                Path(result.output_file).write_text(result.script)
+                if result.output_file.endswith(".gz"):
+                    with gzip.open(result.output_file, "wt", encoding="utf-8") as f:
+                        f.write(result.script)
+                else:
+                    Path(result.output_file).write_text(result.script)
                 print(f"Dumped to {result.output_file}")
             except Exception as e:
                 print(f"Error writing to {result.output_file}: {e}")
@@ -113,7 +118,7 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
         return
 
     # Special handling for UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, ScopeResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult, CompactResult)):
+    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult, CompactResult, ArchiveResult, RestoreResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -240,7 +245,7 @@ def run_repl(data_dir: Path | None) -> int:
         simple_prefixes = (
             "show ", "describe ", "use ", "use", "drop", "drop!", "drop ",
             "drop! ", "dump", "delete ", "from ", "select ", "forward ",
-            "compact ",
+            "compact ", "archive ", "restore ",
         )
         for prefix in simple_prefixes:
             if lower.startswith(prefix) or lower == prefix.strip():
@@ -290,8 +295,12 @@ def run_repl(data_dir: Path | None) -> int:
                     print()
                     continue
                 script_path = Path(arg[1:-1])  # Remove quotes
-                if not script_path.exists() and not script_path.suffix == ".ttq":
-                    script_path = script_path.with_suffix(".ttq")
+                if not script_path.exists() and not script_path.suffix:
+                    for ext in (".ttq", ".ttq.gz"):
+                        candidate = Path(str(script_path) + ext)
+                        if candidate.exists():
+                            script_path = candidate
+                            break
                 if not script_path.exists():
                     print(f"Error: File not found: {script_path}")
                     print()
@@ -344,7 +353,7 @@ def run_repl(data_dir: Path | None) -> int:
 
                 # Check if we need a database for this query
                 lower = line.lower().strip()
-                needs_db = not (lower.startswith("use") or lower.startswith("drop") or lower.startswith("select "))
+                needs_db = not (lower.startswith("use") or lower.startswith("drop") or lower.startswith("select ") or lower.startswith("restore"))
                 if needs_db and executor is None:
                     print("No database selected. Use 'use <path>' to select a database first.")
                     print()
@@ -425,6 +434,13 @@ def run_repl(data_dir: Path | None) -> int:
                                 print(f"Dropped database: {drop_path}")
                             except Exception as e:
                                 print(f"Error dropping database: {e}")
+                    print()
+                    continue
+
+                # Handle RESTORE query - doesn't need executor
+                if isinstance(query, RestoreQuery):
+                    result = execute_restore(query)
+                    print_result(result)
                     print()
                     continue
 
@@ -637,6 +653,20 @@ DUMP:
   dump xml                 Dump as XML (uses id/ref="#id" for references)
   dump xml pretty          Pretty-print XML output
                            (xml can be combined with other dump options)
+  dump to "file.ttq.gz"   Gzip-compress the output (.gz suffix on any format)
+
+ARCHIVE & RESTORE:
+  archive to "file.ttar"   Compact and bundle database into a single file
+                           (.ttar extension added automatically if missing)
+  archive to "file.ttar.gz"
+                           Gzip-compressed archive
+  restore "file.ttar" to "path"
+                           Extract archive into a new database directory
+                           (does not require a loaded database)
+  restore "file.ttar"     Restore to directory derived from filename
+                           ("backup.ttar" → "backup", "backup.ttar.gz" → "backup")
+  restore "file.ttar.gz" to "path"
+                           Restore from a gzip-compressed archive
 
 CYCLIC DATA:
   Tags allow creating cyclic data structures. Tags must be used within a
@@ -663,6 +693,7 @@ OTHER:
   exit, quit               Exit the REPL
   clear                    Clear the screen
   execute "file.ttq"       Execute queries from a file
+  execute "file.ttq.gz"    Execute from a gzip-compressed file
 
 Queries can span multiple lines. Semicolons are optional.
 End with closing ) or }, or press Enter on empty line.
@@ -684,7 +715,11 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> t
 
     # Read file content
     try:
-        content = file_path.read_text()
+        if file_path.suffix == ".gz":
+            with gzip.open(file_path, "rt", encoding="utf-8") as f:
+                content = f.read()
+        else:
+            content = file_path.read_text()
     except Exception as e:
         print(f"Error reading file: {e}", file=sys.stderr)
         return 1, data_dir
@@ -742,7 +777,7 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> t
 
         try:
             # Check if we need a database for this query
-            needs_db = not isinstance(query, (UseQuery, DropDatabaseQuery))
+            needs_db = not isinstance(query, (UseQuery, DropDatabaseQuery, RestoreQuery))
             # EvalQuery (SELECT without FROM) doesn't need a database
             from typed_tables.parsing.query_parser import EvalQuery
             if isinstance(query, EvalQuery):
@@ -780,6 +815,12 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> t
                     except Exception as e:
                         print(f"Error loading database: {e}", file=sys.stderr)
                         return 1, data_dir
+                continue
+
+            # Handle RESTORE query specially - doesn't need executor
+            if isinstance(query, RestoreQuery):
+                result = execute_restore(query)
+                print_result(result)
                 continue
 
             # Handle DROP query specially
