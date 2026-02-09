@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
-from typed_tables.parsing.query_parser import DropDatabaseQuery, QueryParser, RestoreQuery, UseQuery
-from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
+from typed_tables.parsing.query_parser import DropDatabaseQuery, ExecuteQuery, QueryParser, RestoreQuery, UseQuery
+from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, ExecuteResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
 from typed_tables.storage import StorageManager
 from typed_tables.types import EnumValue, TypeRegistry
 
@@ -118,7 +118,7 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
         return
 
     # Special handling for UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, ScopeResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult, CompactResult, ArchiveResult, RestoreResult)):
+    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult, CompactResult, ArchiveResult, RestoreResult, ExecuteResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -245,7 +245,7 @@ def run_repl(data_dir: Path | None) -> int:
         simple_prefixes = (
             "show ", "describe ", "use ", "use", "drop", "drop!", "drop ",
             "drop! ", "dump", "delete ", "from ", "select ", "forward ",
-            "compact ", "archive ", "restore ",
+            "compact ", "archive ", "restore ", "execute ",
         )
         for prefix in simple_prefixes:
             if lower.startswith(prefix) or lower == prefix.strip():
@@ -285,55 +285,6 @@ def run_repl(data_dir: Path | None) -> int:
                     print("No database selected.")
                 print()
                 continue
-            elif line.lower().startswith("execute "):
-                # Execute a script file - requires quoted string
-                arg = line[8:].strip().rstrip(";").strip()
-                if not ((arg.startswith('"') and arg.endswith('"')) or
-                        (arg.startswith("'") and arg.endswith("'"))):
-                    print("Error: execute requires a quoted filename")
-                    print("  Example: execute \"script.ttq\"")
-                    print()
-                    continue
-                script_path = Path(arg[1:-1])  # Remove quotes
-                if not script_path.exists() and not script_path.suffix:
-                    for ext in (".ttq", ".ttq.gz"):
-                        candidate = Path(str(script_path) + ext)
-                        if candidate.exists():
-                            script_path = candidate
-                            break
-                if not script_path.exists():
-                    print(f"Error: File not found: {script_path}")
-                    print()
-                    continue
-
-                # Run the script file, passing current database state
-                print(f"Executing {script_path}...")
-                exit_code, new_data_dir = run_file(script_path, data_dir, verbose=True)
-                if exit_code != 0:
-                    print(f"Script execution failed with errors.")
-                else:
-                    print(f"Script execution completed.")
-
-                # Adopt the script's final database state
-                # (script may have used 'use' to switch or create a database)
-                if storage:
-                    storage.close()
-                    storage = None
-                    registry = None
-                    executor = None
-                data_dir = new_data_dir
-                if data_dir and data_dir.exists():
-                    try:
-                        registry, storage, executor, _ = load_database(data_dir)
-                    except Exception as e:
-                        print(f"Warning: Could not reload database: {e}")
-                        storage = None
-                        registry = None
-                        executor = None
-
-                print()
-                continue
-
             # Parse and execute query
             try:
                 # Handle multi-line queries (continue until semicolon)
@@ -353,7 +304,7 @@ def run_repl(data_dir: Path | None) -> int:
 
                 # Check if we need a database for this query
                 lower = line.lower().strip()
-                needs_db = not (lower.startswith("use") or lower.startswith("drop") or lower.startswith("select ") or lower.startswith("restore"))
+                needs_db = not (lower.startswith("use") or lower.startswith("drop") or lower.startswith("select ") or lower.startswith("restore") or lower.startswith("execute "))
                 if needs_db and executor is None:
                     print("No database selected. Use 'use <path>' to select a database first.")
                     print()
@@ -441,6 +392,47 @@ def run_repl(data_dir: Path | None) -> int:
                 if isinstance(query, RestoreQuery):
                     result = execute_restore(query)
                     print_result(result)
+                    print()
+                    continue
+
+                # Handle EXECUTE query specially in the REPL — route through
+                # run_file() so that scripts containing use/drop work correctly.
+                if isinstance(query, ExecuteQuery):
+                    script_path = Path(query.file_path)
+                    if not script_path.exists() and not script_path.suffix:
+                        for ext in (".ttq", ".ttq.gz"):
+                            candidate = Path(str(script_path) + ext)
+                            if candidate.exists():
+                                script_path = candidate
+                                break
+                    if not script_path.exists():
+                        print(f"Error: File not found: {script_path}")
+                        print()
+                        continue
+
+                    print(f"Executing {script_path}...")
+                    exit_code, new_data_dir = run_file(script_path, data_dir, verbose=True)
+                    if exit_code != 0:
+                        print("Script execution failed with errors.")
+                    else:
+                        print("Script execution completed.")
+
+                    # Adopt the script's final database state
+                    if storage:
+                        storage.close()
+                        storage = None
+                        registry = None
+                        executor = None
+                    data_dir = new_data_dir
+                    if data_dir and data_dir.exists():
+                        try:
+                            registry, storage, executor, _ = load_database(data_dir)
+                        except Exception as e:
+                            print(f"Warning: Could not reload database: {e}")
+                            storage = None
+                            registry = None
+                            executor = None
+
                     print()
                     continue
 
@@ -688,12 +680,18 @@ CYCLIC DATA:
   The dump command is cycle-aware and automatically emits scope blocks with
   tag syntax when serializing cyclic data, ensuring roundtrip fidelity.
 
+EXECUTE SCRIPT:
+  execute "file.ttq"       Execute queries from a file
+  execute "file.ttq.gz"    Execute from a gzip-compressed file
+                           In the REPL: scripts may use/drop/restore
+                           In nested scripts: use/drop/restore not allowed
+                           Paths resolve relative to the calling script
+                           Re-executing an already-loaded script is an error
+
 OTHER:
   help                     Show this help
   exit, quit               Exit the REPL
   clear                    Clear the screen
-  execute "file.ttq"       Execute queries from a file
-  execute "file.ttq.gz"    Execute from a gzip-compressed file
 
 Queries can span multiple lines. Semicolons are optional.
 End with closing ) or }, or press Enter on empty line.
@@ -730,6 +728,9 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> t
     executor: QueryExecutor | None = None
     parser = QueryParser()
 
+    # Track the script directory for relative path resolution in execute statements
+    script_dir = file_path.resolve().parent
+
     def load_database(path: Path) -> tuple[TypeRegistry, StorageManager, QueryExecutor, bool]:
         """Load a database from the given path."""
         metadata_file = path / "_metadata.json"
@@ -741,6 +742,9 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> t
             reg = load_registry_from_metadata(path)
         stor = StorageManager(path, reg)
         exec = QueryExecutor(stor, reg)
+        # Set script context so execute statements resolve relative paths
+        exec._script_stack.append(script_dir)
+        exec._loaded_scripts.add(str(file_path.resolve()))
         return reg, stor, exec, is_new
 
     # Load initial database if provided

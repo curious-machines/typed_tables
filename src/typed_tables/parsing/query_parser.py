@@ -122,6 +122,13 @@ class RestoreQuery:
 
 
 @dataclass
+class ExecuteQuery:
+    """An EXECUTE query — run statements from a file."""
+
+    file_path: str
+
+
+@dataclass
 class DescribeQuery:
     """A DESCRIBE query."""
 
@@ -364,7 +371,7 @@ class ScopeBlock:
     statements: list[Any] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | ArchiveQuery | RestoreQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
+Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -468,6 +475,10 @@ class QueryParser:
     def p_query_restore(self, p: yacc.YaccProduction) -> None:
         """query : RESTORE STRING"""
         p[0] = RestoreQuery(archive_file=p[2])
+
+    def p_query_execute(self, p: yacc.YaccProduction) -> None:
+        """query : EXECUTE STRING"""
+        p[0] = ExecuteQuery(file_path=p[2])
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
         """query : DESCRIBE IDENTIFIER sort_clause

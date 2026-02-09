@@ -31,6 +31,7 @@ from typed_tables.parsing.query_parser import (
     DeleteQuery,
     DumpGraphQuery,
     EnumValueExpr,
+    ExecuteQuery,
     ForwardTypeQuery,
     DescribeQuery,
     DropDatabaseQuery,
@@ -42,6 +43,7 @@ from typed_tables.parsing.query_parser import (
     InlineInstance,
     NullValue,
     Query,
+    QueryParser,
     RestoreQuery,
     ScopeBlock,
     SelectField,
@@ -147,6 +149,14 @@ class RestoreResult(QueryResult):
 
 
 @dataclass
+class ExecuteResult(QueryResult):
+    """Result of an EXECUTE query."""
+
+    file_path: str = ""
+    statements_executed: int = 0
+
+
+@dataclass
 class VariableAssignmentResult(QueryResult):
     """Result of a variable assignment."""
 
@@ -202,6 +212,9 @@ class QueryExecutor:
         self.variables: dict[str, tuple[str, int | list[int]]] = {}  # name → (type_name, index_or_indices)
         # Scope stack for tags and scoped variables
         self._scope_stack: list[ScopeState] = []
+        # Script execution tracking
+        self._script_stack: list[Path] = []  # stack of script directories for relative path resolution
+        self._loaded_scripts: set[str] = set()  # absolute paths of scripts loaded via execute
 
     @staticmethod
     def _sort_rows(rows: list[dict[str, Any]], sort_by: list[str], defaults: list[str] | None = None) -> list[dict[str, Any]]:
@@ -264,6 +277,8 @@ class QueryExecutor:
             return self._execute_archive(query)
         elif isinstance(query, RestoreQuery):
             return execute_restore(query)
+        elif isinstance(query, ExecuteQuery):
+            return self._execute_execute(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -4459,6 +4474,83 @@ class QueryExecutor:
                 field_references[field.name] = field_value
 
         return field_references
+
+    # --- Execute script ---
+
+    def _execute_execute(self, query: ExecuteQuery) -> ExecuteResult:
+        """Execute a TTQ script file."""
+        # Resolve file path relative to the current script directory (if any)
+        raw_path = Path(query.file_path)
+        if not raw_path.is_absolute() and self._script_stack:
+            raw_path = self._script_stack[-1] / raw_path
+
+        # Auto-append extension if file not found and no extension
+        script_path = raw_path
+        if not script_path.exists() and not script_path.suffix:
+            for ext in (".ttq", ".ttq.gz"):
+                candidate = Path(str(script_path) + ext)
+                if candidate.exists():
+                    script_path = candidate
+                    break
+
+        if not script_path.exists():
+            raise FileNotFoundError(f"Script file not found: {script_path}")
+
+        # Resolve to absolute for dedup tracking
+        abs_path = str(script_path.resolve())
+
+        # Check for re-execution (cycle detection)
+        if abs_path in self._loaded_scripts:
+            raise RuntimeError(f"Script already loaded: {script_path} (circular execute detected)")
+
+        self._loaded_scripts.add(abs_path)
+
+        # Read file content
+        if script_path.suffix == ".gz":
+            with gzip.open(script_path, "rt", encoding="utf-8") as f:
+                content = f.read()
+        else:
+            content = script_path.read_text()
+
+        # Parse all statements
+        parser = QueryParser()
+        content = content.strip()
+        if not content:
+            return ExecuteResult(
+                columns=[],
+                rows=[],
+                message=f"Executed {script_path} (0 statements)",
+                file_path=str(script_path),
+                statements_executed=0,
+            )
+        queries = parser.parse_program(content)
+
+        # Reject lifecycle commands inside executed scripts
+        for q in queries:
+            if isinstance(q, (UseQuery, DropDatabaseQuery, RestoreQuery)):
+                raise RuntimeError(
+                    f"{type(q).__name__} is not allowed inside executed scripts"
+                )
+
+        # Push script directory onto stack for relative path resolution
+        script_dir = script_path.resolve().parent
+        self._script_stack.append(script_dir)
+
+        try:
+            count = 0
+            for q in queries:
+                self.execute(q)
+                count += 1
+        finally:
+            self._script_stack.pop()
+
+        return ExecuteResult(
+            columns=[],
+            rows=[],
+            message=f"Executed {script_path} ({count} statement{'s' if count != 1 else ''})",
+            file_path=str(script_path),
+            statements_executed=count,
+        )
 
     # --- Compact ---
 

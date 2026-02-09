@@ -521,12 +521,28 @@ dot -Tsvg types.dot -o types.svg
 
 ### Execute Script
 
-Execute queries from a file within the REPL:
+Execute queries from a file. This is a proper TTQ statement that works both in
+the REPL and inside other scripts:
 ```ttq
 execute "setup.ttq"
 execute "./path/to/script.ttq"
 execute "setup.ttq.gz"          -- execute from a gzip-compressed file
 ```
+
+The `.ttq` or `.ttq.gz` extension is auto-appended if the file is not found and
+has no extension.
+
+**Relative paths** resolve relative to the directory of the calling script, not
+the current working directory. This allows scripts to reference sibling files
+reliably.
+
+**Cycle detection**: Each script can only be loaded once per session. Re-executing
+an already-loaded script (directly or indirectly) is an error.
+
+**REPL vs script context**: When `execute` is used in the REPL, scripts may
+contain `use`, `drop`, and `restore` — the REPL adopts the script's final
+database state. When `execute` is used inside another script (nested execute),
+these lifecycle commands are not allowed.
 
 ### Dump Database
 
