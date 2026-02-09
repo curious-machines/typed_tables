@@ -168,7 +168,7 @@ class QueryExecutor:
     def execute(self, query: Query) -> QueryResult:
         """Execute a query and return results."""
         if isinstance(query, ShowTypesQuery):
-            return self._execute_show_types()
+            return self._execute_show_types(query)
         elif isinstance(query, DescribeQuery):
             return self._execute_describe(query)
         elif isinstance(query, SelectQuery):
@@ -326,8 +326,26 @@ class QueryExecutor:
             statement_count=len(results),
         )
 
-    def _execute_show_types(self) -> QueryResult:
-        """Execute SHOW TYPES query."""
+    def _execute_show_types(self, query: ShowTypesQuery) -> QueryResult:
+        """Execute SHOW TYPES query, optionally filtered by kind."""
+        # Collect primitive/alias names referenced by user-defined types
+        referenced_primitives: set[str] = set()
+        referenced_aliases: set[str] = set()
+        for type_name in self.registry.list_types():
+            type_def = self.registry.get(type_name)
+            if type_def is None:
+                continue
+            base = type_def.resolve_base_type()
+            # Scan fields of composites and interfaces for referenced types
+            if isinstance(base, (CompositeTypeDefinition, InterfaceTypeDefinition)):
+                for f in base.fields:
+                    self._collect_referenced_types(f.type_def, referenced_primitives, referenced_aliases)
+            # Scan enum variant fields
+            if isinstance(base, EnumTypeDefinition):
+                for v in base.variants:
+                    for f in v.fields:
+                        self._collect_referenced_types(f.type_def, referenced_primitives, referenced_aliases)
+
         rows = []
         for type_name in sorted(self.registry.list_types()):
             type_def = self.registry.get(type_name)
@@ -336,40 +354,56 @@ class QueryExecutor:
 
             base = type_def.resolve_base_type()
 
-            # Interfaces: show with count = sum of implementing types
-            if isinstance(base, InterfaceTypeDefinition):
+            # Classify the type
+            if isinstance(type_def, InterfaceTypeDefinition):
+                kind = "Interface"
                 impl_types = self.registry.find_implementing_types(type_name)
-                total = 0
+                count = 0
                 for impl_name, _ in impl_types:
                     impl_file = self.storage.data_dir / f"{impl_name}.bin"
                     if impl_file.exists():
                         try:
-                            total += self.storage.get_table(impl_name).count
+                            count += self.storage.get_table(impl_name).count
                         except Exception:
                             pass
-                rows.append({
-                    "type": type_name,
-                    "kind": "Interface",
-                    "count": total,
-                })
+            elif isinstance(type_def, EnumTypeDefinition):
+                kind = "Enum"
+                count = len(type_def.variants)
+            elif isinstance(type_def, AliasTypeDefinition):
+                if type_name not in referenced_aliases:
+                    continue
+                kind = "Alias"
+                count = None
+            elif isinstance(type_def, (ArrayTypeDefinition, StringTypeDefinition)):
+                # Skip array/string internal types
+                continue
+            elif isinstance(type_def, PrimitiveTypeDefinition):
+                if type_name not in referenced_primitives:
+                    continue
+                kind = "Primitive"
+                count = None
+            elif isinstance(type_def, CompositeTypeDefinition):
+                table_file = self.storage.data_dir / f"{type_name}.bin"
+                if not table_file.exists():
+                    continue
+                kind = "Composite"
+                try:
+                    count = self.storage.get_table(type_name).count
+                except Exception:
+                    count = 0
+            else:
                 continue
 
-            # Check if table file exists
-            table_file = self.storage.data_dir / f"{type_name}.bin"
-            if not table_file.exists():
+            # Apply filter
+            _KIND_TO_FILTER = {
+                "Interface": "interfaces",
+                "Composite": "composites",
+                "Enum": "enums",
+                "Primitive": "primitives",
+                "Alias": "aliases",
+            }
+            if query.filter is not None and _KIND_TO_FILTER.get(kind) != query.filter:
                 continue
-
-            kind = type_def.__class__.__name__.replace("TypeDefinition", "")
-
-            # Skip standalone array types (no header table file anymore)
-            if isinstance(base, ArrayTypeDefinition):
-                continue
-
-            # Get record count
-            try:
-                count = self.storage.get_table(type_name).count
-            except Exception:
-                count = 0
 
             rows.append({
                 "type": type_name,
@@ -381,6 +415,21 @@ class QueryExecutor:
             columns=["type", "kind", "count"],
             rows=rows,
         )
+
+    def _collect_referenced_types(
+        self,
+        type_def: TypeDefinition,
+        primitives: set[str],
+        aliases: set[str],
+    ) -> None:
+        """Recursively collect primitive and alias type names referenced by a field type."""
+        if isinstance(type_def, AliasTypeDefinition):
+            aliases.add(type_def.name)
+            self._collect_referenced_types(type_def.base_type, primitives, aliases)
+        elif isinstance(type_def, PrimitiveTypeDefinition):
+            primitives.add(type_def.name)
+        elif isinstance(type_def, ArrayTypeDefinition):
+            self._collect_referenced_types(type_def.element_type, primitives, aliases)
 
     def _execute_describe(self, query: DescribeQuery) -> QueryResult:
         """Execute DESCRIBE query."""

@@ -80,7 +80,7 @@ class SelectQuery:
 class ShowTypesQuery:
     """A SHOW TYPES query."""
 
-    pass
+    filter: str | None = None  # None, "interfaces", "composites", "enums", "primitives", "aliases"
 
 
 @dataclass
@@ -377,6 +377,26 @@ class QueryParser:
     def p_query_show_types(self, p: yacc.YaccProduction) -> None:
         """query : SHOW TYPES"""
         p[0] = ShowTypesQuery()
+
+    def p_query_show_interfaces(self, p: yacc.YaccProduction) -> None:
+        """query : SHOW INTERFACES"""
+        p[0] = ShowTypesQuery(filter="interfaces")
+
+    def p_query_show_composites(self, p: yacc.YaccProduction) -> None:
+        """query : SHOW COMPOSITES"""
+        p[0] = ShowTypesQuery(filter="composites")
+
+    def p_query_show_enums(self, p: yacc.YaccProduction) -> None:
+        """query : SHOW ENUMS"""
+        p[0] = ShowTypesQuery(filter="enums")
+
+    def p_query_show_primitives(self, p: yacc.YaccProduction) -> None:
+        """query : SHOW PRIMITIVES"""
+        p[0] = ShowTypesQuery(filter="primitives")
+
+    def p_query_show_aliases(self, p: yacc.YaccProduction) -> None:
+        """query : SHOW ALIASES"""
+        p[0] = ShowTypesQuery(filter="aliases")
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
         """query : DESCRIBE IDENTIFIER

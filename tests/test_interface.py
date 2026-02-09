@@ -14,10 +14,16 @@ from typed_tables.types import (
     TypeRegistry,
 )
 from typed_tables.parsing.query_parser import (
+    CreateAliasQuery,
+    CreateEnumQuery,
+    CreateInstanceQuery,
     CreateInterfaceQuery,
     CreateTypeQuery,
+    EnumVariantSpec,
     FieldDef,
+    FieldValue,
     QueryParser,
+    ShowTypesQuery,
 )
 from typed_tables.storage import StorageManager
 from typed_tables.query_executor import QueryExecutor, QueryResult, CreateResult
@@ -583,3 +589,116 @@ class TestPolymorphicQueryFiltering:
         assert len(result.rows) == 1
         assert "width" in result.columns
         assert "height" in result.columns
+
+
+class TestShowFiltered:
+    """Tests for filtered show commands."""
+
+    def _setup_types(self, executor):
+        """Set up a mix of composites, interfaces, enums, and aliases."""
+        executor.execute(CreateInterfaceQuery(
+            name="Styled",
+            fields=[FieldDef(name="color", type_name="string")],
+        ))
+        executor.execute(CreateEnumQuery(
+            name="Color",
+            variants=[
+                EnumVariantSpec(name="red"),
+                EnumVariantSpec(name="green"),
+                EnumVariantSpec(name="blue"),
+            ],
+        ))
+        executor.execute(CreateAliasQuery(name="age", base_type="uint8"))
+        executor.execute(CreateTypeQuery(
+            name="Person",
+            fields=[
+                FieldDef(name="name", type_name="string"),
+                FieldDef(name="age", type_name="age"),
+            ],
+        ))
+        executor.execute(CreateInstanceQuery(
+            type_name="Person",
+            fields=[FieldValue(name="name", value="Alice"), FieldValue(name="age", value=30)],
+        ))
+
+    def test_show_interfaces(self, executor):
+        self._setup_types(executor)
+        result = executor.execute(ShowTypesQuery(filter="interfaces"))
+        kinds = {row["kind"] for row in result.rows}
+        assert kinds == {"Interface"}
+        names = {row["type"] for row in result.rows}
+        assert "Styled" in names
+
+    def test_show_composites(self, executor):
+        self._setup_types(executor)
+        result = executor.execute(ShowTypesQuery(filter="composites"))
+        kinds = {row["kind"] for row in result.rows}
+        assert kinds == {"Composite"}
+        names = {row["type"] for row in result.rows}
+        assert "Person" in names
+
+    def test_show_enums(self, executor):
+        self._setup_types(executor)
+        result = executor.execute(ShowTypesQuery(filter="enums"))
+        kinds = {row["kind"] for row in result.rows}
+        assert kinds == {"Enum"}
+        names = {row["type"] for row in result.rows}
+        assert "Color" in names
+        # Variant count as count
+        color_row = [r for r in result.rows if r["type"] == "Color"][0]
+        assert color_row["count"] == 3
+
+    def test_show_primitives(self, executor):
+        self._setup_types(executor)
+        result = executor.execute(ShowTypesQuery(filter="primitives"))
+        kinds = {row["kind"] for row in result.rows}
+        assert kinds == {"Primitive"}
+        names = {row["type"] for row in result.rows}
+        # uint8 is referenced via the 'age' alias, character is referenced via string fields
+        assert "uint8" in names
+        assert "character" in names
+        # Built-in primitives NOT referenced should be absent
+        assert "float64" not in names
+
+    def test_show_aliases(self, executor):
+        self._setup_types(executor)
+        result = executor.execute(ShowTypesQuery(filter="aliases"))
+        kinds = {row["kind"] for row in result.rows}
+        assert kinds == {"Alias"}
+        names = {row["type"] for row in result.rows}
+        assert "age" in names
+
+    def test_show_types_all_kinds(self, executor):
+        self._setup_types(executor)
+        result = executor.execute(ShowTypesQuery())
+        kinds = {row["kind"] for row in result.rows}
+        assert "Composite" in kinds
+        assert "Interface" in kinds
+        assert "Enum" in kinds
+        assert "Primitive" in kinds
+        assert "Alias" in kinds
+
+    def test_show_interfaces_parsed(self, parser):
+        result = parser.parse("show interfaces")
+        assert isinstance(result, ShowTypesQuery)
+        assert result.filter == "interfaces"
+
+    def test_show_composites_parsed(self, parser):
+        result = parser.parse("show composites")
+        assert isinstance(result, ShowTypesQuery)
+        assert result.filter == "composites"
+
+    def test_show_enums_parsed(self, parser):
+        result = parser.parse("show enums")
+        assert isinstance(result, ShowTypesQuery)
+        assert result.filter == "enums"
+
+    def test_show_primitives_parsed(self, parser):
+        result = parser.parse("show primitives")
+        assert isinstance(result, ShowTypesQuery)
+        assert result.filter == "primitives"
+
+    def test_show_aliases_parsed(self, parser):
+        result = parser.parse("show aliases")
+        assert isinstance(result, ShowTypesQuery)
+        assert result.filter == "aliases"

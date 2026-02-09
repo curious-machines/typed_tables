@@ -1,0 +1,45 @@
+-- Demo: filtered show commands
+use show_demo
+
+-- Aliases
+create alias identifier as uint128
+create alias age as uint8
+
+-- Enums
+create enum Color { red, green, blue }
+create enum Shape {
+    none,
+    circle(cx: float32, cy: float32, r: float32),
+    rect(x: float32, y: float32, w: float32, h: float32)
+}
+
+-- Interfaces
+create interface Positioned { x: float32, y: float32 }
+create interface Named { name: string }
+
+-- Composites
+create type Person {
+    id: identifier,
+    name: string,
+    age: age
+}
+
+create type Marker from Positioned, Named {
+    color: Color
+}
+
+-- Create some instances
+create Person(id=1, name="Alice", age=30)
+create Person(id=2, name="Bob", age=25)
+create Marker(name="Home", x=1.0, y=2.0, color=.red)
+create Marker(name="Work", x=5.0, y=10.0, color=.blue)
+
+-- Show everything
+show types
+
+-- Filtered views
+show composites
+show interfaces
+show enums
+show primitives
+show aliases
