@@ -50,6 +50,7 @@ class QueryLexer:
         "scope": "SCOPE",
         "forward": "FORWARD",
         "enum": "ENUM",
+        "interface": "INTERFACE",
         "yaml": "YAML",
         "json": "JSON",
         "xml": "XML",

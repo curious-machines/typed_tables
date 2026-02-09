@@ -111,7 +111,16 @@ class CreateTypeQuery:
 
     name: str
     fields: list[FieldDef] = field(default_factory=list)
-    parent: str | None = None  # For inheritance: create Type from Parent
+    parent: str | None = None  # For single-parent backward compat (deprecated in favor of parents)
+    parents: list[str] = field(default_factory=list)  # For multi-parent inheritance
+
+
+@dataclass
+class CreateInterfaceQuery:
+    """A CREATE INTERFACE query."""
+
+    name: str
+    fields: list[FieldDef] = field(default_factory=list)
 
 
 @dataclass
@@ -316,7 +325,7 @@ class ScopeBlock:
     statements: list[Any] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTypesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
+Query = SelectQuery | ShowTypesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -410,12 +419,30 @@ class QueryParser:
         p[0] = ForwardTypeQuery(name=p[3])
 
     def p_query_create_type_inherit(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER type_field_list"""
-        p[0] = CreateTypeQuery(name=p[3], fields=p[6], parent=p[5])
+        """query : CREATE TYPE IDENTIFIER FROM parent_list type_field_list"""
+        parents = p[5]
+        p[0] = CreateTypeQuery(name=p[3], fields=p[6], parent=parents[0] if len(parents) == 1 else None, parents=parents)
 
     def p_query_create_type_inherit_empty(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER FROM IDENTIFIER"""
-        p[0] = CreateTypeQuery(name=p[3], fields=[], parent=p[5])
+        """query : CREATE TYPE IDENTIFIER FROM parent_list"""
+        parents = p[5]
+        p[0] = CreateTypeQuery(name=p[3], fields=[], parent=parents[0] if len(parents) == 1 else None, parents=parents)
+
+    def p_parent_list_single(self, p: yacc.YaccProduction) -> None:
+        """parent_list : IDENTIFIER"""
+        p[0] = [p[1]]
+
+    def p_parent_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """parent_list : parent_list COMMA IDENTIFIER"""
+        p[0] = p[1] + [p[3]]
+
+    def p_query_create_interface(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE INTERFACE IDENTIFIER type_field_list"""
+        p[0] = CreateInterfaceQuery(name=p[3], fields=p[4])
+
+    def p_query_create_interface_empty(self, p: yacc.YaccProduction) -> None:
+        """query : CREATE INTERFACE IDENTIFIER"""
+        p[0] = CreateInterfaceQuery(name=p[3], fields=[])
 
     def p_query_create_enum(self, p: yacc.YaccProduction) -> None:
         """query : CREATE ENUM IDENTIFIER LBRACE enum_variant_list RBRACE

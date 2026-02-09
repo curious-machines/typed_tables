@@ -57,6 +57,9 @@ PRIMITIVE_TYPE_NAMES: dict[str, PrimitiveType] = {pt.value: pt for pt in Primiti
 # Size of a reference (index) to an entry in a table
 REFERENCE_SIZE = 4  # uint32 index
 
+# Size of a polymorphic (interface) reference: uint16 type_id + uint32 index
+INTERFACE_REFERENCE_SIZE = 6
+
 # Sentinel value: field points to no entry in the referenced table
 NULL_REF = 0xFFFFFFFF
 
@@ -104,6 +107,11 @@ class TypeDefinition:
     @property
     def is_enum(self) -> bool:
         """Return whether this type is an enum type."""
+        return False
+
+    @property
+    def is_interface(self) -> bool:
+        """Return whether this type is an interface type."""
         return False
 
     def resolve_base_type(self) -> TypeDefinition:
@@ -211,6 +219,7 @@ class CompositeTypeDefinition(TypeDefinition):
     """
 
     fields: list[FieldDefinition] = field(default_factory=list)
+    interfaces: list[str] = field(default_factory=list)
 
     @property
     def null_bitmap_size(self) -> int:
@@ -237,6 +246,56 @@ class CompositeTypeDefinition(TypeDefinition):
 
     def get_field_offset(self, name: str) -> int:
         """Get the byte offset of a field within the composite record (after bitmap)."""
+        offset = self.null_bitmap_size
+        for f in self.fields:
+            if f.name == name:
+                return offset
+            offset += f.type_def.reference_size
+        raise KeyError(f"Field '{name}' not found in type '{self.name}'")
+
+
+@dataclass
+class InterfaceTypeDefinition(TypeDefinition):
+    """Type definition for interface types.
+
+    Interfaces define field contracts but are not instantiable.
+    Concrete types implement interfaces via multiple inheritance.
+    When used as a field type, stores a tagged reference:
+    [uint16 type_id][uint32 index] = 6 bytes.
+    """
+
+    fields: list[FieldDefinition] = field(default_factory=list)
+
+    @property
+    def null_bitmap_size(self) -> int:
+        """Return the number of bytes needed for the null bitmap."""
+        if not self.fields:
+            return 0
+        return (len(self.fields) + 7) // 8
+
+    @property
+    def size_bytes(self) -> int:
+        """Return the total record size: bitmap + all field data."""
+        return self.null_bitmap_size + sum(f.type_def.reference_size for f in self.fields)
+
+    @property
+    def reference_size(self) -> int:
+        """Interface refs use tagged references: uint16 type_id + uint32 index = 6 bytes."""
+        return INTERFACE_REFERENCE_SIZE
+
+    @property
+    def is_interface(self) -> bool:
+        return True
+
+    def get_field(self, name: str) -> FieldDefinition | None:
+        """Get a field by name."""
+        for f in self.fields:
+            if f.name == name:
+                return f
+        return None
+
+    def get_field_offset(self, name: str) -> int:
+        """Get the byte offset of a field within the interface record (after bitmap)."""
         offset = self.null_bitmap_size
         for f in self.fields:
             if f.name == name:
@@ -321,6 +380,8 @@ class TypeRegistry:
 
     def __init__(self) -> None:
         self._types: dict[str, TypeDefinition] = {}
+        self._type_ids: dict[str, int] = {}
+        self._next_type_id: int = 1  # 0 reserved for "no type"
         self._register_primitives()
 
     def _register_primitives(self) -> None:
@@ -401,6 +462,51 @@ class TypeRegistry:
         """Check if a type is registered as an unpopulated stub."""
         td = self._types.get(name)
         return isinstance(td, CompositeTypeDefinition) and not td.fields
+
+    def register_interface_stub(self, name: str) -> "InterfaceTypeDefinition":
+        """Pre-register an empty interface for forward-declaration support.
+
+        Idempotent: returns existing stub if name is already an empty interface.
+        Raises ValueError if name is registered with a non-empty type.
+        """
+        existing = self._types.get(name)
+        if existing is not None:
+            if isinstance(existing, InterfaceTypeDefinition) and not existing.fields:
+                return existing
+            raise ValueError(f"Type '{name}' is already defined")
+        stub = InterfaceTypeDefinition(name=name, fields=[])
+        self._types[name] = stub
+        return stub
+
+    def is_interface_stub(self, name: str) -> bool:
+        """Check if a type is registered as an unpopulated interface stub."""
+        td = self._types.get(name)
+        return isinstance(td, InterfaceTypeDefinition) and not td.fields
+
+    def find_implementing_types(self, interface_name: str) -> list[tuple[str, "CompositeTypeDefinition"]]:
+        """Find all composite types that implement the given interface.
+
+        Returns list of (type_name, composite_def) tuples.
+        """
+        results: list[tuple[str, CompositeTypeDefinition]] = []
+        for name, td in self._types.items():
+            if isinstance(td, CompositeTypeDefinition) and interface_name in td.interfaces:
+                results.append((name, td))
+        return results
+
+    def get_type_id(self, type_name: str) -> int:
+        """Get or assign a numeric type ID for a concrete type (for tagged references)."""
+        if type_name not in self._type_ids:
+            self._type_ids[type_name] = self._next_type_id
+            self._next_type_id += 1
+        return self._type_ids[type_name]
+
+    def get_type_name_by_id(self, type_id: int) -> str | None:
+        """Look up a type name by its numeric ID."""
+        for name, tid in self._type_ids.items():
+            if tid == type_id:
+                return name
+        return None
 
     def list_types(self) -> list[str]:
         """List all registered type names."""

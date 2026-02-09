@@ -1,0 +1,260 @@
+-- SVG Landscape using Interfaces
+-- Same scene as landscape.ttq, but style fields are inherited via interfaces
+-- instead of being stored in a separate Style composite.
+
+use /tmp/ttq_svg_landscape_iface
+
+-- Color: named SVG colors and hex values
+create enum Color {
+    none,
+    red,
+    orange,
+    yellow,
+    gold,
+    green,
+    navy,
+    white,
+    gray,
+    black,
+    maroon,
+    hex(value: string)
+}
+
+-- Stroke line cap and line join
+create enum LineCap { butt, round, square }
+create enum LineJoin { miter, round, bevel }
+
+------------------------------------------------------------------------
+-- Interfaces
+------------------------------------------------------------------------
+
+-- Every visible SVG element can be styled
+create interface Styled {
+    fill: Color,
+    fill_opacity: float32,
+    stroke: Color,
+    stroke_width: float32,
+    stroke_linecap: LineCap,
+    stroke_linejoin: LineJoin,
+    opacity: float32
+}
+
+-- Elements positioned by a single (x, y) anchor
+create interface Positioned {
+    x: float32,
+    y: float32
+}
+
+-- Elements with explicit width and height
+create interface Sized {
+    width: float32,
+    height: float32
+}
+
+------------------------------------------------------------------------
+-- Concrete shape types (implement interfaces)
+------------------------------------------------------------------------
+
+create type Point { x: float32, y: float32 }
+
+create type Rect from Styled, Positioned, Sized {
+    rx: float32,
+    ry: float32
+}
+
+create type Circle from Styled {
+    cx: float32, cy: float32, r: float32
+}
+
+create type Ellipse from Styled {
+    cx: float32, cy: float32,
+    rx: float32, ry: float32
+}
+
+create type Line from Styled {
+    x1: float32, y1: float32,
+    x2: float32, y2: float32
+}
+
+create type Polyline from Styled {
+    points: Point[]
+}
+
+create type Polygon from Styled {
+    points: Point[]
+}
+
+create type Path from Styled {
+    d: string
+}
+
+create type Text from Styled, Positioned {
+    content: string,
+    font_family: string,
+    font_size: float32,
+    font_weight: uint16
+}
+
+------------------------------------------------------------------------
+-- Instances: one per SVG element in landscape.svg
+------------------------------------------------------------------------
+
+-- Background sky
+create Rect(
+    fill=.hex(value="#87CEEB"), stroke=.none,
+    x=0, y=0, width=800, height=400
+)
+
+-- Ground
+create Rect(
+    fill=.green, stroke=.none,
+    x=0, y=400, width=800, height=200
+)
+
+-- Sun
+create Circle(
+    fill=.yellow, stroke=.orange, stroke_width=3,
+    cx=680, cy=100, r=50
+)
+
+-- Sun rays
+create Line(stroke=.orange, stroke_width=2, stroke_linecap=.round, x1=680, y1=30, x2=680, y2=5)
+create Line(stroke=.orange, stroke_width=2, stroke_linecap=.round, x1=620, y1=50, x2=600, y2=35)
+create Line(stroke=.orange, stroke_width=2, stroke_linecap=.round, x1=740, y1=50, x2=760, y2=35)
+create Line(stroke=.orange, stroke_width=2, stroke_linecap=.round, x1=620, y1=150, x2=600, y2=165)
+create Line(stroke=.orange, stroke_width=2, stroke_linecap=.round, x1=740, y1=150, x2=760, y2=165)
+
+-- Clouds
+create Ellipse(fill=.white, fill_opacity=0.9, cx=150, cy=90, rx=70, ry=30)
+create Ellipse(fill=.white, fill_opacity=0.9, cx=210, cy=75, rx=50, ry=25)
+create Ellipse(fill=.white, fill_opacity=0.9, cx=450, cy=60, rx=60, ry=22)
+
+-- Mountains
+create Polygon(
+    fill=.gray, stroke=.hex(value="#556B2F"), stroke_width=2,
+    points=[Point(x=0, y=400), Point(x=120, y=260), Point(x=240, y=400)]
+)
+create Polygon(
+    fill=.hex(value="#696969"), stroke=.hex(value="#556B2F"), stroke_width=2,
+    points=[Point(x=160, y=400), Point(x=350, y=190), Point(x=540, y=400)]
+)
+create Polygon(
+    fill=.gray, stroke=.hex(value="#556B2F"), stroke_width=2,
+    points=[Point(x=400, y=400), Point(x=530, y=280), Point(x=660, y=400)]
+)
+
+-- Road (two overlapping paths: asphalt + center line)
+create Path(
+    stroke=.hex(value="#555555"), stroke_width=40, stroke_linecap=.round,
+    d="M 400 600 Q 380 500 420 440 Q 460 380 400 350"
+)
+create Path(
+    stroke=.hex(value="#FFD700"), stroke_width=2,
+    d="M 400 600 Q 380 500 420 440 Q 460 380 400 350"
+)
+
+-- House body
+create Rect(
+    fill=.hex(value="#CD853F"), stroke=.black, stroke_width=2,
+    x=100, y=310, width=160, height=90
+)
+
+-- Roof
+create Polygon(
+    fill=.maroon, stroke=.black, stroke_width=2,
+    points=[Point(x=90, y=310), Point(x=180, y=240), Point(x=270, y=310)]
+)
+
+-- Windows
+create Rect(fill=.hex(value="#87CEEB"), stroke=.black, stroke_width=1, x=115, y=330, width=30, height=30, rx=2, ry=2)
+create Rect(fill=.hex(value="#87CEEB"), stroke=.black, stroke_width=1, x=215, y=330, width=30, height=30, rx=2, ry=2)
+
+-- Door
+create Rect(
+    fill=.hex(value="#8B4513"), stroke=.black, stroke_width=1,
+    x=160, y=350, width=40, height=50, rx=3, ry=3
+)
+
+-- Door knob
+create Circle(fill=.gold, stroke=.none, cx=190, cy=378, r=3)
+
+-- Fence
+create Polyline(
+    stroke=.white, stroke_width=2, stroke_linejoin=.miter,
+    points=[
+        Point(x=280, y=400), Point(x=280, y=375), Point(x=290, y=375), Point(x=290, y=400),
+        Point(x=310, y=400), Point(x=310, y=375), Point(x=320, y=375), Point(x=320, y=400),
+        Point(x=340, y=400), Point(x=340, y=375), Point(x=350, y=375), Point(x=350, y=400)
+    ]
+)
+
+-- Tree trunk
+create Rect(
+    fill=.hex(value="#8B4513"), stroke=.none,
+    x=580, y=340, width=20, height=60
+)
+
+-- Tree canopy
+create Path(
+    fill=.hex(value="#006400"),
+    d="M 590 345 C 555 335 545 295 565 275 C 575 255 590 245 600 260 C 610 245 625 255 635 275 C 655 295 645 335 610 345 Z"
+)
+
+-- Bushes
+create Ellipse(fill=.green, stroke=.hex(value="#006400"), stroke_width=1, cx=630, cy=395, rx=25, ry=15)
+create Ellipse(fill=.hex(value="#006400"), stroke=.none, cx=660, cy=398, rx=20, ry=12)
+
+-- Flower stem
+create Line(stroke=.green, stroke_width=2, x1=710, y1=400, x2=710, y2=365)
+
+-- Flower petals
+create Circle(fill=.red, stroke=.none, cx=703, cy=362, r=5)
+create Circle(fill=.red, stroke=.none, cx=717, cy=362, r=5)
+create Circle(fill=.red, stroke=.none, cx=710, cy=355, r=5)
+create Circle(fill=.red, stroke=.none, cx=710, cy=369, r=5)
+
+-- Flower center
+create Circle(fill=.yellow, stroke=.none, cx=710, cy=362, r=4)
+
+-- Star
+create Polygon(
+    fill=.hex(value="#FFD700"), stroke=.orange, stroke_width=1,
+    points=[
+        Point(x=750, y=80), Point(x=757, y=100), Point(x=778, y=100),
+        Point(x=761, y=113), Point(x=768, y=133), Point(x=750, y=122),
+        Point(x=732, y=133), Point(x=739, y=113), Point(x=722, y=100),
+        Point(x=743, y=100)
+    ]
+)
+
+-- Title
+create Text(
+    fill=.white, stroke=.navy, stroke_width=1,
+    x=400, y=570, content="SVG Landscape",
+    font_family="Arial", font_size=28, font_weight=700
+)
+
+------------------------------------------------------------------------
+-- Queries: try these interactively!
+------------------------------------------------------------------------
+
+-- All types in the database
+show types
+
+-- Polymorphic: every styled element (all shapes)
+from Styled select *
+
+-- Polymorphic: only elements with x,y position (Rect and Text)
+from Positioned select *
+
+-- Polymorphic: only elements with width/height (Rect only)
+from Sized select *
+
+-- Specific shape queries
+from Circle select *
+from Polygon select *
+
+-- Describe interfaces and concrete types
+describe Styled
+describe Positioned
+describe Rect

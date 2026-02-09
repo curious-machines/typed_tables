@@ -18,6 +18,7 @@ from typed_tables.parsing.query_parser import (
     CreateAliasQuery,
     CreateEnumQuery,
     CreateInstanceQuery,
+    CreateInterfaceQuery,
     CreateTypeQuery,
     DeleteQuery,
     EnumValueExpr,
@@ -51,6 +52,7 @@ from typed_tables.types import (
     EnumValue,
     EnumVariantDefinition,
     FieldDefinition,
+    InterfaceTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
     StringTypeDefinition,
@@ -173,6 +175,8 @@ class QueryExecutor:
             return self._execute_select(query)
         elif isinstance(query, UseQuery):
             return self._execute_use(query)
+        elif isinstance(query, CreateInterfaceQuery):
+            return self._execute_create_interface(query)
         elif isinstance(query, CreateTypeQuery):
             return self._execute_create_type(query)
         elif isinstance(query, ForwardTypeQuery):
@@ -330,12 +334,31 @@ class QueryExecutor:
             if type_def is None:
                 continue
 
+            base = type_def.resolve_base_type()
+
+            # Interfaces: show with count = sum of implementing types
+            if isinstance(base, InterfaceTypeDefinition):
+                impl_types = self.registry.find_implementing_types(type_name)
+                total = 0
+                for impl_name, _ in impl_types:
+                    impl_file = self.storage.data_dir / f"{impl_name}.bin"
+                    if impl_file.exists():
+                        try:
+                            total += self.storage.get_table(impl_name).count
+                        except Exception:
+                            pass
+                rows.append({
+                    "type": type_name,
+                    "kind": "Interface",
+                    "count": total,
+                })
+                continue
+
             # Check if table file exists
             table_file = self.storage.data_dir / f"{type_name}.bin"
             if not table_file.exists():
                 continue
 
-            base = type_def.resolve_base_type()
             kind = type_def.__class__.__name__.replace("TypeDefinition", "")
 
             # Skip standalone array types (no header table file anymore)
@@ -423,6 +446,22 @@ class QueryExecutor:
                         "type": f"= {variant.discriminant}",
                         "size": 0,
                     })
+        elif isinstance(base, InterfaceTypeDefinition):
+            for field in base.fields:
+                rows.append({
+                    "property": field.name,
+                    "type": field.type_def.name,
+                    "size": field.type_def.reference_size,
+                })
+            # List implementing types
+            impl_types = self.registry.find_implementing_types(query.table)
+            if impl_types:
+                for impl_name, _ in impl_types:
+                    rows.append({
+                        "property": "(implements)",
+                        "type": impl_name,
+                        "size": 0,
+                    })
         elif isinstance(base, CompositeTypeDefinition):
             for field in base.fields:
                 field_base = field.type_def.resolve_base_type()
@@ -431,6 +470,13 @@ class QueryExecutor:
                     "type": field.type_def.name,
                     "size": field.type_def.reference_size,
                 })
+            if base.interfaces:
+                for iface_name in base.interfaces:
+                    rows.append({
+                        "property": "(interface)",
+                        "type": iface_name,
+                        "size": 0,
+                    })
         elif isinstance(base, ArrayTypeDefinition):
             rows.append({
                 "property": "(element_type)",
@@ -496,6 +542,57 @@ class QueryExecutor:
             type_name=query.name,
         )
 
+    def _execute_create_interface(self, query: CreateInterfaceQuery) -> CreateResult:
+        """Execute CREATE INTERFACE query."""
+        existing = self.registry.get(query.name)
+
+        if existing is not None:
+            if isinstance(existing, InterfaceTypeDefinition) and not existing.fields and query.fields:
+                pass  # populate stub
+            else:
+                return CreateResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Type '{query.name}' already exists",
+                    type_name=query.name,
+                )
+
+        # Register stub (idempotent if already exists)
+        if existing is None:
+            self.registry.register_interface_stub(query.name)
+
+        # Build field definitions
+        fields: list[FieldDefinition] = []
+        for field_def in query.fields:
+            type_name = field_def.type_name
+            if type_name.endswith("[]"):
+                base_name = type_name[:-2]
+                field_type = self.registry.get_array_type(base_name)
+            else:
+                field_type = self.registry.get(type_name)
+                if field_type is None:
+                    return CreateResult(
+                        columns=[],
+                        rows=[],
+                        message=f"Unknown type: {type_name}",
+                        type_name=query.name,
+                    )
+
+            fields.append(FieldDefinition(name=field_def.name, type_def=field_type))
+
+        # Populate the stub
+        stub = self.registry.get(query.name)
+        stub.fields = fields
+
+        self.storage.save_metadata()
+
+        return CreateResult(
+            columns=["type", "fields"],
+            rows=[{"type": query.name, "fields": len(fields)}],
+            message=f"Created interface '{query.name}' with {len(fields)} field(s)",
+            type_name=query.name,
+        )
+
     def _execute_create_type(self, query: CreateTypeQuery) -> CreateResult:
         """Execute CREATE TYPE query.
 
@@ -522,11 +619,13 @@ class QueryExecutor:
         if existing is None:
             self.registry.register_stub(query.name)
 
-        # Handle inheritance
+        # Handle inheritance (supports multi-parent: at most 1 concrete parent + any number of interfaces)
+        parents = query.parents if query.parents else ([query.parent] if query.parent else [])
         parent_fields: list[FieldDefinition] = []
-        if query.parent:
-            # Check for circular inheritance
-            if query.parent == query.name:
+        interface_names: list[str] = []
+
+        for parent_name in parents:
+            if parent_name == query.name:
                 return CreateResult(
                     columns=[],
                     rows=[],
@@ -534,26 +633,70 @@ class QueryExecutor:
                     type_name=query.name,
                 )
 
-            parent_type = self.registry.get(query.parent)
+            parent_type = self.registry.get(parent_name)
             if parent_type is None:
                 return CreateResult(
                     columns=[],
                     rows=[],
-                    message=f"Unknown parent type: {query.parent}",
+                    message=f"Unknown parent type: {parent_name}",
                     type_name=query.name,
                 )
 
             parent_base = parent_type.resolve_base_type()
-            if not isinstance(parent_base, CompositeTypeDefinition):
+
+            if isinstance(parent_base, InterfaceTypeDefinition):
+                # Interface parent: merge fields with conflict detection
+                interface_names.append(parent_name)
+                for f in parent_base.fields:
+                    existing_field = next((pf for pf in parent_fields if pf.name == f.name), None)
+                    if existing_field is not None:
+                        # Same name: must be same type (diamond merge)
+                        if existing_field.type_def.name != f.type_def.name:
+                            return CreateResult(
+                                columns=[],
+                                rows=[],
+                                message=f"Field conflict: '{f.name}' has type '{existing_field.type_def.name}' from one parent but '{f.type_def.name}' from '{parent_name}'",
+                                type_name=query.name,
+                            )
+                        # Same name + same type → merge (skip duplicate)
+                    else:
+                        parent_fields.append(f)
+            elif isinstance(parent_base, CompositeTypeDefinition):
+                # Concrete parent: only one allowed
+                if any(
+                    isinstance(self.registry.get(p).resolve_base_type(), CompositeTypeDefinition)
+                    for p in parents
+                    if p != parent_name and self.registry.get(p) is not None
+                    and not isinstance(self.registry.get(p).resolve_base_type(), InterfaceTypeDefinition)
+                ):
+                    return CreateResult(
+                        columns=[],
+                        rows=[],
+                        message=f"At most one concrete parent allowed; '{parent_name}' is a concrete type",
+                        type_name=query.name,
+                    )
+                # Copy concrete parent fields, with merge for interface fields already present
+                for f in parent_base.fields:
+                    existing_field = next((pf for pf in parent_fields if pf.name == f.name), None)
+                    if existing_field is not None:
+                        if existing_field.type_def.name != f.type_def.name:
+                            return CreateResult(
+                                columns=[],
+                                rows=[],
+                                message=f"Field conflict: '{f.name}' has type '{existing_field.type_def.name}' but concrete parent '{parent_name}' has '{f.type_def.name}'",
+                                type_name=query.name,
+                            )
+                    else:
+                        parent_fields.append(f)
+                # Also inherit parent's interface list
+                interface_names.extend(parent_base.interfaces)
+            else:
                 return CreateResult(
                     columns=[],
                     rows=[],
-                    message=f"Cannot inherit from non-composite type: {query.parent}",
+                    message=f"Cannot inherit from type: {parent_name}",
                     type_name=query.name,
                 )
-
-            # Copy parent fields
-            parent_fields = list(parent_base.fields)
 
         # Build field definitions from query
         fields: list[FieldDefinition] = parent_fields.copy()
@@ -578,6 +721,8 @@ class QueryExecutor:
         # Mutate the stub in-place (Python object references propagate automatically)
         stub = self.registry.get(query.name)
         stub.fields = fields
+        # Deduplicate interface names
+        stub.interfaces = list(dict.fromkeys(interface_names))
 
         # Save updated metadata
         self.storage.save_metadata()
@@ -703,6 +848,13 @@ class QueryExecutor:
             )
 
         base = type_def.resolve_base_type()
+        if isinstance(base, InterfaceTypeDefinition):
+            return CreateResult(
+                columns=[],
+                rows=[],
+                message=f"Cannot create instance of interface type: {query.type_name}",
+                type_name=query.type_name,
+            )
         if not isinstance(base, CompositeTypeDefinition):
             return CreateResult(
                 columns=[],
@@ -715,6 +867,14 @@ class QueryExecutor:
         values: dict[str, Any] = {}
         for field_val in query.fields:
             value = self._resolve_instance_value(field_val.value)
+            # For interface-typed fields, wrap the index with the concrete type_id
+            field_info = base.get_field(field_val.name)
+            if field_info is not None and isinstance(field_info.type_def.resolve_base_type(), InterfaceTypeDefinition):
+                if value is not None and isinstance(value, int):
+                    concrete_type_name = self._infer_concrete_type_name(field_val.value)
+                    if concrete_type_name:
+                        type_id = self.registry.get_type_id(concrete_type_name)
+                        value = (type_id, value)
             values[field_val.name] = value
 
         # Default missing fields to null
@@ -1122,6 +1282,21 @@ class QueryExecutor:
             return index
         return value
 
+    def _infer_concrete_type_name(self, raw_value: Any) -> str | None:
+        """Infer the concrete type name from a raw field value (before resolution).
+
+        Used for interface-typed fields to determine the type_id for tagged references.
+        """
+        if isinstance(raw_value, InlineInstance):
+            return raw_value.type_name
+        elif isinstance(raw_value, CompositeRef):
+            return raw_value.type_name
+        elif isinstance(raw_value, VariableReference):
+            var_binding = self._lookup_variable(raw_value.var_name)
+            if var_binding is not None:
+                return var_binding[0]  # type_name
+        return None
+
     def _resolve_enum_value_expr(
         self, value: EnumValueExpr, enum_name: str | None = None,
     ) -> EnumValue:
@@ -1245,6 +1420,14 @@ class QueryExecutor:
                     )
                 # Enum field — value should be an EnumValue
                 field_references[field.name] = field_value
+            elif isinstance(field_base, InterfaceTypeDefinition):
+                # Interface-typed field: stored as (type_id, index) tuple
+                if isinstance(field_value, tuple) and len(field_value) == 2:
+                    field_references[field.name] = field_value
+                else:
+                    raise ValueError(
+                        f"Interface-typed field '{field.name}' requires a (type_id, index) tuple"
+                    )
             elif isinstance(field_base, CompositeTypeDefinition):
                 # Nested composite - either an index reference, dict for recursive create, or tag reference
                 if isinstance(field_value, TagReference):
@@ -1432,6 +1615,30 @@ class QueryExecutor:
 
         base = type_def.resolve_base_type()
 
+        # For interface type queries, handle polymorphic fan-out
+        if isinstance(base, InterfaceTypeDefinition):
+            # Apply WHERE filter
+            if query.where:
+                records = [r for r in records if self._evaluate_condition(r, query.where)]
+
+            # Apply SORT BY
+            if query.sort_by:
+                records = self._apply_sort_by(records, query.sort_by)
+
+            # Apply OFFSET and LIMIT
+            if query.offset:
+                records = records[query.offset:]
+            if query.limit is not None:
+                records = records[: query.limit]
+
+            if len(query.fields) == 1 and query.fields[0].name == "*" and query.fields[0].aggregate is None:
+                interface_field_names = [f.name for f in base.fields]
+                columns = ["_type", "_index"] + interface_field_names
+                return QueryResult(columns=columns, rows=records)
+            else:
+                columns, rows = self._select_fields(records, query, type_def)
+                return QueryResult(columns=columns, rows=rows)
+
         # For enum type overview queries, handle specially
         if isinstance(base, EnumTypeDefinition):
             if query.where:
@@ -1524,6 +1731,14 @@ class QueryExecutor:
                                 resolved[field.name] = "".join(elements)
                             else:
                                 resolved[field.name] = elements
+                    elif isinstance(field_base, InterfaceTypeDefinition):
+                        # ref is (type_id, index) tuple
+                        type_id, idx = ref
+                        concrete_name = self.registry.get_type_name_by_id(type_id)
+                        if concrete_name:
+                            resolved[field.name] = f"<{concrete_name}[{idx}]>"
+                        else:
+                            resolved[field.name] = f"<type_id={type_id}[{idx}]>"
                     elif isinstance(field_base, CompositeTypeDefinition):
                         resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
                     else:
@@ -1531,6 +1746,10 @@ class QueryExecutor:
                         resolved[field.name] = ref
 
                 yield resolved
+
+        elif isinstance(base, InterfaceTypeDefinition):
+            # Interface type — fan out across all implementing types
+            yield from self._load_records_by_interface(type_name, base)
 
         elif isinstance(base, EnumTypeDefinition):
             # Enum type — scan all composites that contain this enum field type
@@ -1544,6 +1763,64 @@ class QueryExecutor:
         else:
             # Primitive/alias type — scan all composites that contain this field type
             yield from self._load_records_by_field_type(type_name, type_def)
+
+    def _load_records_by_interface(
+        self, interface_name: str, interface_def: InterfaceTypeDefinition
+    ) -> Iterator[dict[str, Any]]:
+        """Load records from all types implementing an interface.
+
+        Returns records with interface fields + _type and _index columns.
+        """
+        interface_field_names = [f.name for f in interface_def.fields]
+        impl_types = self.registry.find_implementing_types(interface_name)
+
+        for impl_name, impl_def in impl_types:
+            table_file = self.storage.data_dir / f"{impl_name}.bin"
+            if not table_file.exists():
+                continue
+
+            table = self.storage.get_table(impl_name)
+            for i in range(table.count):
+                if table.is_deleted(i):
+                    continue
+
+                record = table.get(i)
+                resolved: dict[str, Any] = {"_type": impl_name, "_index": i}
+
+                for field in impl_def.fields:
+                    if field.name not in interface_field_names:
+                        continue
+
+                    ref = record[field.name]
+                    if ref is None:
+                        resolved[field.name] = None
+                        continue
+
+                    field_base = field.type_def.resolve_base_type()
+
+                    if isinstance(field_base, EnumTypeDefinition):
+                        self._resolve_enum_associated_values(ref, field_base)
+                        resolved[field.name] = ref
+                    elif isinstance(field_base, ArrayTypeDefinition):
+                        start_index, length = ref
+                        if length == 0:
+                            resolved[field.name] = []
+                        else:
+                            arr_table = self.storage.get_array_table_for_type(field.type_def)
+                            elements = [
+                                arr_table.element_table.get(start_index + j)
+                                for j in range(length)
+                            ]
+                            if is_string_type(field.type_def):
+                                resolved[field.name] = "".join(elements)
+                            else:
+                                resolved[field.name] = elements
+                    elif isinstance(field_base, CompositeTypeDefinition):
+                        resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
+                    else:
+                        resolved[field.name] = ref
+
+                yield resolved
 
     def _load_records_by_field_type(
         self, type_name: str, type_def: TypeDefinition
@@ -1722,6 +1999,13 @@ class QueryExecutor:
                             resolved[field.name] = "".join(elements)
                         else:
                             resolved[field.name] = elements
+                elif isinstance(field_base, InterfaceTypeDefinition):
+                    type_id, idx = ref
+                    concrete_name = self.registry.get_type_name_by_id(type_id)
+                    if concrete_name:
+                        resolved[field.name] = f"<{concrete_name}[{idx}]>"
+                    else:
+                        resolved[field.name] = f"<type_id={type_id}[{idx}]>"
                 elif isinstance(field_base, CompositeTypeDefinition):
                     resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
                 else:
@@ -2257,6 +2541,7 @@ class QueryExecutor:
         aliases: list[tuple[str, AliasTypeDefinition]] = []
         composites: list[tuple[str, CompositeTypeDefinition]] = []
         enums: list[tuple[str, EnumTypeDefinition]] = []
+        interfaces: list[tuple[str, InterfaceTypeDefinition]] = []
 
         for type_name in self.registry.list_types():
             type_def = self.registry.get(type_name)
@@ -2266,7 +2551,9 @@ class QueryExecutor:
                 continue
             if isinstance(type_def, ArrayTypeDefinition):
                 continue  # auto-generated array types
-            if isinstance(type_def, EnumTypeDefinition):
+            if isinstance(type_def, InterfaceTypeDefinition):
+                interfaces.append((type_name, type_def))
+            elif isinstance(type_def, EnumTypeDefinition):
                 enums.append((type_name, type_def))
             elif isinstance(type_def, AliasTypeDefinition):
                 aliases.append((type_name, type_def))
@@ -2283,6 +2570,7 @@ class QueryExecutor:
                 needed |= self._transitive_type_closure(tname)
             aliases = [(n, t) for n, t in aliases if n in needed]
             enums = [(n, t) for n, t in enums if n in needed]
+            interfaces = [(n, t) for n, t in interfaces if n in needed]
             sorted_composites = [(n, t) for n, t in sorted_composites if n in needed]
             cycle_composites = [(n, t) for n, t in cycle_composites if n in needed]
 
@@ -2292,15 +2580,18 @@ class QueryExecutor:
         # Branch based on output format
         if query.format == "yaml":
             return self._execute_dump_yaml(
-                query, dump_targets, aliases, composites, sorted_composites, cycle_composites
+                query, dump_targets, aliases, composites, sorted_composites, cycle_composites,
+                interfaces=interfaces,
             )
         elif query.format == "json":
             return self._execute_dump_json(
-                query, dump_targets, aliases, composites, sorted_composites, cycle_composites
+                query, dump_targets, aliases, composites, sorted_composites, cycle_composites,
+                interfaces=interfaces,
             )
         elif query.format == "xml":
             return self._execute_dump_xml(
-                query, dump_targets, aliases, composites, sorted_composites, cycle_composites
+                query, dump_targets, aliases, composites, sorted_composites, cycle_composites,
+                interfaces=interfaces,
             )
 
         # TTQ format output
@@ -2330,6 +2621,26 @@ class QueryExecutor:
             else:
                 lines.append(f"create enum {name} {{ {', '.join(variant_strs)} }}")
 
+        # Emit interface definitions
+        for name, iface_def in interfaces:
+            field_strs = []
+            for f in iface_def.fields:
+                field_type_name = f.type_def.name
+                if field_type_name.endswith("[]"):
+                    base_elem = field_type_name[:-2]
+                    field_type_name = f"{base_elem}[]"
+                field_strs.append(f"{f.name}: {field_type_name}")
+            if pretty:
+                lines.append(f"create interface {name} {{")
+                for i, fs in enumerate(field_strs):
+                    comma = "," if i < len(field_strs) - 1 else ""
+                    lines.append(f"    {fs}{comma}")
+                lines.append("}")
+                lines.append("")
+            else:
+                fields_part = ", ".join(field_strs)
+                lines.append(f"create interface {name} {{ {fields_part} }}")
+
         # Determine which cycle types need forward declarations
         # Only types referenced before they're defined need forwarding
         cycle_type_names = {name for name, _ in cycle_composites}
@@ -2358,23 +2669,47 @@ class QueryExecutor:
 
         # Helper to emit a type definition
         def emit_type_def(name: str, comp_def: CompositeTypeDefinition) -> None:
+            # Collect inherited field names from interfaces
+            inherited_fields: set[str] = set()
+            if comp_def.interfaces:
+                for iface_name in comp_def.interfaces:
+                    iface = self.registry.get(iface_name)
+                    if iface and isinstance(iface, InterfaceTypeDefinition):
+                        for f in iface.fields:
+                            inherited_fields.add(f.name)
+
+            # Build own fields (excluding inherited)
             field_strs = []
             for f in comp_def.fields:
+                if f.name in inherited_fields:
+                    continue
                 field_type_name = f.type_def.name
                 if field_type_name.endswith("[]"):
                     base_elem = field_type_name[:-2]
                     field_type_name = f"{base_elem}[]"
                 field_strs.append(f"{f.name}: {field_type_name}")
+
+            # Build the from clause
+            from_clause = ""
+            if comp_def.interfaces:
+                from_clause = f" from {', '.join(comp_def.interfaces)}"
+
             if pretty:
-                lines.append(f"create type {name} {{")
-                for i, fs in enumerate(field_strs):
-                    comma = "," if i < len(field_strs) - 1 else ""
-                    lines.append(f"    {fs}{comma}")
-                lines.append("}")
+                if field_strs:
+                    lines.append(f"create type {name}{from_clause} {{")
+                    for i, fs in enumerate(field_strs):
+                        comma = "," if i < len(field_strs) - 1 else ""
+                        lines.append(f"    {fs}{comma}")
+                    lines.append("}")
+                else:
+                    lines.append(f"create type {name}{from_clause}")
                 lines.append("")  # blank line between type blocks
             else:
-                fields_part = ", ".join(field_strs)
-                lines.append(f"create type {name} {{ {fields_part} }}")
+                if field_strs:
+                    fields_part = ", ".join(field_strs)
+                    lines.append(f"create type {name}{from_clause} {{ {fields_part} }}")
+                else:
+                    lines.append(f"create type {name}{from_clause}")
 
         # Emit non-cycle composite type definitions
         for name, comp_def in sorted_composites:
@@ -2711,6 +3046,7 @@ class QueryExecutor:
         composites: list[tuple[str, CompositeTypeDefinition]],
         sorted_composites: list[tuple[str, CompositeTypeDefinition]],
         cycle_composites: list[tuple[str, CompositeTypeDefinition]],
+        interfaces: list[tuple[str, InterfaceTypeDefinition]] | None = None,
     ) -> DumpResult:
         """Execute DUMP query with YAML output format.
 
@@ -2869,6 +3205,7 @@ class QueryExecutor:
         composites: list[tuple[str, CompositeTypeDefinition]],
         sorted_composites: list[tuple[str, CompositeTypeDefinition]],
         cycle_composites: list[tuple[str, CompositeTypeDefinition]],
+        interfaces: list[tuple[str, InterfaceTypeDefinition]] | None = None,
     ) -> DumpResult:
         """Execute DUMP query with JSON output format.
 
@@ -3001,6 +3338,7 @@ class QueryExecutor:
         composites: list[tuple[str, CompositeTypeDefinition]],
         sorted_composites: list[tuple[str, CompositeTypeDefinition]],
         cycle_composites: list[tuple[str, CompositeTypeDefinition]],
+        interfaces: list[tuple[str, InterfaceTypeDefinition]] | None = None,
     ) -> DumpResult:
         """Execute DUMP query with XML output format.
 
@@ -3215,12 +3553,21 @@ class QueryExecutor:
                         fb = f.type_def.resolve_base_type()
                         if isinstance(fb, ArrayTypeDefinition):
                             stack.append(fb.element_type.name)
+            elif isinstance(type_def, InterfaceTypeDefinition):
+                for f in type_def.fields:
+                    stack.append(f.type_def.name)
+                    fb = f.type_def.resolve_base_type()
+                    if isinstance(fb, ArrayTypeDefinition):
+                        stack.append(fb.element_type.name)
             elif isinstance(type_def, CompositeTypeDefinition):
                 for f in type_def.fields:
                     stack.append(f.type_def.name)
                     fb = f.type_def.resolve_base_type()
                     if isinstance(fb, ArrayTypeDefinition):
                         stack.append(fb.element_type.name)
+                # Include interfaces in the closure
+                for iface_name in type_def.interfaces:
+                    stack.append(iface_name)
             elif isinstance(type_def, ArrayTypeDefinition):
                 stack.append(type_def.element_type.name)
         return needed

@@ -13,6 +13,7 @@ from typed_tables.types import (
     ArrayTypeDefinition,
     CompositeTypeDefinition,
     EnumTypeDefinition,
+    InterfaceTypeDefinition,
     PrimitiveTypeDefinition,
     StringTypeDefinition,
     TypeDefinition,
@@ -48,6 +49,9 @@ class StorageManager:
         metadata = {
             "types": self._serialize_type_registry(),
         }
+        # Persist type_ids for tagged interface references
+        if self.registry._type_ids:
+            metadata["type_ids"] = self.registry._type_ids
         metadata_path = self.data_dir / self.METADATA_FILE
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
@@ -103,13 +107,23 @@ class StorageManager:
                 "variants": variants,
                 "has_explicit_values": type_def.has_explicit_values,
             }
-        elif isinstance(type_def, CompositeTypeDefinition):
+        elif isinstance(type_def, InterfaceTypeDefinition):
             return {
+                "kind": "interface",
+                "fields": [
+                    {"name": f.name, "type": f.type_def.name} for f in type_def.fields
+                ],
+            }
+        elif isinstance(type_def, CompositeTypeDefinition):
+            result: dict[str, Any] = {
                 "kind": "composite",
                 "fields": [
                     {"name": f.name, "type": f.type_def.name} for f in type_def.fields
                 ],
             }
+            if type_def.interfaces:
+                result["interfaces"] = type_def.interfaces
+            return result
         else:
             return {"kind": "unknown"}
 
@@ -127,6 +141,12 @@ class StorageManager:
 
         type_def = self.registry.get_or_raise(type_name)
         base = type_def.resolve_base_type()
+
+        # Interfaces have no .bin tables
+        if isinstance(base, InterfaceTypeDefinition):
+            raise ValueError(
+                f"Interface types have no tables: {type_name}"
+            )
 
         # For array types, we need special handling
         if isinstance(base, ArrayTypeDefinition):

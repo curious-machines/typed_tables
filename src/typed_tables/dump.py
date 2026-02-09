@@ -17,6 +17,7 @@ from typed_tables.types import (
     EnumValue,
     EnumVariantDefinition,
     FieldDefinition,
+    InterfaceTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
     StringTypeDefinition,
@@ -43,13 +44,15 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
     registry = TypeRegistry()
     types_data = metadata.get("types", {})
 
-    # Phase 1: Pre-register stubs for all composite and enum types
+    # Phase 1: Pre-register stubs for all composite, enum, and interface types
     for name, spec in types_data.items():
         if name not in registry:
             if spec.get("kind") == "composite":
                 registry.register_stub(name)
             elif spec.get("kind") == "enum":
                 registry.register_enum_stub(name)
+            elif spec.get("kind") == "interface":
+                registry.register_interface_stub(name)
 
     # Phase 2: Collect non-primitive specs to resolve
     to_resolve = {}
@@ -57,8 +60,8 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
         if name not in registry:
             # Not yet registered (non-composite, non-primitive, non-enum)
             to_resolve[name] = spec
-        elif registry.is_stub(name) or registry.is_enum_stub(name):
-            # Composite/enum stub that needs field population
+        elif registry.is_stub(name) or registry.is_enum_stub(name) or registry.is_interface_stub(name):
+            # Composite/enum/interface stub that needs field population
             to_resolve[name] = spec
 
     # Iteratively resolve
@@ -76,6 +79,9 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
                 elif spec.get("kind") == "enum":
                     _populate_enum_from_spec(name, spec, registry)
                     resolved_this_pass.append(name)
+                elif spec.get("kind") == "interface":
+                    _populate_interface_from_spec(name, spec, registry)
+                    resolved_this_pass.append(name)
                 else:
                     type_def = _create_type_from_spec(name, spec, registry)
                     if type_def:
@@ -90,6 +96,13 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
 
         if not resolved_this_pass and to_resolve:
             raise ValueError(f"Cannot resolve types: {list(to_resolve.keys())}")
+
+    # Restore type_ids for tagged interface references
+    type_ids_data = metadata.get("type_ids", {})
+    for name, tid in type_ids_data.items():
+        registry._type_ids[name] = tid
+    if type_ids_data:
+        registry._next_type_id = max(type_ids_data.values()) + 1
 
     return registry
 
@@ -119,6 +132,28 @@ def _create_type_from_spec(
     return None
 
 
+def _populate_interface_from_spec(
+    name: str, spec: dict[str, Any], registry: TypeRegistry
+) -> None:
+    """Populate a pre-registered interface stub with its fields.
+
+    Gets the existing stub via registry.get() and sets stub.fields.
+    Skips if already populated (idempotent).
+    """
+    stub = registry.get(name)
+    if not isinstance(stub, InterfaceTypeDefinition):
+        return
+    # Skip if already populated
+    if stub.fields:
+        return
+
+    fields = []
+    for field_spec in spec.get("fields", []):
+        field_type = registry.get_or_raise(field_spec["type"])
+        fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type))
+    stub.fields = fields
+
+
 def _populate_composite_from_spec(
     name: str, spec: dict[str, Any], registry: TypeRegistry
 ) -> None:
@@ -127,7 +162,7 @@ def _populate_composite_from_spec(
     Gets the existing stub via registry.get() and sets stub.fields.
     Skips if already populated (idempotent).
     """
-    from typed_tables.types import FieldDefinition
+    from typed_tables.types import FieldDefinition as FD
 
     stub = registry.get(name)
     if not isinstance(stub, CompositeTypeDefinition):
@@ -139,8 +174,9 @@ def _populate_composite_from_spec(
     fields = []
     for field_spec in spec["fields"]:
         field_type = registry.get_or_raise(field_spec["type"])
-        fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type))
+        fields.append(FD(name=field_spec["name"], type_def=field_type))
     stub.fields = fields
+    stub.interfaces = spec.get("interfaces", [])
 
 
 def _populate_enum_from_spec(
@@ -203,6 +239,11 @@ def format_value(value: Any, type_def: TypeDefinition) -> str:
                 field_strs = [f"{k}={v}" for k, v in value.fields.items()]
                 return f"{base.name}.{value.variant_name}({', '.join(field_strs)})"
             return f"{base.name}.{value.variant_name}"
+        return str(value)
+    elif isinstance(base, InterfaceTypeDefinition):
+        if isinstance(value, tuple) and len(value) == 2:
+            type_id, index = value
+            return f"<interface_ref(type_id={type_id}, index={index})>"
         return str(value)
     elif isinstance(base, CompositeTypeDefinition):
         return str(value)
