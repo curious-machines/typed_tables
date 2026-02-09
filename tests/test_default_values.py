@@ -390,7 +390,7 @@ class TestDefaultValueDescribe:
         assert name_row["default"] == '"hello"'
 
         y_row = next(r for r in field_rows if r["property"] == "y")
-        assert y_row["default"] == "NULL"
+        assert y_row["default"] is None
 
     def test_describe_interface_shows_defaults(self, executor):
         self._run(executor, "create interface Pos { x: float32 = 0.0, y: float32 = 0.0 }")

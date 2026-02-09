@@ -490,6 +490,35 @@ describe Person
 
 This shows the type and all of its properties along with their types
 
+### Show References
+
+Display the type reference graph as a table of edges with columns: `kind`, `source`, `field`, `target`. The `kind` column shows the source type's classification (Composite, Interface, Enum, Alias, Array, Primitive, String). Arrow direction is referrer → referent (e.g., Person → float32 means "Person depends on float32").
+
+```ttq
+show references           -- show all type edges
+show references Person    -- show edges involving Person (as source or target)
+```
+
+Fields point to aliases (not resolved types); aliases also point to their base type. Enum variants contribute edges for their associated value types. Array types contribute element type edges.
+
+### Dump Graph
+
+Export the type reference graph as a TTQ script or DOT file. The graph contains `TypeNode` and `Edge` types.
+
+```ttq
+dump graph                       -- TTQ script to stdout
+dump graph to "types.dot"        -- DOT format (for Graphviz)
+dump graph to "types.ttq"        -- TTQ format to file
+dump graph to "types"            -- no extension → assumes TTQ, appends .ttq
+```
+
+The file extension determines the format: `.dot` produces Graphviz DOT output; anything else (or no extension) produces TTQ. The generated TTQ script defines `TypeNode { name: string, kind: string }` and `Edge { source: TypeNode, target: TypeNode, field_name: string }` types and creates instances for all nodes and edges.
+
+DOT output can be rendered with Graphviz:
+```sh
+dot -Tsvg types.dot -o types.svg
+```
+
 ### Execute Script
 
 Execute queries from a file within the REPL:

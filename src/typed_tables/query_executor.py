@@ -21,6 +21,7 @@ from typed_tables.parsing.query_parser import (
     CreateInterfaceQuery,
     CreateTypeQuery,
     DeleteQuery,
+    DumpGraphQuery,
     EnumValueExpr,
     ForwardTypeQuery,
     DescribeQuery,
@@ -36,6 +37,7 @@ from typed_tables.parsing.query_parser import (
     ScopeBlock,
     SelectField,
     SelectQuery,
+    ShowReferencesQuery,
     ShowTypesQuery,
     TagReference,
     UpdateQuery,
@@ -166,10 +168,27 @@ class QueryExecutor:
         # Scope stack for tags and scoped variables
         self._scope_stack: list[ScopeState] = []
 
+    @staticmethod
+    def _sort_rows(rows: list[dict[str, Any]], sort_by: list[str], defaults: list[str] | None = None) -> list[dict[str, Any]]:
+        """Sort rows by the given column names, falling back to defaults."""
+        keys = sort_by if sort_by else (defaults or [])
+        if not keys:
+            return rows
+        def sort_key(row: dict[str, Any]) -> tuple:
+            return tuple(
+                (0, str(row.get(k, ""))) if row.get(k) is not None else (1, "")
+                for k in keys
+            )
+        return sorted(rows, key=sort_key)
+
     def execute(self, query: Query) -> QueryResult:
         """Execute a query and return results."""
         if isinstance(query, ShowTypesQuery):
             return self._execute_show_types(query)
+        elif isinstance(query, ShowReferencesQuery):
+            return self._execute_show_references(query)
+        elif isinstance(query, DumpGraphQuery):
+            return self._execute_dump_graph(query)
         elif isinstance(query, DescribeQuery):
             return self._execute_describe(query)
         elif isinstance(query, SelectQuery):
@@ -348,7 +367,7 @@ class QueryExecutor:
                         self._collect_referenced_types(f.type_def, referenced_primitives, referenced_aliases)
 
         rows = []
-        for type_name in sorted(self.registry.list_types()):
+        for type_name in self.registry.list_types():
             type_def = self.registry.get(type_name)
             if type_def is None:
                 continue
@@ -412,6 +431,8 @@ class QueryExecutor:
                 "count": count,
             })
 
+        rows = self._sort_rows(rows, query.sort_by, defaults=["type"])
+
         return QueryResult(
             columns=["type", "kind", "count"],
             rows=rows,
@@ -431,6 +452,180 @@ class QueryExecutor:
             primitives.add(type_def.name)
         elif isinstance(type_def, ArrayTypeDefinition):
             self._collect_referenced_types(type_def.element_type, primitives, aliases)
+
+    def _classify_type(self, type_def: TypeDefinition) -> str:
+        """Return the kind label for a type definition."""
+        if isinstance(type_def, InterfaceTypeDefinition):
+            return "Interface"
+        if isinstance(type_def, EnumTypeDefinition):
+            return "Enum"
+        if isinstance(type_def, AliasTypeDefinition):
+            return "Alias"
+        if isinstance(type_def, StringTypeDefinition):
+            return "String"
+        if isinstance(type_def, ArrayTypeDefinition):
+            return "Array"
+        if isinstance(type_def, CompositeTypeDefinition):
+            return "Composite"
+        if isinstance(type_def, PrimitiveTypeDefinition):
+            return "Primitive"
+        return "Unknown"
+
+    def _build_type_graph(self) -> list[dict[str, str]]:
+        """Build the type reference graph as a list of edge dicts.
+
+        Each edge is {"source": str, "kind": str, "target": str, "field": str}.
+        Arrow direction: referrer → referent (source depends on target).
+        """
+        seen_edges: set[tuple[str, str, str]] = set()
+        edges: list[dict[str, str]] = []
+        visited_array_types: set[str] = set()
+
+        def add_edge(source: str, kind: str, target: str, field: str) -> None:
+            key = (source, target, field)
+            if key not in seen_edges:
+                seen_edges.add(key)
+                edges.append({"source": source, "kind": kind, "target": target, "field": field})
+
+        def process_field_type(owner: str, kind: str, field_name: str, type_def: TypeDefinition) -> None:
+            """Add edge from owner to field's type, and handle array element edges."""
+            add_edge(owner, kind, type_def.name, field_name)
+            base = type_def.resolve_base_type()
+            if isinstance(base, ArrayTypeDefinition) and type_def.name not in visited_array_types:
+                visited_array_types.add(type_def.name)
+                arr_kind = self._classify_type(self.registry.get(type_def.name) or base)
+                add_edge(type_def.name, arr_kind, base.element_type.name, "[]")
+
+        for type_name in self.registry.list_types():
+            type_def = self.registry.get(type_name)
+            if type_def is None:
+                continue
+
+            kind = self._classify_type(type_def)
+
+            if isinstance(type_def, AliasTypeDefinition):
+                add_edge(type_name, kind, type_def.base_type.name, "(alias)")
+            elif isinstance(type_def, EnumTypeDefinition):
+                for variant in type_def.variants:
+                    for f in variant.fields:
+                        process_field_type(type_name, kind, f"{variant.name}.{f.name}", f.type_def)
+            elif isinstance(type_def, InterfaceTypeDefinition):
+                for f in type_def.fields:
+                    process_field_type(type_name, kind, f.name, f.type_def)
+            elif isinstance(type_def, CompositeTypeDefinition):
+                for f in type_def.fields:
+                    process_field_type(type_name, kind, f.name, f.type_def)
+            elif isinstance(type_def, ArrayTypeDefinition) and type_name not in visited_array_types:
+                visited_array_types.add(type_name)
+                add_edge(type_name, kind, type_def.element_type.name, "[]")
+
+        return edges
+
+    def _execute_show_references(self, query: ShowReferencesQuery) -> QueryResult:
+        """Execute SHOW REFERENCES query."""
+        edges = self._build_type_graph()
+        if query.type_name:
+            # Include the array variant so e.g. "show references Point"
+            # also shows Polyline → Point[] (not just Point[] → Point)
+            names = {query.type_name, query.type_name + "[]"}
+            edges = [e for e in edges if e["source"] in names or e["target"] in names]
+        edges = self._sort_rows(edges, query.sort_by, defaults=["target", "source"])
+        return QueryResult(columns=["kind", "source", "field", "target"], rows=edges)
+
+    def _execute_dump_graph(self, query: DumpGraphQuery) -> DumpResult:
+        """Execute DUMP GRAPH query — export type graph as TTQ or DOT."""
+        from pathlib import Path
+
+        edges = self._build_type_graph()
+        nodes = self._collect_graph_nodes(edges)
+
+        if query.output_file:
+            ext = Path(query.output_file).suffix.lower()
+            if ext == ".dot":
+                script = self._format_graph_dot(nodes, edges)
+            else:
+                if not ext:
+                    query.output_file += ".ttq"
+                script = self._format_graph_ttq(nodes, edges)
+        else:
+            script = self._format_graph_ttq(nodes, edges)
+
+        return DumpResult(columns=[], rows=[], script=script, output_file=query.output_file)
+
+    def _collect_graph_nodes(self, edges: list[dict[str, str]]) -> dict[str, str]:
+        """Collect unique node names and their kinds from edges + registry."""
+        names: set[str] = set()
+        for e in edges:
+            names.add(e["source"])
+            names.add(e["target"])
+
+        nodes: dict[str, str] = {}
+        for name in sorted(names):
+            type_def = self.registry.get(name)
+            nodes[name] = self._classify_type(type_def) if type_def else "Unknown"
+        return nodes
+
+    def _format_graph_ttq(self, nodes: dict[str, str], edges: list[dict[str, str]]) -> str:
+        """Format type graph as a TTQ script."""
+        lines: list[str] = []
+        lines.append("-- Type reference graph")
+        lines.append("create type TypeNode { name: string, kind: string }")
+        lines.append("create type Edge { source: TypeNode, target: TypeNode, field_name: string }")
+        lines.append("")
+
+        # Assign indices to nodes
+        node_list = list(nodes.keys())
+        node_index = {name: i for i, name in enumerate(node_list)}
+
+        for name in node_list:
+            kind = nodes[name]
+            lines.append(f'create TypeNode(name="{name}", kind="{kind}")')
+
+        if node_list:
+            lines.append("")
+
+        for e in edges:
+            src_idx = node_index[e["source"]]
+            tgt_idx = node_index[e["target"]]
+            field = e["field"].replace('"', '\\"')
+            lines.append(f'create Edge(source=TypeNode({src_idx}), target=TypeNode({tgt_idx}), field_name="{field}")')
+
+        lines.append("")
+        return "\n".join(lines)
+
+    def _format_graph_dot(self, nodes: dict[str, str], edges: list[dict[str, str]]) -> str:
+        """Format type graph as a DOT file for Graphviz."""
+        lines: list[str] = []
+        lines.append("digraph types {")
+        lines.append("    rankdir=LR;")
+        lines.append('    node [style=filled];')
+        lines.append("")
+
+        kind_styles = {
+            "Composite": ('box', '#ADD8E6'),
+            "Interface": ('box', '#ADD8E6'),
+            "Enum": ('box', '#90EE90'),
+            "Alias": ('box', '#D3D3D3'),
+            "Primitive": ('ellipse', '#FFFFE0'),
+            "String": ('ellipse', '#FFFFE0'),
+            "Array": ('ellipse', '#FFD700'),
+            "Unknown": ('box', '#FFFFFF'),
+        }
+
+        for name in nodes:
+            kind = nodes[name]
+            shape, color = kind_styles.get(kind, ('box', '#FFFFFF'))
+            lines.append(f'    "{name}" [shape={shape}, fillcolor="{color}"];')
+
+        lines.append("")
+
+        for e in edges:
+            label = e["field"].replace('"', '\\"')
+            lines.append(f'    "{e["source"]}" -> "{e["target"]}" [label="{label}"];')
+
+        lines.append("}")
+        lines.append("")
+        return "\n".join(lines)
 
     def _execute_describe(self, query: DescribeQuery) -> QueryResult:
         """Execute DESCRIBE query."""
@@ -454,6 +649,8 @@ class QueryExecutor:
             }]
             for f in variant.fields:
                 rows.append({"property": f.name, "type": f.type_def.name, "size": f.type_def.reference_size})
+            if query.sort_by:
+                rows = self._sort_rows(rows, query.sort_by)
             return QueryResult(columns=["property", "type", "size"], rows=rows)
 
         type_def = self.registry.get(query.table)
@@ -498,12 +695,12 @@ class QueryExecutor:
                     })
         elif isinstance(base, InterfaceTypeDefinition):
             for field in base.fields:
-                default_str = self._format_default_for_dump(field.default_value, field.type_def) if field.default_value is not None else "NULL"
+                default_val = self._format_default_for_dump(field.default_value, field.type_def) if field.default_value is not None else None
                 rows.append({
                     "property": field.name,
                     "type": field.type_def.name,
                     "size": field.type_def.reference_size,
-                    "default": default_str,
+                    "default": default_val,
                 })
             # List implementing types
             impl_types = self.registry.find_implementing_types(query.table)
@@ -518,12 +715,12 @@ class QueryExecutor:
         elif isinstance(base, CompositeTypeDefinition):
             for field in base.fields:
                 field_base = field.type_def.resolve_base_type()
-                default_str = self._format_default_for_dump(field.default_value, field.type_def) if field.default_value is not None else "NULL"
+                default_val = self._format_default_for_dump(field.default_value, field.type_def) if field.default_value is not None else None
                 rows.append({
                     "property": field.name,
                     "type": field.type_def.name,
                     "size": field.type_def.reference_size,
-                    "default": default_str,
+                    "default": default_val,
                 })
             if base.interfaces:
                 for iface_name in base.interfaces:
@@ -543,6 +740,9 @@ class QueryExecutor:
         columns = ["property", "type", "size"]
         if any("default" in row for row in rows):
             columns.append("default")
+
+        if query.sort_by:
+            rows = self._sort_rows(rows, query.sort_by)
 
         return QueryResult(
             columns=columns,
@@ -2017,8 +2217,13 @@ class QueryExecutor:
                     field_base = field.type_def.resolve_base_type()
 
                     if isinstance(field_base, EnumTypeDefinition):
-                        self._resolve_enum_associated_values(ref, field_base)
-                        resolved[field.name] = ref
+                        if field_base.has_associated_values:
+                            enum_val = self._resolve_swift_enum_ref(ref, field_base)
+                            self._resolve_enum_associated_values(enum_val, field_base)
+                            resolved[field.name] = enum_val
+                        else:
+                            self._resolve_enum_associated_values(ref, field_base)
+                            resolved[field.name] = ref
                     elif isinstance(field_base, ArrayTypeDefinition):
                         start_index, length = ref
                         if length == 0:

@@ -81,6 +81,22 @@ class ShowTypesQuery:
     """A SHOW TYPES query."""
 
     filter: str | None = None  # None, "interfaces", "composites", "enums", "primitives", "aliases"
+    sort_by: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ShowReferencesQuery:
+    """A SHOW REFERENCES query."""
+
+    type_name: str | None = None  # None = show all edges
+    sort_by: list[str] = field(default_factory=list)
+
+
+@dataclass
+class DumpGraphQuery:
+    """A DUMP GRAPH query."""
+
+    output_file: str | None = None  # None = TTQ to stdout
 
 
 @dataclass
@@ -88,6 +104,7 @@ class DescribeQuery:
     """A DESCRIBE query."""
 
     table: str
+    sort_by: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -325,7 +342,7 @@ class ScopeBlock:
     statements: list[Any] = field(default_factory=list)
 
 
-Query = SelectQuery | ShowTypesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
+Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -375,37 +392,53 @@ class QueryParser:
         p[0] = p[1]
 
     def p_query_show_types(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW TYPES"""
-        p[0] = ShowTypesQuery()
+        """query : SHOW TYPES sort_clause"""
+        p[0] = ShowTypesQuery(sort_by=p[3])
 
     def p_query_show_interfaces(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW INTERFACES"""
-        p[0] = ShowTypesQuery(filter="interfaces")
+        """query : SHOW INTERFACES sort_clause"""
+        p[0] = ShowTypesQuery(filter="interfaces", sort_by=p[3])
 
     def p_query_show_composites(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW COMPOSITES"""
-        p[0] = ShowTypesQuery(filter="composites")
+        """query : SHOW COMPOSITES sort_clause"""
+        p[0] = ShowTypesQuery(filter="composites", sort_by=p[3])
 
     def p_query_show_enums(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW ENUMS"""
-        p[0] = ShowTypesQuery(filter="enums")
+        """query : SHOW ENUMS sort_clause"""
+        p[0] = ShowTypesQuery(filter="enums", sort_by=p[3])
 
     def p_query_show_primitives(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW PRIMITIVES"""
-        p[0] = ShowTypesQuery(filter="primitives")
+        """query : SHOW PRIMITIVES sort_clause"""
+        p[0] = ShowTypesQuery(filter="primitives", sort_by=p[3])
 
     def p_query_show_aliases(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW ALIASES"""
-        p[0] = ShowTypesQuery(filter="aliases")
+        """query : SHOW ALIASES sort_clause"""
+        p[0] = ShowTypesQuery(filter="aliases", sort_by=p[3])
+
+    def p_query_show_references(self, p: yacc.YaccProduction) -> None:
+        """query : SHOW REFERENCES sort_clause"""
+        p[0] = ShowReferencesQuery(sort_by=p[3])
+
+    def p_query_show_references_type(self, p: yacc.YaccProduction) -> None:
+        """query : SHOW REFERENCES IDENTIFIER sort_clause"""
+        p[0] = ShowReferencesQuery(type_name=p[3], sort_by=p[4])
+
+    def p_query_dump_graph(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP GRAPH"""
+        p[0] = DumpGraphQuery()
+
+    def p_query_dump_graph_to(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP GRAPH TO STRING"""
+        p[0] = DumpGraphQuery(output_file=p[4])
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
-        """query : DESCRIBE IDENTIFIER
-                 | DESCRIBE STRING"""
-        p[0] = DescribeQuery(table=p[2])
+        """query : DESCRIBE IDENTIFIER sort_clause
+                 | DESCRIBE STRING sort_clause"""
+        p[0] = DescribeQuery(table=p[2], sort_by=p[3])
 
     def p_query_describe_variant(self, p: yacc.YaccProduction) -> None:
-        """query : DESCRIBE IDENTIFIER DOT IDENTIFIER"""
-        p[0] = DescribeQuery(table=f"{p[2]}.{p[4]}")
+        """query : DESCRIBE IDENTIFIER DOT IDENTIFIER sort_clause"""
+        p[0] = DescribeQuery(table=f"{p[2]}.{p[4]}", sort_by=p[5])
 
     def p_query_use_none(self, p: yacc.YaccProduction) -> None:
         """query : USE"""
@@ -1091,12 +1124,24 @@ class QueryParser:
         p[0] = p[3]
 
     def p_identifier_list_single(self, p: yacc.YaccProduction) -> None:
-        """identifier_list : IDENTIFIER"""
+        """identifier_list : sort_key"""
         p[0] = [p[1]]
 
     def p_identifier_list_multiple(self, p: yacc.YaccProduction) -> None:
-        """identifier_list : identifier_list COMMA IDENTIFIER"""
+        """identifier_list : identifier_list COMMA sort_key"""
         p[0] = p[1] + [p[3]]
+
+    def p_sort_key_identifier(self, p: yacc.YaccProduction) -> None:
+        """sort_key : IDENTIFIER"""
+        p[0] = p[1]
+
+    def p_sort_key_reserved(self, p: yacc.YaccProduction) -> None:
+        """sort_key : TYPE
+                    | COUNT
+                    | SUM
+                    | AVERAGE
+                    | PRODUCT"""
+        p[0] = p[1].lower()
 
     def p_offset_clause_empty(self, p: yacc.YaccProduction) -> None:
         """offset_clause : """

@@ -56,6 +56,8 @@ class QueryLexer:
         "enums": "ENUMS",
         "primitives": "PRIMITIVES",
         "aliases": "ALIASES",
+        "references": "REFERENCES",
+        "graph": "GRAPH",
         "yaml": "YAML",
         "json": "JSON",
         "xml": "XML",
