@@ -1,8 +1,8 @@
 {
   "name": "ttq-language",
   "displayName": "TTQ Language Support",
-  "description": "Syntax highlighting for Typed Tables Query (.ttq) files",
-  "version": "0.1.0",
+  "description": "Syntax highlighting and language server for Typed Tables Query (.ttq) files",
+  "version": "0.2.0",
   "publisher": "curious-machines",
   "engines": {
     "vscode": "^1.75.0"
@@ -10,6 +10,7 @@
   "categories": [
     "Programming Languages"
   ],
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
@@ -36,6 +37,36 @@
         "language": "ttq",
         "path": "./snippets/ttq.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "TTQ",
+      "properties": {
+        "ttq.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Path to the Python interpreter used to run the TTQ language server."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[ttq]": {
+        "editor.wordBasedSuggestions": "off"
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "esbuild": "^0.20.0"
+  },
+  "scripts": {
+    "compile": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "package": "npm run compile -- --minify",
+    "vscode:prepublish": "npm run package"
   }
 }

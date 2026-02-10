@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "ply>=3.11",
+    "pygls>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,7 @@ dev = [
 [project.scripts]
 tt-dump = "typed_tables.dump:main"
 ttq = "typed_tables.repl:main"
+ttq-lsp = "typed_tables.lsp.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
