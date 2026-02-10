@@ -1,0 +1,139 @@
+{
+  "Create Type": {
+    "prefix": "type",
+    "body": [
+      "create type ${1:Name} {",
+      "\t${2:field}: ${3:type}",
+      "}"
+    ],
+    "description": "Create a composite type"
+  },
+  "Create Type from Parent": {
+    "prefix": "typefrom",
+    "body": [
+      "create type ${1:Name} from ${2:Parent} {",
+      "\t${3:field}: ${4:type}",
+      "}"
+    ],
+    "description": "Create a composite type with inheritance"
+  },
+  "Create Enum": {
+    "prefix": "enum",
+    "body": [
+      "create enum ${1:Name} {",
+      "\t${2:a},",
+      "\t${3:b},",
+      "\t${4:c}",
+      "}"
+    ],
+    "description": "Create a C-style enum"
+  },
+  "Create Swift-style Enum": {
+    "prefix": "enumsw",
+    "body": [
+      "create enum ${1:Name} {",
+      "\t${2:bare},",
+      "\t${3:variant}(${4:field}: ${5:type})",
+      "}"
+    ],
+    "description": "Create a Swift-style enum with associated values"
+  },
+  "Create Interface": {
+    "prefix": "interface",
+    "body": [
+      "create interface ${1:Name} {",
+      "\t${2:field}: ${3:type}",
+      "}"
+    ],
+    "description": "Create an interface"
+  },
+  "Create Alias": {
+    "prefix": "alias",
+    "body": "create alias ${1:name} as ${2:base_type}",
+    "description": "Create a type alias"
+  },
+  "Forward Declaration": {
+    "prefix": "forward",
+    "body": "forward type ${1:Name}",
+    "description": "Forward-declare a type for mutual references"
+  },
+  "Create Instance": {
+    "prefix": "create",
+    "body": "create ${1:Type}(${2:field}=${3:value})",
+    "description": "Create an instance"
+  },
+  "Create Instance with Variable": {
+    "prefix": "cvar",
+    "body": "\\$${1:var} = create ${2:Type}(${3:field}=${4:value})",
+    "description": "Create an instance and bind to a variable"
+  },
+  "Scope Block": {
+    "prefix": "scope",
+    "body": [
+      "scope {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Scope block for cyclic data structures"
+  },
+  "From Select": {
+    "prefix": "from",
+    "body": "from ${1:Type} select ${2:*}",
+    "description": "Basic select query"
+  },
+  "From Select Where": {
+    "prefix": "fromw",
+    "body": "from ${1:Type} select ${2:*} where ${3:field} = ${4:value}",
+    "description": "Select with where clause"
+  },
+  "From Select Sort": {
+    "prefix": "froms",
+    "body": "from ${1:Type} select ${2:*} sort by ${3:field}",
+    "description": "Select with sort"
+  },
+  "From Select Group By": {
+    "prefix": "fromg",
+    "body": "from ${1:Type} select ${2:field}, count() group by ${3:$2}",
+    "description": "Select with group by"
+  },
+  "Collect Variable": {
+    "prefix": "collect",
+    "body": "\\$${1:var} = collect ${2:Type} where ${3:condition}",
+    "description": "Collect records into a variable"
+  },
+  "Update Record": {
+    "prefix": "update",
+    "body": "update ${1:Type} set ${2:field}=${3:value} where ${4:condition}",
+    "description": "Update records"
+  },
+  "Delete Record": {
+    "prefix": "delete",
+    "body": "delete ${1:Type} where ${2:condition}",
+    "description": "Delete records"
+  },
+  "Use Database": {
+    "prefix": "use",
+    "body": "use ${1:db_name}",
+    "description": "Select or create a database"
+  },
+  "Dump to File": {
+    "prefix": "dump",
+    "body": "dump to \"${1:file.ttq}\"",
+    "description": "Dump database to file"
+  },
+  "Execute Script": {
+    "prefix": "execute",
+    "body": "execute \"${1:file.ttq}\"",
+    "description": "Execute a TTQ script"
+  },
+  "Import Script": {
+    "prefix": "import",
+    "body": "import \"${1:file.ttq}\"",
+    "description": "Import a script (execute once)"
+  },
+  "Describe Type": {
+    "prefix": "describe",
+    "body": "describe ${1:Type}",
+    "description": "Describe a type's fields"
+  }
+}

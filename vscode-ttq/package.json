@@ -30,6 +30,12 @@
         "scopeName": "source.ttq",
         "path": "./syntaxes/ttq.tmLanguage.json"
       }
+    ],
+    "snippets": [
+      {
+        "language": "ttq",
+        "path": "./snippets/ttq.json"
+      }
     ]
   }
 }
