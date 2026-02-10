@@ -1,11 +1,5 @@
 # TODO
 
-## Data Integrity
-
-When we delete a type, should we have an option to delete all referenced types? The only issue I can think of is the case when a given record that is to be deleted is referenced outside of that type's graph; think de-duped data, for example. We wouldn't want to delete it in that case. To check this, we would have to find if there are any references to that record anywhere else outside of the type-to-delete's graph. We do that already, so maybe that isn't too expensive, but this will occur on every delete, which might make it expensive.
-
-When we delete a type table, can we reset the first index to zero, or is it safer not to do that and then rely on compaction later, if needed?
-
 ---
 
 # Questions
@@ -77,3 +71,13 @@ I'm wondering if we should support some type of import command. For instance, I'
 ## Delete Database on Exit
 
 This is summary of what I typed into Claude Code. Basically, we want to tag a database as being temporary. We can switch to multiple databases and get back to the temporary one. However, when we exit the REPL, it gets deleted. There could be multiple temporary databases in the session that will need to be deleted.
+
+---
+
+# Declined 
+
+## Data Integrity
+
+When we delete a type, should we have an option to delete all referenced types? The only issue I can think of is the case when a given record that is to be deleted is referenced outside of that type's graph; think de-duped data, for example. We wouldn't want to delete it in that case. To check this, we would have to find if there are any references to that record anywhere else outside of the type-to-delete's graph. We do that already, so maybe that isn't too expensive, but this will occur on every delete, which might make it expensive.
+
+When we delete a type table, can we reset the first index to zero, or is it safer not to do that and then rely on compaction later, if needed?

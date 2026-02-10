@@ -1,3 +1,11 @@
+# Typed Tables
+example_data/
+*_db/
+scratch/*_db
+*.ttar
+*.ttar.gz
+*.ttq.gz
+
 # Virtual environments
 .venv/
 venv/
@@ -23,9 +31,6 @@ parsetab.py
 .pytest_cache/
 .coverage
 htmlcov/
-example_data/
-*_db/
-scratch/*_db
 
 # mypy
 .mypy_cache/
