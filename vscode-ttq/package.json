@@ -1,0 +1,35 @@
+{
+  "name": "ttq-language",
+  "displayName": "TTQ Language Support",
+  "description": "Syntax highlighting for Typed Tables Query (.ttq) files",
+  "version": "0.1.0",
+  "publisher": "curious-machines",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ttq",
+        "aliases": [
+          "TTQ",
+          "Typed Tables Query"
+        ],
+        "extensions": [
+          ".ttq"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ttq",
+        "scopeName": "source.ttq",
+        "path": "./syntaxes/ttq.tmLanguage.json"
+      }
+    ]
+  }
+}
