@@ -11,6 +11,7 @@
 
 - how do we know types when using numbers
 - when creating new temp database, say so in REPL
+- can I create an array of a given size and fill elements with a value
 
 ---
 

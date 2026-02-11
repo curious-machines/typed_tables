@@ -27,10 +27,6 @@ class QueryLexer:
         "show": "SHOW",
         "types": "TYPES",
         "describe": "DESCRIBE",
-        "count": "COUNT",
-        "average": "AVERAGE",
-        "sum": "SUM",
-        "product": "PRODUCT",
         "use": "USE",
         "create": "CREATE",
         "type": "TYPE",
@@ -70,8 +66,6 @@ class QueryLexer:
         "temp": "TEMP",
         "asc": "ASC",
         "desc": "DESC",
-        "min": "MIN",
-        "max": "MAX",
     }
 
     # Token list
@@ -82,7 +76,6 @@ class QueryLexer:
         "FLOAT",
         "STRING",
         "REGEX",
-        "PATH",
         "STAR",
         "COMMA",
         "COLON",
@@ -101,9 +94,18 @@ class QueryLexer:
         "GTE",
         "SEMICOLON",
         "BANG",
+        "PLUS",
+        "MINUS",
+        "SLASH",
+        "PERCENT",
+        "DOUBLESLASH",
+        "CONCAT",
     ] + list(reserved.values())
 
-    # Simple tokens
+    # Lexer states: regex state for /pattern/ after MATCHES keyword
+    states = (("regex", "exclusive"),)
+
+    # Simple tokens (INITIAL state)
     t_STAR = r"\*"
     t_COMMA = r","
     t_COLON = r":"
@@ -121,6 +123,14 @@ class QueryLexer:
     t_GTE = r">="
     t_GT = r">"
 
+    # Arithmetic tokens — PLY sorts string-defined tokens longest-first
+    t_CONCAT = r"\+\+"
+    t_PLUS = r"\+"
+    t_MINUS = r"-"
+    t_DOUBLESLASH = r"//"
+    t_SLASH = r"/"
+    t_PERCENT = r"%"
+
     # Ignored characters (including newlines - semicolons are the statement terminator)
     t_ignore = " \t"
 
@@ -136,12 +146,12 @@ class QueryLexer:
         return t
 
     def t_FLOAT(self, t: lex.LexToken) -> lex.LexToken:
-        r"-?\d+\.\d+"
+        r"\d+\.\d+"
         t.value = float(t.value)
         return t
 
     def t_INTEGER(self, t: lex.LexToken) -> lex.LexToken:
-        r"-?\d+"
+        r"\d+"
         t.value = int(t.value)
         return t
 
@@ -151,20 +161,12 @@ class QueryLexer:
         t.value = t.value[1:-1].encode().decode("unicode_escape")
         return t
 
-    def t_PATH(self, t: lex.LexToken) -> lex.LexToken:
-        r"(?:\.\.?)?/[a-zA-Z0-9_./\-]+"
-        return t
-
-    def t_REGEX(self, t: lex.LexToken) -> lex.LexToken:
-        r"/([^/\\]|\\.)*/"
-        # Remove slashes
-        t.value = t.value[1:-1]
-        return t
-
     def t_IDENTIFIER(self, t: lex.LexToken) -> lex.LexToken:
         r"[a-zA-Z_][a-zA-Z0-9_]*"
         # Check if it's a reserved word (case-insensitive)
         t.type = self.reserved.get(t.value.lower(), "IDENTIFIER")
+        if t.type == "MATCHES":
+            t.lexer.begin("regex")
         return t
 
     def t_NEWLINE(self, t: lex.LexToken) -> None:
@@ -177,6 +179,30 @@ class QueryLexer:
 
     def t_error(self, t: lex.LexToken) -> None:
         raise SyntaxError(f"Illegal character '{t.value[0]}' at position {t.lexpos}")
+
+    # --- Exclusive regex state tokens ---
+
+    t_regex_ignore = " \t"
+
+    def t_regex_REGEX(self, t: lex.LexToken) -> lex.LexToken:
+        r"/([^/\\]|\\.)*/"
+        t.value = t.value[1:-1]
+        t.lexer.begin("INITIAL")
+        return t
+
+    def t_regex_NEWLINE(self, t: lex.LexToken) -> None:
+        r"\n+"
+        t.lexer.lineno += len(t.value)
+
+    def t_regex_COMMENT(self, t: lex.LexToken) -> None:
+        r"--[^\n]*"
+        pass
+
+    def t_regex_error(self, t: lex.LexToken) -> None:
+        t.lexer.begin("INITIAL")
+        raise SyntaxError(f"Expected regex pattern after 'matches', got '{t.value[0]}' at position {t.lexpos}")
+
+    # --- Lexer methods ---
 
     def build(self, **kwargs) -> None:  # type: ignore
         """Build the lexer."""

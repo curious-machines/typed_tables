@@ -35,9 +35,9 @@ class TestParseUseAsTemp:
         assert query.temporary is True
 
     def test_parse_use_as_temp_path(self):
-        """use ./test_db as temp → UseQuery with temporary=True."""
+        """use "./test_db" as temp → UseQuery with temporary=True."""
         parser = QueryParser()
-        query = parser.parse("use ./test_db as temp")
+        query = parser.parse('use "./test_db" as temp')
         assert isinstance(query, UseQuery)
         assert query.path == "./test_db"
         assert query.temporary is True
@@ -109,7 +109,7 @@ class TestTempDatabaseCleanup:
         temp_db = tmp_path / "temp_db"
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {temp_db} as temp
+use "{temp_db}" as temp
 create type Foo {{ x: uint8 }}
 create Foo(x=42)
 """)
@@ -125,9 +125,9 @@ create Foo(x=42)
         other_db = tmp_path / "other_db"
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {temp_db}
+use "{temp_db}"
 create type Foo {{ x: uint8 }}
-use {other_db}
+use "{other_db}"
 create type Bar {{ y: uint8 }}
 """)
         exit_code, _ = run_file(script, None, verbose=False)

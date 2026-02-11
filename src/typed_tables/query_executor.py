@@ -18,6 +18,7 @@ from typed_tables.parsing.query_parser import (
     ArchiveQuery,
     ArrayIndex,
     ArraySlice,
+    BinaryExpr,
     CollectQuery,
     CollectSource,
     CompactQuery,
@@ -55,6 +56,7 @@ from typed_tables.parsing.query_parser import (
     ShowReferencesQuery,
     ShowTypesQuery,
     TagReference,
+    UnaryExpr,
     UpdateQuery,
     UseQuery,
     VariableAssignmentQuery,
@@ -2455,13 +2457,18 @@ class QueryExecutor:
         for i, expr_tuple in enumerate(query.expressions):
             # Expressions are now (expr, alias) tuples
             expr, alias = expr_tuple
-            value = self._resolve_instance_value(expr)
+            if isinstance(expr, (BinaryExpr, UnaryExpr, list)) or (
+                isinstance(expr, FunctionCall) and expr.args
+            ):
+                value = self._evaluate_expr(expr)
+            else:
+                value = self._resolve_instance_value(expr)
 
             # Use alias if provided, otherwise generate column name
             if alias:
                 base_name = alias
-            elif isinstance(expr, FunctionCall):
-                base_name = f"{expr.name}()"
+            elif isinstance(expr, (BinaryExpr, UnaryExpr, FunctionCall, list)):
+                base_name = self._format_expr(expr)
             else:
                 base_name = f"expr_{i}"
 
@@ -2475,13 +2482,207 @@ class QueryExecutor:
             columns.append(col_name)
 
             # Format the value for display
-            if isinstance(value, int) and value > 0xFFFFFFFF:
+            if isinstance(value, list):
+                row[col_name] = value
+            elif isinstance(value, int) and value > 0xFFFFFFFF:
                 # Format large integers as hex (likely UUIDs)
                 row[col_name] = f"0x{value:032x}"
             else:
                 row[col_name] = value
 
         return QueryResult(columns=columns, rows=[row])
+
+    def _evaluate_expr(self, expr: Any) -> Any:
+        """Recursively evaluate a BinaryExpr/UnaryExpr tree."""
+        if isinstance(expr, BinaryExpr):
+            left = self._evaluate_expr(expr.left)
+            right = self._evaluate_expr(expr.right)
+            op = expr.op
+            # Element-wise / broadcast if either operand is a list
+            if isinstance(left, list) or isinstance(right, list):
+                return self._evaluate_array_binary(left, right, op)
+            return self._apply_scalar_binary(left, right, op)
+        if isinstance(expr, UnaryExpr):
+            operand = self._evaluate_expr(expr.operand)
+            if isinstance(operand, list):
+                return [self._apply_scalar_unary(elem, expr.op) for elem in operand]
+            return self._apply_scalar_unary(operand, expr.op)
+        # Leaf: list literal (array of expressions)
+        if isinstance(expr, list):
+            return [self._evaluate_expr(item) for item in expr]
+        # Leaf: FunctionCall — with args → math function, no args → existing path
+        if isinstance(expr, FunctionCall):
+            if expr.args:
+                evaluated_args = [self._evaluate_expr(a) for a in expr.args]
+                return self._evaluate_math_func(expr.name, evaluated_args)
+            return self._resolve_instance_value(expr)
+        return expr
+
+    def _apply_scalar_binary(self, left: Any, right: Any, op: str) -> Any:
+        """Apply a binary operator to two scalar values."""
+        if op == "++":
+            return str(left) + str(right)
+        if op == "+":
+            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+                raise RuntimeError(f"Cannot add non-numeric values: {left!r} + {right!r} (use ++ for string concatenation)")
+            return left + right
+        if op == "-":
+            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+                raise RuntimeError(f"Cannot subtract non-numeric values: {left!r} - {right!r}")
+            return left - right
+        if op == "*":
+            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+                raise RuntimeError(f"Cannot multiply non-numeric values: {left!r} * {right!r}")
+            return left * right
+        if op == "/":
+            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+                raise RuntimeError(f"Cannot divide non-numeric values: {left!r} / {right!r}")
+            if right == 0:
+                raise RuntimeError("Division by zero")
+            return left / right
+        if op == "%":
+            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+                raise RuntimeError(f"Cannot modulo non-numeric values: {left!r} % {right!r}")
+            if right == 0:
+                raise RuntimeError("Division by zero")
+            return left % right
+        if op == "//":
+            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+                raise RuntimeError(f"Cannot integer-divide non-numeric values: {left!r} // {right!r}")
+            if right == 0:
+                raise RuntimeError("Division by zero")
+            return left // right
+        if op == "**":
+            return left ** right
+        raise RuntimeError(f"Unknown binary operator: {op}")
+
+    def _apply_scalar_unary(self, operand: Any, op: str) -> Any:
+        """Apply a unary operator to a scalar value."""
+        if op == "-":
+            if not isinstance(operand, (int, float)):
+                raise RuntimeError(f"Cannot negate non-numeric value: {operand!r}")
+            return -operand
+        if op == "+":
+            if not isinstance(operand, (int, float)):
+                raise RuntimeError(f"Cannot apply unary + to non-numeric value: {operand!r}")
+            return operand
+        raise RuntimeError(f"Unknown unary operator: {op}")
+
+    def _evaluate_array_binary(self, left: Any, right: Any, op: str) -> list:
+        """Apply a binary operator element-wise to arrays, with scalar broadcasting."""
+        if isinstance(left, list) and isinstance(right, list):
+            if len(left) != len(right):
+                raise RuntimeError(
+                    f"Array length mismatch: {len(left)} vs {len(right)}")
+            return [self._apply_scalar_binary(l, r, op) for l, r in zip(left, right)]
+        elif isinstance(left, list):
+            return [self._apply_scalar_binary(l, right, op) for l in left]
+        else:
+            return [self._apply_scalar_binary(left, r, op) for r in right]
+
+    _MATH_FUNCS_1 = {
+        "sqrt": __import__("math").sqrt,
+        "abs": abs,
+        "ceil": __import__("math").ceil,
+        "floor": __import__("math").floor,
+        "round": round,
+        "sin": __import__("math").sin,
+        "cos": __import__("math").cos,
+        "tan": __import__("math").tan,
+        "log": __import__("math").log,
+        "log2": __import__("math").log2,
+        "log10": __import__("math").log10,
+    }
+
+    def _evaluate_math_func(self, name: str, args: list) -> Any:
+        """Evaluate a math function call."""
+        if name == "pow":
+            if len(args) != 2:
+                raise RuntimeError("pow() requires exactly 2 arguments")
+            base, exp = args
+            if isinstance(base, list) or isinstance(exp, list):
+                return self._evaluate_array_binary(base, exp, "**")
+            return base ** exp
+
+        # Aggregate functions on arrays
+        if name == "sum":
+            if len(args) != 1:
+                raise RuntimeError("sum() requires exactly 1 argument")
+            arg = args[0]
+            if isinstance(arg, list):
+                return sum(arg)
+            return arg
+        if name == "average":
+            if len(args) != 1:
+                raise RuntimeError("average() requires exactly 1 argument")
+            arg = args[0]
+            if isinstance(arg, list):
+                return sum(arg) / len(arg) if arg else None
+            return float(arg)
+        if name == "product":
+            if len(args) != 1:
+                raise RuntimeError("product() requires exactly 1 argument")
+            arg = args[0]
+            if isinstance(arg, list):
+                result = 1
+                for v in arg:
+                    result *= v
+                return result
+            return arg
+        if name == "count":
+            if len(args) != 1:
+                raise RuntimeError("count() requires exactly 1 argument")
+            arg = args[0]
+            if isinstance(arg, list):
+                return len(arg)
+            return 1
+        if name == "min":
+            if len(args) == 1:
+                arg = args[0]
+                if isinstance(arg, list):
+                    return min(arg) if arg else None
+                return arg
+            return min(args)
+        if name == "max":
+            if len(args) == 1:
+                arg = args[0]
+                if isinstance(arg, list):
+                    return max(arg) if arg else None
+                return arg
+            return max(args)
+
+        func = self._MATH_FUNCS_1.get(name)
+        if func is None:
+            raise RuntimeError(f"Unknown function: {name}()")
+        if len(args) != 1:
+            raise RuntimeError(f"{name}() requires exactly 1 argument")
+        arg = args[0]
+        if isinstance(arg, list):
+            return [func(elem) for elem in arg]
+        return func(arg)
+
+    def _format_expr(self, expr: Any) -> str:
+        """Format an expression tree as a human-readable column name."""
+        if isinstance(expr, BinaryExpr):
+            left = self._format_expr(expr.left)
+            right = self._format_expr(expr.right)
+            return f"{left} {expr.op} {right}"
+        if isinstance(expr, UnaryExpr):
+            operand = self._format_expr(expr.operand)
+            if isinstance(expr.operand, BinaryExpr):
+                return f"{expr.op}({operand})"
+            return f"{expr.op}{operand}"
+        if isinstance(expr, FunctionCall):
+            if expr.args:
+                args_str = ", ".join(self._format_expr(a) for a in expr.args)
+                return f"{expr.name}({args_str})"
+            return f"{expr.name}()"
+        if isinstance(expr, list):
+            elements = ", ".join(self._format_expr(e) for e in expr)
+            return f"[{elements}]"
+        if isinstance(expr, str):
+            return f'"{expr}"'
+        return str(expr)
 
     def _execute_delete(self, query: DeleteQuery) -> DeleteResult:
         """Execute DELETE query."""

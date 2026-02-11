@@ -24,7 +24,7 @@ class TestRunFile:
 
         script.write_text(f"""
 -- Create a test database
-use {db_path};
+use "{db_path}";
 
 -- Create a type
 create type Person {{ name: string, age: uint8 }}
@@ -46,7 +46,7 @@ from Person select *
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path}; create type Point {{ x: float32, y: float32 }}; create Point(x=1.0, y=2.0); from Point select *
+use "{db_path}"; create type Point {{ x: float32, y: float32 }}; create Point(x=1.0, y=2.0); from Point select *
 """)
 
         result, _ = run_file(script, None, verbose=False)
@@ -81,7 +81,7 @@ from Item select *;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 from where;
 """)
 
@@ -95,7 +95,7 @@ from where;
 
         script.write_text(f"""
 -- This is a comment
-use {db_path};
+use "{db_path}";
 -- Another comment
 create type Test {{ value: uint8 }}
 -- Final comment
@@ -112,7 +112,7 @@ create type Test {{ value: uint8 }}
         # Test that multi-line create instance works in a file
         # The semicolons help separate the queries
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(
   name="Alice",
@@ -142,7 +142,7 @@ create Item(name="from subscript");
 
         main_script = tmp_path / "main.ttq"
         main_script.write_text(f"""
-use {db_path};
+use "{db_path}";
 execute {subscript};
 from Item select *;
 """)
@@ -162,7 +162,7 @@ class TestInlineInstanceAndProjection:
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
@@ -178,7 +178,7 @@ from Person select *;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
@@ -194,7 +194,7 @@ from Person select address.city;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Employee {{ name: string }}
 create type Team {{ title: string, employees: Employee[] }}
 create Employee(name="Alice");
@@ -212,7 +212,7 @@ from Team select employees[0].name;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Employee {{ name: string }}
 create type Team {{ title: string, employees: Employee[] }}
 create Employee(name="Alice");
@@ -234,7 +234,7 @@ class TestDump:
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create alias uuid as uint128;
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
@@ -247,7 +247,7 @@ create Person(name="Bob", age=25);
         # Now dump
         dump_script = tmp_path / "dump.ttq"
         dump_script.write_text(f"""
-use {db_path};
+use "{db_path}";
 dump;
 """)
 
@@ -260,7 +260,7 @@ dump;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 create Address(street="123 Main", city="Springfield");
@@ -277,7 +277,7 @@ dump Person;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
@@ -308,7 +308,7 @@ create Person(name="Alice", address=Address(street="123 Main", city="Springfield
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, age: uint8, address: Address }}
 create Person(name="Alice", age=30, address=Address(street="123 Main", city="Springfield"));
@@ -335,7 +335,7 @@ create Person(name="Bob", age=25, address=Address(street="456 Oak", city="Shelby
         # Write dump output as a new script and execute into fresh db
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_result.script}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -363,7 +363,7 @@ create Person(name="Bob", age=25, address=Address(street="456 Oak", city="Shelby
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Employee {{ name: string }}
 create type Team {{ title: string, employees: Employee[] }}
 create Team(title="Engineering", employees=[Employee(name="Alice"), Employee(name="Bob")]);
@@ -380,7 +380,7 @@ from Team select *;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
@@ -402,7 +402,7 @@ dump to "{tmp_path / 'dump_output.ttq'}";
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
@@ -423,7 +423,7 @@ dump Person to "{tmp_path / 'person_dump.ttq'}";
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
@@ -439,7 +439,7 @@ dump to "{tmp_path / 'dump_output.ttq'}";
         # Recreate from dump
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_file.read_text()}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_file.read_text()}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -473,7 +473,7 @@ class TestVariableBindings:
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
@@ -490,7 +490,7 @@ from Person select address.city;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
@@ -524,7 +524,7 @@ create Person(name="Bob", address=$addr);
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 $addr = create Address(street="123 Main", city="Springfield");
 $addr = create Address(street="456 Oak", city="Shelbyville");
@@ -542,7 +542,7 @@ $addr = create Address(street="456 Oak", city="Shelbyville");
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=$undefined);
@@ -557,7 +557,7 @@ create Person(name="Alice", address=$undefined);
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Employee {{ name: string }}
 create type Team {{ title: string, employees: Employee[] }}
 $e1 = create Employee(name="Alice");
@@ -575,7 +575,7 @@ from Team select employees.name;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
@@ -608,7 +608,7 @@ create Person(name="Bob", address=$addr);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
@@ -635,7 +635,7 @@ create Person(name="Bob", address=$addr);
         # Execute dump output into a fresh database
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_result.script}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -664,7 +664,7 @@ class TestCyclicalTypes:
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, children: Node[] }}
 describe Node;
 """)
@@ -678,7 +678,7 @@ describe Node;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, children: Node[] }}
 create Node(value=1, children=[]);
 create Node(value=2, children=[]);
@@ -695,7 +695,7 @@ from Node select *;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type LinkedNode {{ value: uint8, next: LinkedNode }}
 create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)));
 from LinkedNode select *;
@@ -710,7 +710,7 @@ from LinkedNode select *;
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 forward type B;
 create type A {{ value: uint8, b: B }}
 create type B {{ value: uint8, a: A }}
@@ -727,7 +727,7 @@ describe B;
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 forward type B;
 create type A {{ value: uint8, b: B }}
 create type B {{ value: uint8, a: A }}
@@ -745,7 +745,7 @@ from B select *;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, children: Node[] }}
 create Node(value=1, children=[]);
 create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, children=[])]);
@@ -771,7 +771,7 @@ create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, childre
         # Execute dump output into a fresh database
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_result.script}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -794,7 +794,7 @@ create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, childre
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 forward type B;
 create type A {{ value: uint8, b: B }}
 create type B {{ value: uint8, a: A }}
@@ -822,7 +822,7 @@ create A(value=1, b=B(value=2, a=A(0)));
         # Execute dump into fresh db
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_result.script}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -850,7 +850,7 @@ create A(value=1, b=B(value=2, a=A(0)));
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type LinkedNode {{ value: uint8, next: LinkedNode }}
 create LinkedNode(value=42, next=LinkedNode(0));
 """)
@@ -886,7 +886,7 @@ class TestCollect:
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -904,7 +904,7 @@ dump $seniors;
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Item {{ name: string }}
 create Item(name="A");
 create Item(name="B");
@@ -922,7 +922,7 @@ dump $all;
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Score {{ name: string, value: uint8 }}
 create Score(name="Alice", value=90);
 create Score(name="Bob", value=80);
@@ -940,7 +940,7 @@ dump $top2;
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Item {{ name: string }}
 create Item(name="A");
 $items = collect Item;
@@ -959,7 +959,7 @@ $items = collect Item;
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Item {{ name: string }}
 create type Wrapper {{ item: Item }}
 create Item(name="A");
@@ -976,7 +976,7 @@ create Wrapper(item=$items);
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 $bob = create Person(name="Bob", age=25);
@@ -994,7 +994,7 @@ dump $bob;
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
@@ -1014,7 +1014,7 @@ dump $all to "{output_file}";
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -1032,7 +1032,7 @@ dump $seniors to "{tmp_path / 'seniors.ttq'}";
         # Recreate from dump into fresh database
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_file.read_text()}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_file.read_text()}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -1060,7 +1060,7 @@ dump $seniors to "{tmp_path / 'seniors.ttq'}";
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 $nobody = collect Person where age >= 100;
@@ -1079,7 +1079,7 @@ class TestFromVariable:
         db_path = tmp_path / "testdb"
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -1095,7 +1095,7 @@ from $seniors select name, age sort by age;
         db_path = tmp_path / "testdb"
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=60);
@@ -1117,7 +1117,7 @@ from $old select average(age);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -1148,7 +1148,7 @@ create Person(name="Carol", age=70);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -1175,7 +1175,7 @@ create type Person {{ name: string, age: uint8 }}
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 $bob = create Person(name="Bob", age=25);
@@ -1211,7 +1211,7 @@ class TestCollectMultiSource:
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -1241,7 +1241,7 @@ create Person(name="Carol", age=70);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -1265,7 +1265,7 @@ create Person(name="Carol", age=70);
         db_path = tmp_path / "testdb"
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create type Item {{ name: string }}
 create Person(name="Alice", age=30);
@@ -1286,7 +1286,7 @@ $mixed = collect Person, Item;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -1316,7 +1316,7 @@ create Person(name="Carol", age=70);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -1347,7 +1347,7 @@ create Person(name="Carol", age=70);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -1375,7 +1375,7 @@ class TestDumpList:
         db_path = tmp_path / "testdb"
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
@@ -1395,7 +1395,7 @@ dump [Person];
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create type Item {{ name: string }}
 create Person(name="Alice", age=30);
@@ -1425,7 +1425,7 @@ create Item(name="Widget");
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
@@ -1456,7 +1456,7 @@ create Person(name="Carol", age=70);
         output_file = tmp_path / "output.ttq"
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 dump [Person] to "{output_file}";
@@ -1478,7 +1478,7 @@ dump [Person] to "{output_file}";
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create type Item {{ name: string }}
 create Person(name="Alice", age=30);
@@ -1498,7 +1498,7 @@ create Item(name="Widget");
         # Recreate from dump
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_result.script}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -1533,7 +1533,7 @@ class TestMain:
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Simple {{ value: uint8 }}
 """)
 
@@ -1547,7 +1547,7 @@ create type Simple {{ value: uint8 }}
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 """)
 
         result = main(["-f", str(script), "-v"])
@@ -1571,7 +1571,7 @@ class TestNullValues:
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 """)
@@ -1600,7 +1600,7 @@ create Node(value=1, next=null);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 create Node(value=2, next=null);
@@ -1620,7 +1620,7 @@ create Node(value=2, next=null);
         # Re-execute dump into fresh db
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_result.script}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -1647,7 +1647,7 @@ create Node(value=2, next=null);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 create Node(value=1);
 """)
@@ -1680,7 +1680,7 @@ class TestUpdate:
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=null);
@@ -1715,7 +1715,7 @@ update $n1 set next=$n2;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 create Node(value=2, next=null);
@@ -1747,7 +1747,7 @@ create Node(value=2, next=null);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=null);
@@ -1782,7 +1782,7 @@ update $n2 set next=$n3;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -1809,7 +1809,7 @@ create type Node {{ value: uint8, next: Node }}
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 $n = create Node(value=1, next=null);
 """)
@@ -1843,7 +1843,7 @@ class TestCycleAwareDump:
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=$n1);
@@ -1876,7 +1876,7 @@ update $n1 set next=$n2;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=$n1);
@@ -1896,7 +1896,7 @@ update $n1 set next=$n2;
         # Roundtrip
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_result.script}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -1926,7 +1926,7 @@ update $n1 set next=$n2;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ name: string, child: Node }}
 $back = create Node(name="D", child=null);
 $top = create Node(name="A", child=Node(name="B", child=Node(name="C", child=$back)));
@@ -1946,7 +1946,7 @@ update $back set child=$top;
         # Roundtrip: create new db from dump
         db_path2 = tmp_path / "testdb2"
         roundtrip_script = tmp_path / "roundtrip.ttq"
-        roundtrip_script.write_text(f"use {db_path2};\n{dump_result.script}\n")
+        roundtrip_script.write_text(f'use "{db_path2}";\n{dump_result.script}\n')
 
         result, _ = run_file(roundtrip_script, None, verbose=False)
         assert result == 0
@@ -1974,7 +1974,7 @@ update $back set child=$top;
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
@@ -2007,7 +2007,7 @@ class TestTagBasedCreation:
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 scope {{
     create Node(tag(SELF), value=42, next=SELF);
@@ -2028,7 +2028,7 @@ from Node select *;
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ name: string, child: Node }}
 scope {{
     create Node(tag(TOP), name="A", child=Node(name="B", child=TOP));
@@ -2060,7 +2060,7 @@ scope {{
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ name: string, child: Node }}
 scope {{
     create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A))));
@@ -2086,7 +2086,7 @@ scope {{
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 scope {{
     create Node(value=1, next=NONEXISTENT);
@@ -2102,7 +2102,7 @@ scope {{
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 scope {{
     create Node(tag(X), value=1, next=null);
@@ -2121,7 +2121,7 @@ scope {{
 
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Node {{ value: uint8, next: Node }}
 create Node(tag(X), value=1, next=null);
 """)
@@ -2144,7 +2144,7 @@ class TestDumpPretty:
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
@@ -2172,7 +2172,7 @@ create Person(name="Alice", age=30);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
@@ -2200,7 +2200,7 @@ create Person(name="Alice", age=30);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Address {{ street: string, city: string }}
 create type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
@@ -2229,7 +2229,7 @@ create Person(name="Alice", address=Address(street="123 Main", city="Springfield
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
@@ -2250,7 +2250,7 @@ create Person(name="Bob", age=25);
         # Recreate database from pretty dump
         db_path2 = tmp_path / "testdb2"
         restore_script = tmp_path / "restore.ttq"
-        restore_script.write_text(f"use {db_path2};\n{dump_script}\n")
+        restore_script.write_text(f'use "{db_path2}";\n{dump_script}\n')
 
         result, _ = run_file(restore_script, None, verbose=False)
         assert result == 0
@@ -2285,7 +2285,7 @@ create Person(name="Bob", age=25);
 
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
-use {db_path};
+use "{db_path}";
 create type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
@@ -2312,7 +2312,7 @@ class TestArrayMethods:
         """Helper to create a database with the given script."""
         db_path = tmp_path / "testdb"
         script = tmp_path / "setup.ttq"
-        script.write_text(f"use {db_path}\n{script_text}\n")
+        script.write_text(f'use "{db_path}"\n{script_text}\n')
         result, _ = run_file(script, None, verbose=False)
         assert result == 0
         return db_path
@@ -2586,7 +2586,7 @@ class TestArrayMutations:
         """Helper to create a database with the given script."""
         db_path = tmp_path / "testdb"
         script = tmp_path / "setup.ttq"
-        script.write_text(f"use {db_path}\n{script_text}\n")
+        script.write_text(f'use "{db_path}"\n{script_text}\n')
         result, _ = run_file(script, None, verbose=False)
         assert result == 0
         return db_path
@@ -3542,7 +3542,7 @@ class TestArrayProjections:
         """Helper to create a database with the given script."""
         db_path = tmp_path / "testdb"
         script = tmp_path / "setup.ttq"
-        script.write_text(f"use {db_path}\n{script_text}\n")
+        script.write_text(f'use "{db_path}"\n{script_text}\n')
         result, _ = run_file(script, None, verbose=False)
         assert result == 0
         return db_path
@@ -3782,3 +3782,487 @@ create Sensor(name="temp", readings=[3, 1, 4])
         # Verify original unchanged
         result = self._query(db_path, "from Sensor select readings")
         assert result.rows[0]["readings"] == [3, 1, 4]
+
+
+class TestExpressions:
+    """Tests for arithmetic expression evaluation in SELECT without FROM."""
+
+    def _eval(self, query_text):
+        """Helper to evaluate an expression query and return the result."""
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.storage import StorageManager
+        from typed_tables.types import TypeRegistry
+
+        registry = TypeRegistry()
+        executor = QueryExecutor.__new__(QueryExecutor)
+        executor.registry = registry
+        executor.storage = None
+        executor._variables = {}
+        executor._deferred_tag_patches = {}
+        executor._tag_refs = {}
+        executor._execution_stack = set()
+        parser = QueryParser()
+        return executor.execute(parser.parse(query_text))
+
+    def _setup_db(self, tmp_path, script_text):
+        """Helper to create a database with the given script."""
+        db_path = tmp_path / "testdb"
+        script = tmp_path / "setup.ttq"
+        script.write_text(f'use "{db_path}"\n{script_text}\n')
+        result, _ = run_file(script, None, verbose=False)
+        assert result == 0
+        return db_path
+
+    def _query(self, db_path, query_text):
+        """Helper to run a query against an existing database."""
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+        result = executor.execute(parser.parse(query_text))
+        storage.close()
+        return result
+
+    def test_addition(self):
+        """select 5 + 3 → 8."""
+        result = self._eval("select 5 + 3")
+        assert result.rows[0]["5 + 3"] == 8
+
+    def test_precedence(self):
+        """select 5 * 3 + 1 → 16."""
+        result = self._eval("select 5 * 3 + 1")
+        assert result.rows[0]["5 * 3 + 1"] == 16
+
+    def test_parenthesized(self):
+        """select (2 + 3) * 4 → 20."""
+        result = self._eval("select (2 + 3) * 4")
+        row = list(result.rows[0].values())
+        assert row[0] == 20
+
+    def test_unary_minus_integer(self):
+        """select -5 → -5."""
+        result = self._eval("select -5")
+        row = list(result.rows[0].values())
+        assert row[0] == -5
+
+    def test_unary_minus_float(self):
+        """select -3.14 → -3.14."""
+        result = self._eval("select -3.14")
+        row = list(result.rows[0].values())
+        assert row[0] == pytest.approx(-3.14)
+
+    def test_string_concat(self):
+        """select "hello" ++ " world" → "hello world"."""
+        result = self._eval('select "hello" ++ " world"')
+        row = list(result.rows[0].values())
+        assert row[0] == "hello world"
+
+    def test_string_concat_auto_convert_int(self):
+        """select "id:" ++ 42 → "id:42"."""
+        result = self._eval('select "id:" ++ 42')
+        row = list(result.rows[0].values())
+        assert row[0] == "id:42"
+
+    def test_string_concat_auto_convert_float(self):
+        """select "pi=" ++ 3.14 → "pi=3.14"."""
+        result = self._eval('select "pi=" ++ 3.14')
+        row = list(result.rows[0].values())
+        assert row[0] == "pi=3.14"
+
+    def test_modulo(self):
+        """select 10 % 3 → 1."""
+        result = self._eval("select 10 % 3")
+        row = list(result.rows[0].values())
+        assert row[0] == 1
+
+    def test_integer_division(self):
+        """select 7 // 2 → 3."""
+        result = self._eval("select 7 // 2")
+        row = list(result.rows[0].values())
+        assert row[0] == 3
+
+    def test_true_division(self):
+        """select 10 / 3 → 3.333..."""
+        result = self._eval("select 10 / 3")
+        row = list(result.rows[0].values())
+        assert row[0] == pytest.approx(10 / 3)
+
+    def test_division_by_zero(self):
+        """select 10 / 0 → error."""
+        with pytest.raises(RuntimeError, match="Division by zero"):
+            self._eval("select 10 / 0")
+
+    def test_negation_of_parenthesized(self):
+        """select -(2 + 3) → -5."""
+        result = self._eval("select -(2 + 3)")
+        row = list(result.rows[0].values())
+        assert row[0] == -5
+
+    def test_existing_uuid_still_works(self):
+        """select uuid() still works."""
+        result = self._eval("select uuid()")
+        row = list(result.rows[0].values())
+        assert isinstance(row[0], str)  # hex-formatted UUID
+
+    def test_existing_alias_still_works(self):
+        """select uuid() as "id", uuid() as "id2" still works."""
+        result = self._eval('select uuid() as "id", uuid() as "id2"')
+        assert "id" in result.columns
+        assert "id2" in result.columns
+
+    def test_negative_array_elements(self, tmp_path):
+        """create Sensor(readings=[-5, -3]) works."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[-5, -3])
+""")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [-5, -3]
+
+    def test_subtraction(self):
+        """select 10 - 3 → 7."""
+        result = self._eval("select 10 - 3")
+        row = list(result.rows[0].values())
+        assert row[0] == 7
+
+    def test_multiplication(self):
+        """select 4 * 5 → 20."""
+        result = self._eval("select 4 * 5")
+        row = list(result.rows[0].values())
+        assert row[0] == 20
+
+    def test_float_arithmetic(self):
+        """select 1.5 + 2.5 → 4.0."""
+        result = self._eval("select 1.5 + 2.5")
+        row = list(result.rows[0].values())
+        assert row[0] == 4.0
+
+    def test_mixed_int_float(self):
+        """select 5 + 2.5 → 7.5."""
+        result = self._eval("select 5 + 2.5")
+        row = list(result.rows[0].values())
+        assert row[0] == 7.5
+
+    def test_complex_expression(self):
+        """select (10 + 5) * 2 - 3 → 27."""
+        result = self._eval("select (10 + 5) * 2 - 3")
+        row = list(result.rows[0].values())
+        assert row[0] == 27
+
+    def test_negative_instance_value(self, tmp_path):
+        """Negative integers in instance creation."""
+        db_path = self._setup_db(tmp_path, """
+create type Measurement { value: int8 }
+create Measurement(value=-10)
+""")
+        result = self._query(db_path, "from Measurement select value")
+        assert result.rows[0]["value"] == -10
+
+    def test_where_negative_value(self, tmp_path):
+        """WHERE clause with negative value."""
+        db_path = self._setup_db(tmp_path, """
+create type Reading { value: int8 }
+create Reading(value=-5)
+create Reading(value=10)
+""")
+        result = self._query(db_path, "from Reading select value where value > -1")
+        assert len(result.rows) == 1
+        assert result.rows[0]["value"] == 10
+
+    # --- Array math tests ---
+
+    def test_array_literal(self):
+        """select [1, 2, 3, 4] → [1, 2, 3, 4]."""
+        result = self._eval("select [1, 2, 3, 4]")
+        row = list(result.rows[0].values())
+        assert row[0] == [1, 2, 3, 4]
+
+    def test_empty_array(self):
+        """select [] → []."""
+        result = self._eval("select []")
+        row = list(result.rows[0].values())
+        assert row[0] == []
+
+    def test_array_add(self):
+        """select [1, 2] + [3, 4] → [4, 6]."""
+        result = self._eval("select [1, 2] + [3, 4]")
+        row = list(result.rows[0].values())
+        assert row[0] == [4, 6]
+
+    def test_array_subtract(self):
+        """select [10, 20] - [3, 4] → [7, 16]."""
+        result = self._eval("select [10, 20] - [3, 4]")
+        row = list(result.rows[0].values())
+        assert row[0] == [7, 16]
+
+    def test_array_multiply(self):
+        """select [2, 3] * [4, 5] → [8, 15]."""
+        result = self._eval("select [2, 3] * [4, 5]")
+        row = list(result.rows[0].values())
+        assert row[0] == [8, 15]
+
+    def test_array_divide(self):
+        """select [10, 20] / [4, 5] → [2.5, 4.0]."""
+        result = self._eval("select [10, 20] / [4, 5]")
+        row = list(result.rows[0].values())
+        assert row[0] == [2.5, 4.0]
+
+    def test_array_modulo(self):
+        """select [10, 7] % [3, 2] → [1, 1]."""
+        result = self._eval("select [10, 7] % [3, 2]")
+        row = list(result.rows[0].values())
+        assert row[0] == [1, 1]
+
+    def test_array_integer_division(self):
+        """select [7, 9] // [2, 4] → [3, 2]."""
+        result = self._eval("select [7, 9] // [2, 4]")
+        row = list(result.rows[0].values())
+        assert row[0] == [3, 2]
+
+    def test_scalar_broadcast_left(self):
+        """select 5 * [1, 2, 3] → [5, 10, 15]."""
+        result = self._eval("select 5 * [1, 2, 3]")
+        row = list(result.rows[0].values())
+        assert row[0] == [5, 10, 15]
+
+    def test_scalar_broadcast_right(self):
+        """select [1, 2, 3] * 5 → [5, 10, 15]."""
+        result = self._eval("select [1, 2, 3] * 5")
+        row = list(result.rows[0].values())
+        assert row[0] == [5, 10, 15]
+
+    def test_scalar_broadcast_add(self):
+        """select [10, 20] + 1 → [11, 21]."""
+        result = self._eval("select [10, 20] + 1")
+        row = list(result.rows[0].values())
+        assert row[0] == [11, 21]
+
+    def test_unary_negate_array(self):
+        """select -[1, 2, 3] → [-1, -2, -3]."""
+        result = self._eval("select -[1, 2, 3]")
+        row = list(result.rows[0].values())
+        assert row[0] == [-1, -2, -3]
+
+    def test_array_length_mismatch(self):
+        """select [1, 2] + [3, 4, 5] → error."""
+        with pytest.raises(RuntimeError, match="Array length mismatch"):
+            self._eval("select [1, 2] + [3, 4, 5]")
+
+    def test_array_string_concat(self):
+        """select ["a", "b"] ++ ["c", "d"] → ["ac", "bd"]."""
+        result = self._eval('select ["a", "b"] ++ ["c", "d"]')
+        row = list(result.rows[0].values())
+        assert row[0] == ["ac", "bd"]
+
+    def test_scalar_broadcast_string_concat_left(self):
+        """select "x" ++ [1, 2] → ["x1", "x2"]."""
+        result = self._eval('select "x" ++ [1, 2]')
+        row = list(result.rows[0].values())
+        assert row[0] == ["x1", "x2"]
+
+    def test_scalar_broadcast_string_concat_right(self):
+        """select [1, 2] ++ "!" → ["1!", "2!"]."""
+        result = self._eval('select [1, 2] ++ "!"')
+        row = list(result.rows[0].values())
+        assert row[0] == ["1!", "2!"]
+
+    def test_expressions_inside_array(self):
+        """select [1+2, 3*4] → [3, 12]."""
+        result = self._eval("select [1+2, 3*4]")
+        row = list(result.rows[0].values())
+        assert row[0] == [3, 12]
+
+    def test_sqrt_scalar(self):
+        """select sqrt(9) → 3.0."""
+        result = self._eval("select sqrt(9)")
+        row = list(result.rows[0].values())
+        assert row[0] == 3.0
+
+    def test_sqrt_array(self):
+        """select sqrt([1, 4, 9, 16]) → [1.0, 2.0, 3.0, 4.0]."""
+        result = self._eval("select sqrt([1, 4, 9, 16])")
+        row = list(result.rows[0].values())
+        assert row[0] == [1.0, 2.0, 3.0, 4.0]
+
+    def test_pow_scalar(self):
+        """select pow(2, 3) → 8."""
+        result = self._eval("select pow(2, 3)")
+        row = list(result.rows[0].values())
+        assert row[0] == 8
+
+    def test_pow_broadcast_base(self):
+        """select pow([2, 3], 2) → [4, 9]."""
+        result = self._eval("select pow([2, 3], 2)")
+        row = list(result.rows[0].values())
+        assert row[0] == [4, 9]
+
+    def test_pow_broadcast_exp(self):
+        """select pow(2, [1, 2, 3]) → [2, 4, 8]."""
+        result = self._eval("select pow(2, [1, 2, 3])")
+        row = list(result.rows[0].values())
+        assert row[0] == [2, 4, 8]
+
+    def test_abs_scalar(self):
+        """select abs(-5) → 5."""
+        result = self._eval("select abs(-5)")
+        row = list(result.rows[0].values())
+        assert row[0] == 5
+
+    def test_abs_array(self):
+        """select abs([-3, 4, -5]) → [3, 4, 5]."""
+        result = self._eval("select abs([-3, 4, -5])")
+        row = list(result.rows[0].values())
+        assert row[0] == [3, 4, 5]
+
+    def test_ceil(self):
+        """select ceil(1.2) → 2."""
+        result = self._eval("select ceil(1.2)")
+        row = list(result.rows[0].values())
+        assert row[0] == 2
+
+    def test_floor(self):
+        """select floor(1.8) → 1."""
+        result = self._eval("select floor(1.8)")
+        row = list(result.rows[0].values())
+        assert row[0] == 1
+
+    def test_round(self):
+        """select round(3.7) → 4."""
+        result = self._eval("select round(3.7)")
+        row = list(result.rows[0].values())
+        assert row[0] == 4
+
+    def test_sin(self):
+        """select sin(0) → 0.0."""
+        result = self._eval("select sin(0)")
+        row = list(result.rows[0].values())
+        assert row[0] == pytest.approx(0.0)
+
+    def test_cos(self):
+        """select cos(0) → 1.0."""
+        result = self._eval("select cos(0)")
+        row = list(result.rows[0].values())
+        assert row[0] == pytest.approx(1.0)
+
+    def test_log(self):
+        """select log(1) → 0.0."""
+        result = self._eval("select log(1)")
+        row = list(result.rows[0].values())
+        assert row[0] == pytest.approx(0.0)
+
+    def test_log2(self):
+        """select log2(8) → 3.0."""
+        result = self._eval("select log2(8)")
+        row = list(result.rows[0].values())
+        assert row[0] == pytest.approx(3.0)
+
+    def test_log10(self):
+        """select log10(100) → 2.0."""
+        result = self._eval("select log10(100)")
+        row = list(result.rows[0].values())
+        assert row[0] == pytest.approx(2.0)
+
+    def test_tan(self):
+        """select tan(0) → 0.0."""
+        result = self._eval("select tan(0)")
+        row = list(result.rows[0].values())
+        assert row[0] == pytest.approx(0.0)
+
+    def test_unknown_function(self):
+        """select unknown(5) → error."""
+        with pytest.raises(RuntimeError, match="Unknown function"):
+            self._eval("select unknown(5)")
+
+    def test_sum_array(self):
+        """select sum([1, 2, 3]) → 6."""
+        result = self._eval("select sum([1, 2, 3])")
+        row = list(result.rows[0].values())
+        assert row[0] == 6
+
+    def test_sum_float_array(self):
+        """select sum([1.5, 2.5]) → 4.0."""
+        result = self._eval("select sum([1.5, 2.5])")
+        row = list(result.rows[0].values())
+        assert row[0] == 4.0
+
+    def test_average_array(self):
+        """select average([10, 20, 30]) → 20.0."""
+        result = self._eval("select average([10, 20, 30])")
+        row = list(result.rows[0].values())
+        assert row[0] == 20.0
+
+    def test_product_array(self):
+        """select product([2, 3, 4]) → 24."""
+        result = self._eval("select product([2, 3, 4])")
+        row = list(result.rows[0].values())
+        assert row[0] == 24
+
+    def test_count_array(self):
+        """select count([1, 2, 3, 4, 5]) → 5."""
+        result = self._eval("select count([1, 2, 3, 4, 5])")
+        row = list(result.rows[0].values())
+        assert row[0] == 5
+
+    def test_min_array(self):
+        """select min([5, 3, 7]) → 3."""
+        result = self._eval("select min([5, 3, 7])")
+        row = list(result.rows[0].values())
+        assert row[0] == 3
+
+    def test_max_array(self):
+        """select max([5, 3, 7]) → 7."""
+        result = self._eval("select max([5, 3, 7])")
+        row = list(result.rows[0].values())
+        assert row[0] == 7
+
+    def test_min_multi_arg(self):
+        """select min(5, 3) → 3."""
+        result = self._eval("select min(5, 3)")
+        row = list(result.rows[0].values())
+        assert row[0] == 3
+
+    def test_max_multi_arg(self):
+        """select max(5, 3) → 5."""
+        result = self._eval("select max(5, 3)")
+        row = list(result.rows[0].values())
+        assert row[0] == 5
+
+    def test_min_empty_array(self):
+        """select min([]) → None."""
+        result = self._eval("select min([])")
+        row = list(result.rows[0].values())
+        assert row[0] is None
+
+    def test_sum_empty_array(self):
+        """select sum([]) → 0."""
+        result = self._eval("select sum([])")
+        row = list(result.rows[0].values())
+        assert row[0] == 0
+
+    def test_aggregate_field_names(self, tmp_path):
+        """Aggregate names (count, sum) can now be used as field names."""
+        db_path = self._setup_db(tmp_path, """
+            create type Stats { count: uint32, sum: float64 }
+            create Stats(count=10, sum=3.14)
+        """)
+        result = self._query(db_path, "from Stats select *")
+        assert len(result.rows) == 1
+        assert result.rows[0]["count"] == 10
+        assert result.rows[0]["sum"] == pytest.approx(3.14)
+
+    def test_from_select_sum_aggregate(self, tmp_path):
+        """from X select sum(age) still works with aggregate names as identifiers."""
+        db_path = self._setup_db(tmp_path, """
+            create type Person { name: string, age: uint8 }
+            create Person(name="Alice", age=30)
+            create Person(name="Bob", age=40)
+        """)
+        result = self._query(db_path, "from Person select sum(age)")
+        assert len(result.rows) == 1
+        assert result.rows[0]["sum(age)"] == 70

@@ -50,10 +50,6 @@ KEYWORDS: dict[str, str] = {
     "show": "Display metadata (types, references, etc.)",
     "types": "List all defined types",
     "describe": "Show fields and layout of a type",
-    "count": "Aggregate — count of rows",
-    "average": "Aggregate — arithmetic mean",
-    "sum": "Aggregate — total",
-    "product": "Aggregate — multiplicative product",
     "use": "Select or create a database",
     "create": "Create a type, alias, enum, or instance",
     "type": "Used with 'create type'",
@@ -99,6 +95,8 @@ FUNCTIONS: dict[str, str] = {
     "average": "Compute the arithmetic mean",
     "sum": "Compute the sum",
     "product": "Compute the multiplicative product",
+    "min": "Compute the minimum value",
+    "max": "Compute the maximum value",
 }
 
 # Regex to extract position from QueryParser error messages

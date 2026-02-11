@@ -405,6 +405,23 @@ class ScopeBlock:
     statements: list[Any] = field(default_factory=list)
 
 
+@dataclass
+class BinaryExpr:
+    """A binary expression: left op right."""
+
+    left: Any
+    op: str  # "+", "-", "*", "/", "%", "//", "++"
+    right: Any
+
+
+@dataclass
+class UnaryExpr:
+    """A unary expression: op operand."""
+
+    op: str  # "-", "+"
+    operand: Any
+
+
 Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | ImportQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
@@ -418,6 +435,10 @@ class QueryParser:
         ("left", "OR"),
         ("left", "AND"),
         ("right", "NOT"),
+        ("left", "CONCAT"),
+        ("left", "PLUS", "MINUS"),
+        ("left", "STAR", "SLASH", "PERCENT", "DOUBLESLASH"),
+        ("right", "UMINUS", "UPLUS"),
     )
 
     def __init__(self) -> None:
@@ -535,10 +556,6 @@ class QueryParser:
         """query : USE"""
         p[0] = UseQuery(path="")
 
-    def p_query_use_path(self, p: yacc.YaccProduction) -> None:
-        """query : USE PATH"""
-        p[0] = UseQuery(path=p[2])
-
     def p_query_use_identifier(self, p: yacc.YaccProduction) -> None:
         """query : USE IDENTIFIER"""
         p[0] = UseQuery(path=p[2])
@@ -549,10 +566,6 @@ class QueryParser:
 
     def p_query_use_identifier_temp(self, p: yacc.YaccProduction) -> None:
         """query : USE IDENTIFIER AS TEMP"""
-        p[0] = UseQuery(path=p[2], temporary=True)
-
-    def p_query_use_path_temp(self, p: yacc.YaccProduction) -> None:
-        """query : USE PATH AS TEMP"""
         p[0] = UseQuery(path=p[2], temporary=True)
 
     def p_query_use_string_temp(self, p: yacc.YaccProduction) -> None:
@@ -749,7 +762,6 @@ class QueryParser:
 
     def p_query_drop_database(self, p: yacc.YaccProduction) -> None:
         """query : DROP IDENTIFIER
-                 | DROP PATH
                  | DROP STRING"""
         p[0] = DropDatabaseQuery(path=p[2])
 
@@ -759,7 +771,6 @@ class QueryParser:
 
     def p_query_drop_force(self, p: yacc.YaccProduction) -> None:
         """query : DROP BANG IDENTIFIER
-                 | DROP BANG PATH
                  | DROP BANG STRING"""
         p[0] = DropDatabaseQuery(path=p[3], force=True)
 
@@ -909,14 +920,6 @@ class QueryParser:
         """method_name : SORT"""
         p[0] = p[1]
 
-    def p_method_name_min(self, p: yacc.YaccProduction) -> None:
-        """method_name : MIN"""
-        p[0] = p[1]
-
-    def p_method_name_max(self, p: yacc.YaccProduction) -> None:
-        """method_name : MAX"""
-        p[0] = p[1]
-
     def p_method_arg_list_single(self, p: yacc.YaccProduction) -> None:
         """method_arg_list : method_arg"""
         p[0] = [p[1]]
@@ -958,6 +961,11 @@ class QueryParser:
                           | INTEGER
                           | FLOAT"""
         p[0] = p[1]
+
+    def p_instance_value_negative(self, p: yacc.YaccProduction) -> None:
+        """instance_value : MINUS INTEGER
+                          | MINUS FLOAT"""
+        p[0] = -p[2]
 
     def p_instance_value_func(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER LPAREN RPAREN
@@ -1031,6 +1039,11 @@ class QueryParser:
                          | FLOAT"""
         p[0] = p[1]
 
+    def p_array_element_negative(self, p: yacc.YaccProduction) -> None:
+        """array_element : MINUS INTEGER
+                         | MINUS FLOAT"""
+        p[0] = -p[2]
+
     def p_array_element_inline_instance(self, p: yacc.YaccProduction) -> None:
         """array_element : IDENTIFIER LPAREN tagged_instance_field_list RPAREN"""
         tag_name, fields = p[3]
@@ -1078,6 +1091,53 @@ class QueryParser:
         """eval_expr : IDENTIFIER LPAREN RPAREN
                      | UUID LPAREN RPAREN"""
         p[0] = FunctionCall(name=p[1].lower() if isinstance(p[1], str) else "uuid")
+
+    def p_eval_expr_func_with_args(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : IDENTIFIER LPAREN eval_arg_list RPAREN"""
+        p[0] = FunctionCall(name=p[1].lower(), args=p[3])
+
+    def p_eval_arg_list_single(self, p: yacc.YaccProduction) -> None:
+        """eval_arg_list : eval_expr"""
+        p[0] = [p[1]]
+
+    def p_eval_arg_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """eval_arg_list : eval_arg_list COMMA eval_expr"""
+        p[0] = p[1] + [p[3]]
+
+    def p_eval_expr_array(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : LBRACKET eval_expr_items RBRACKET
+                     | LBRACKET RBRACKET"""
+        p[0] = p[2] if len(p) == 4 else []
+
+    def p_eval_expr_items_single(self, p: yacc.YaccProduction) -> None:
+        """eval_expr_items : eval_expr"""
+        p[0] = [p[1]]
+
+    def p_eval_expr_items_multiple(self, p: yacc.YaccProduction) -> None:
+        """eval_expr_items : eval_expr_items COMMA eval_expr"""
+        p[0] = p[1] + [p[3]]
+
+    def p_eval_expr_binary(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : eval_expr PLUS eval_expr
+                     | eval_expr MINUS eval_expr
+                     | eval_expr STAR eval_expr
+                     | eval_expr SLASH eval_expr
+                     | eval_expr PERCENT eval_expr
+                     | eval_expr DOUBLESLASH eval_expr
+                     | eval_expr CONCAT eval_expr"""
+        p[0] = BinaryExpr(left=p[1], op=p[2], right=p[3])
+
+    def p_eval_expr_unary_minus(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : MINUS eval_expr %prec UMINUS"""
+        p[0] = UnaryExpr(op="-", operand=p[2])
+
+    def p_eval_expr_unary_plus(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : PLUS eval_expr %prec UPLUS"""
+        p[0] = UnaryExpr(op="+", operand=p[2])
+
+    def p_eval_expr_paren(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : LPAREN eval_expr RPAREN"""
+        p[0] = p[2]
 
     def p_select_query(self, p: yacc.YaccProduction) -> None:
         """select_query : from_clause select_clause where_clause group_clause sort_clause offset_clause limit_clause"""
@@ -1163,12 +1223,17 @@ class QueryParser:
 
     # --- method_chain_expr: accumulates chained method calls ---
 
+    # Known aggregate function names
+    _AGGREGATE_NAMES = {"count", "average", "sum", "product", "min", "max"}
+
     def p_method_chain_base_no_args(self, p: yacc.YaccProduction) -> None:
         """method_chain_expr : field_path LPAREN RPAREN"""
         path = p[1]
         parts = path.rsplit(".", 1)
         if len(parts) == 2:
             p[0] = (parts[0], [MethodCall(method_name=parts[1])])
+        elif path.lower() in self._AGGREGATE_NAMES:
+            p[0] = ("__aggregate__", path.lower(), None)  # (sentinel, name, field)
         else:
             raise SyntaxError(f"Method call requires a field: {path}()")
 
@@ -1178,6 +1243,13 @@ class QueryParser:
         parts = path.rsplit(".", 1)
         if len(parts) == 2:
             p[0] = (parts[0], [MethodCall(method_name=parts[1], method_args=p[3])])
+        elif path.lower() in self._AGGREGATE_NAMES:
+            # Extract field name from first arg (TagReference)
+            args = p[3]
+            if len(args) == 1 and isinstance(args[0], TagReference):
+                p[0] = ("__aggregate__", path.lower(), args[0].name)
+            else:
+                raise SyntaxError(f"{path}() requires a single field name argument in SELECT")
         else:
             raise SyntaxError(f"Method call requires a field: {path}()")
 
@@ -1197,12 +1269,17 @@ class QueryParser:
 
     def p_select_field_method_chain(self, p: yacc.YaccProduction) -> None:
         """select_field : method_chain_expr"""
-        field_name, chain = p[1]
-        if len(chain) == 1:
-            mc = chain[0]
-            p[0] = SelectField(name=field_name, method_name=mc.method_name, method_args=mc.method_args)
+        result = p[1]
+        if len(result) == 3 and result[0] == "__aggregate__":
+            _, agg_name, field_name = result
+            p[0] = SelectField(name=field_name or "*", aggregate=agg_name)
         else:
-            p[0] = SelectField(name=field_name, method_chain=chain)
+            field_name, chain = result
+            if len(chain) == 1:
+                mc = chain[0]
+                p[0] = SelectField(name=field_name, method_name=mc.method_name, method_args=mc.method_args)
+            else:
+                p[0] = SelectField(name=field_name, method_chain=chain)
 
     def p_select_field_method_call_with_index(self, p: yacc.YaccProduction) -> None:
         """select_field : field_path LBRACKET array_index_list RBRACKET DOT IDENTIFIER LPAREN RPAREN"""
@@ -1242,23 +1319,9 @@ class QueryParser:
 
     def p_field_path_dotted(self, p: yacc.YaccProduction) -> None:
         """field_path : field_path DOT IDENTIFIER
-                      | field_path DOT MIN
-                      | field_path DOT MAX
                       | field_path DOT SORT
                       | field_path DOT DELETE"""
         p[0] = f"{p[1]}.{p[3]}"
-
-    def p_select_field_count(self, p: yacc.YaccProduction) -> None:
-        """select_field : COUNT LPAREN RPAREN"""
-        p[0] = SelectField(name="*", aggregate="count")
-
-    def p_select_field_aggregate(self, p: yacc.YaccProduction) -> None:
-        """select_field : AVERAGE LPAREN IDENTIFIER RPAREN
-                        | SUM LPAREN IDENTIFIER RPAREN
-                        | PRODUCT LPAREN IDENTIFIER RPAREN
-                        | MIN LPAREN IDENTIFIER RPAREN
-                        | MAX LPAREN IDENTIFIER RPAREN"""
-        p[0] = SelectField(name=p[3], aggregate=p[1].lower())
 
     def p_where_clause_empty(self, p: yacc.YaccProduction) -> None:
         """where_clause : """
@@ -1295,6 +1358,8 @@ class QueryParser:
                      | method_chain_expr LTE value
                      | method_chain_expr GT value
                      | method_chain_expr GTE value"""
+        if len(p[1]) == 3 and p[1][0] == "__aggregate__":
+            raise SyntaxError("Aggregate functions cannot be used in WHERE clauses")
         field_name, chain = p[1]
         op_map = {"=": "eq", "!=": "neq", "<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}
         if len(chain) == 1:
@@ -1307,6 +1372,8 @@ class QueryParser:
 
     def p_condition_method_chain_boolean(self, p: yacc.YaccProduction) -> None:
         """condition : method_chain_expr"""
+        if len(p[1]) == 3 and p[1][0] == "__aggregate__":
+            raise SyntaxError("Aggregate functions cannot be used in WHERE clauses")
         field_name, chain = p[1]
         if len(chain) == 1:
             mc = chain[0]
@@ -1346,6 +1413,11 @@ class QueryParser:
     def p_value_string(self, p: yacc.YaccProduction) -> None:
         """value : STRING"""
         p[0] = p[1]
+
+    def p_value_negative(self, p: yacc.YaccProduction) -> None:
+        """value : MINUS INTEGER
+                 | MINUS FLOAT"""
+        p[0] = -p[2]
 
     def p_value_null(self, p: yacc.YaccProduction) -> None:
         """value : NULL"""
@@ -1404,13 +1476,7 @@ class QueryParser:
         p[0] = p[1]
 
     def p_sort_key_reserved(self, p: yacc.YaccProduction) -> None:
-        """sort_key : TYPE
-                    | COUNT
-                    | SUM
-                    | AVERAGE
-                    | PRODUCT
-                    | MIN
-                    | MAX"""
+        """sort_key : TYPE"""
         p[0] = p[1].lower()
 
     def p_offset_clause_empty(self, p: yacc.YaccProduction) -> None:

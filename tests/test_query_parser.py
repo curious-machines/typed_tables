@@ -6,6 +6,7 @@ from typed_tables.parsing.query_lexer import QueryLexer
 from typed_tables.parsing.query_parser import (
     ArrayIndex,
     ArraySlice,
+    BinaryExpr,
     CollectQuery,
     CollectSource,
     Condition,
@@ -32,6 +33,7 @@ from typed_tables.parsing.query_parser import (
     ShowTypesQuery,
     SortKeyExpr,
     TagReference,
+    UnaryExpr,
     UpdateQuery,
     UseQuery,
     VariableAssignmentQuery,
@@ -1605,3 +1607,275 @@ class TestMethodCallParsing:
         f = query.fields[0]
         assert f.method_name == "length"
         assert f.method_chain is None
+
+
+class TestExpressionParsing:
+    """Tests for arithmetic expression parsing in eval queries."""
+
+    def test_parse_addition(self):
+        """select 5 + 3 → BinaryExpr(5, '+', 3)."""
+        parser = QueryParser()
+        query = parser.parse("select 5 + 3")
+        assert isinstance(query, EvalQuery)
+        expr, alias = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.left == 5
+        assert expr.op == "+"
+        assert expr.right == 3
+
+    def test_parse_precedence_mul_add(self):
+        """select 5 * 3 + 1 → BinaryExpr(BinaryExpr(5, '*', 3), '+', 1)."""
+        parser = QueryParser()
+        query = parser.parse("select 5 * 3 + 1")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.op == "+"
+        assert isinstance(expr.left, BinaryExpr)
+        assert expr.left.op == "*"
+        assert expr.left.left == 5
+        assert expr.left.right == 3
+        assert expr.right == 1
+
+    def test_parse_parenthesized(self):
+        """select (2 + 3) * 4 → BinaryExpr(BinaryExpr(2, '+', 3), '*', 4)."""
+        parser = QueryParser()
+        query = parser.parse("select (2 + 3) * 4")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.op == "*"
+        assert isinstance(expr.left, BinaryExpr)
+        assert expr.left.op == "+"
+        assert expr.left.left == 2
+        assert expr.left.right == 3
+        assert expr.right == 4
+
+    def test_parse_unary_minus(self):
+        """select -5 → UnaryExpr('-', 5)."""
+        parser = QueryParser()
+        query = parser.parse("select -5")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, UnaryExpr)
+        assert expr.op == "-"
+        assert expr.operand == 5
+
+    def test_parse_string_concat(self):
+        """select "hello" ++ " world" → BinaryExpr."""
+        parser = QueryParser()
+        query = parser.parse('select "hello" ++ " world"')
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.op == "++"
+        assert expr.left == "hello"
+        assert expr.right == " world"
+
+    def test_parse_modulo(self):
+        """select 10 % 3 → BinaryExpr(10, '%', 3)."""
+        parser = QueryParser()
+        query = parser.parse("select 10 % 3")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.op == "%"
+        assert expr.left == 10
+        assert expr.right == 3
+
+    def test_parse_integer_division(self):
+        """select 7 // 2 → BinaryExpr(7, '//', 2)."""
+        parser = QueryParser()
+        query = parser.parse("select 7 // 2")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.op == "//"
+        assert expr.left == 7
+        assert expr.right == 2
+
+    def test_parse_true_division(self):
+        """select 10 / 3 → BinaryExpr(10, '/', 3) — SLASH not eaten by REGEX."""
+        parser = QueryParser()
+        query = parser.parse("select 10 / 3")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.op == "/"
+        assert expr.left == 10
+        assert expr.right == 3
+
+    def test_parse_negative_literal_in_where(self):
+        """where age > -1 still parses."""
+        parser = QueryParser()
+        query = parser.parse("from Person select * where age > -1")
+        assert isinstance(query, SelectQuery)
+        assert query.where.value == -1
+
+    def test_parse_regex_still_works(self):
+        """where name matches /^K/ → Condition(matches, '^K')."""
+        parser = QueryParser()
+        query = parser.parse('from Person select * where name matches /^K/')
+        assert isinstance(query, SelectQuery)
+        assert query.where.operator == "matches"
+        assert query.where.value == "^K"
+
+    def test_parse_concat_lower_precedence_than_arithmetic(self):
+        """select "id:" ++ 5 + 3 → BinaryExpr("id:", "++", BinaryExpr(5, "+", 3))."""
+        parser = QueryParser()
+        query = parser.parse('select "id:" ++ 5 + 3')
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.op == "++"
+        assert expr.left == "id:"
+        assert isinstance(expr.right, BinaryExpr)
+        assert expr.right.op == "+"
+        assert expr.right.left == 5
+        assert expr.right.right == 3
+
+    def test_parse_array_literal(self):
+        """select [1, 2, 3] → EvalQuery with list."""
+        parser = QueryParser()
+        query = parser.parse("select [1, 2, 3]")
+        assert isinstance(query, EvalQuery)
+        expr, alias = query.expressions[0]
+        assert isinstance(expr, list)
+        assert expr == [1, 2, 3]
+        assert alias is None
+
+    def test_parse_empty_array(self):
+        """select [] → EvalQuery with empty list."""
+        parser = QueryParser()
+        query = parser.parse("select []")
+        assert isinstance(query, EvalQuery)
+        expr, _ = query.expressions[0]
+        assert expr == []
+
+    def test_parse_array_with_expressions(self):
+        """select [1+2, 3*4] → list of BinaryExpr nodes."""
+        parser = QueryParser()
+        query = parser.parse("select [1+2, 3*4]")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, list)
+        assert len(expr) == 2
+        assert isinstance(expr[0], BinaryExpr)
+        assert expr[0].op == "+"
+        assert isinstance(expr[1], BinaryExpr)
+        assert expr[1].op == "*"
+
+    def test_parse_func_with_args(self):
+        """select sqrt(9) → FunctionCall with args."""
+        parser = QueryParser()
+        query = parser.parse("select sqrt(9)")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, FunctionCall)
+        assert expr.name == "sqrt"
+        assert expr.args == [9]
+
+    def test_parse_func_with_two_args(self):
+        """select pow(2, 3) → FunctionCall with two args."""
+        parser = QueryParser()
+        query = parser.parse("select pow(2, 3)")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, FunctionCall)
+        assert expr.name == "pow"
+        assert expr.args == [2, 3]
+
+    def test_parse_func_with_array_arg(self):
+        """select sqrt([1, 4, 9]) → FunctionCall with list arg."""
+        parser = QueryParser()
+        query = parser.parse("select sqrt([1, 4, 9])")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, FunctionCall)
+        assert expr.name == "sqrt"
+        assert len(expr.args) == 1
+        assert isinstance(expr.args[0], list)
+        assert expr.args[0] == [1, 4, 9]
+
+    def test_parse_array_binary_op(self):
+        """select [1, 2] + [3, 4] → BinaryExpr with list operands."""
+        parser = QueryParser()
+        query = parser.parse("select [1, 2] + [3, 4]")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.op == "+"
+        assert isinstance(expr.left, list)
+        assert isinstance(expr.right, list)
+
+    def test_parse_scalar_broadcast(self):
+        """select 5 * [1, 2, 3] → BinaryExpr(5, '*', list)."""
+        parser = QueryParser()
+        query = parser.parse("select 5 * [1, 2, 3]")
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, BinaryExpr)
+        assert expr.op == "*"
+        assert expr.left == 5
+        assert isinstance(expr.right, list)
+
+    def test_parse_sum_eval(self):
+        """select sum([1, 2, 3]) → EvalQuery with FunctionCall(name='sum')."""
+        parser = QueryParser()
+        query = parser.parse("select sum([1, 2, 3])")
+        assert isinstance(query, EvalQuery)
+        expr, alias = query.expressions[0]
+        assert isinstance(expr, FunctionCall)
+        assert expr.name == "sum"
+        assert len(expr.args) == 1
+        assert isinstance(expr.args[0], list)
+
+    def test_parse_min_multi_arg_eval(self):
+        """select min(5, 3) → EvalQuery with FunctionCall(name='min', args=[5, 3])."""
+        parser = QueryParser()
+        query = parser.parse("select min(5, 3)")
+        assert isinstance(query, EvalQuery)
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, FunctionCall)
+        assert expr.name == "min"
+        assert expr.args == [5, 3]
+
+    def test_parse_count_eval(self):
+        """select count([1, 2, 3]) → EvalQuery with FunctionCall(name='count')."""
+        parser = QueryParser()
+        query = parser.parse("select count([1, 2, 3])")
+        assert isinstance(query, EvalQuery)
+        expr, _ = query.expressions[0]
+        assert isinstance(expr, FunctionCall)
+        assert expr.name == "count"
+
+    def test_parse_aggregate_count_in_select(self):
+        """from Person select count() → SelectField(name='*', aggregate='count')."""
+        parser = QueryParser()
+        query = parser.parse("from Person select count()")
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "*"
+        assert query.fields[0].aggregate == "count"
+
+    def test_parse_aggregate_sum_in_select(self):
+        """from Person select sum(age) → SelectField(name='age', aggregate='sum')."""
+        parser = QueryParser()
+        query = parser.parse("from Person select sum(age)")
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "age"
+        assert query.fields[0].aggregate == "sum"
+
+    def test_parse_aggregate_min_in_select(self):
+        """from Person select min(age) → SelectField(name='age', aggregate='min')."""
+        parser = QueryParser()
+        query = parser.parse("from Person select min(age)")
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "age"
+        assert query.fields[0].aggregate == "min"
+
+    def test_parse_aggregate_name_as_field(self):
+        """from X select count → SelectField(name='count') — field, not function."""
+        parser = QueryParser()
+        query = parser.parse("from X select count")
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "count"
+        assert query.fields[0].aggregate is None
+
+    def test_parse_method_min_still_works(self):
+        """from Sensor select readings.min() → method chain still works."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.min()")
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "readings"
+        assert query.fields[0].method_name == "min"

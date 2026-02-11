@@ -293,7 +293,7 @@ class TestExecuteInRunFile:
         # Create outer script
         outer = db_dir / "outer.ttq"
         outer.write_text(
-            f'use {db_dir / "test_db"}\n'
+            f'use "{db_dir / "test_db"}"\n'
             f'execute "{inner}"\n'
             f'create Inner(val=42)\n'
         )
@@ -316,7 +316,7 @@ class TestExecuteInRunFile:
         # Main script uses relative path
         main = db_dir / "main.ttq"
         main.write_text(
-            f'use {db_dir / "test_db"}\n'
+            f'use "{db_dir / "test_db"}"\n'
             'execute "lib/types.ttq"\n'
         )
 
