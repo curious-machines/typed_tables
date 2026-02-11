@@ -332,12 +332,16 @@ def run_repl(data_dir: Path | None) -> int:
                                 storage.close()
                             registry, storage, executor, is_new = load_database(new_path)
                             data_dir = new_path
-                            if query.temporary:
-                                temp_databases.add(new_path.resolve())
                             if is_new:
-                                print(f"Created new database: {new_path}")
+                                if query.temporary:
+                                    temp_databases.add(new_path.resolve())
+                                    print(f"Created new temporary database: {new_path}")
+                                else:
+                                    print(f"Created new database: {new_path}")
                             else:
                                 print(f"Switched to database: {new_path}")
+                                if query.temporary:
+                                    print("Note: 'as temp' ignored — existing databases are not deleted on exit. Use 'drop' to delete.")
                         except Exception as e:
                             print(f"Error loading database: {e}")
                     print()
@@ -460,12 +464,16 @@ def run_repl(data_dir: Path | None) -> int:
                                 storage.close()
                             registry, storage, executor, is_new = load_database(new_path)
                             data_dir = new_path
-                            if result.temporary:
-                                temp_databases.add(new_path.resolve())
                             if is_new:
-                                print(f"Created new database: {new_path}")
+                                if result.temporary:
+                                    temp_databases.add(new_path.resolve())
+                                    print(f"Created new temporary database: {new_path}")
+                                else:
+                                    print(f"Created new database: {new_path}")
                             else:
                                 print(f"Switched to database: {new_path}")
+                                if result.temporary:
+                                    print("Note: 'as temp' ignored — existing databases are not deleted on exit. Use 'drop' to delete.")
                         except Exception as e:
                             print(f"Error loading database: {e}")
                 # Handle DropResult - delete database
