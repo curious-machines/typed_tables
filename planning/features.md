@@ -1,15 +1,17 @@
 # TODO
 
+- phase 8, lambdas and map
+
+- when creating new temp database, say so in REPL
+- can I create an array of a given size and fill elements with a value
+- create array of range of numbers
+
 ---
 
 # Questions
 
-- update chaining for arrays
-- phase 8, lambdas and map
-
 - how do we know types when using numbers
-- when creating new temp database, say so in REPL
-- can I create an array of a given size and fill elements with a value
+- should I be able to call array methods on array literals
 
 ---
 

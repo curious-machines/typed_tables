@@ -493,17 +493,113 @@ delete_query    ::= "delete" IDENTIFIER "where" condition
 
 (* ========== UPDATE Query ========== *)
 (*
- * Modify fields on an existing record. The target can be a variable
- * or a direct type reference with index.
+ * Modify fields on an existing record. The target can be a variable,
+ * a direct type reference with index, or a bulk update with WHERE.
  *
- * Examples:
+ * Basic examples:
  *   update $n1 set next=$n2
  *   update Node(0) set next=Node(1)
  *   update $n set value=42, next=null
+ *
+ * Bulk update (with or without WHERE):
+ *   update Pixel set color=.blue where color=.green
+ *   update Pixel set color=.red
+ *
+ * Array mutations (single method, no "="):
+ *   update $s set readings.reverse()
+ *   update Sensor(0) set readings.sort(desc)
+ *   update $s set readings.append(5)
+ *
+ * Mutation chaining (multiple methods, no "="):
+ *   update $s set readings.sort().reverse()
+ *   update $s set readings.append(5).sort()
+ *
+ * Assignment chaining (methods with "="):
+ *   update $s set readings = readings.reverse()
+ *   update $s set readings = readings.append(5).sort()
+ *
+ * Cross-field assignment chaining:
+ *   update $s set backup = readings.sort()
+ *
+ * Mixed chaining and regular assignment:
+ *   update $s set name = "new", readings = readings.sort().reverse()
  *)
 
 update_query    ::= "update" VARIABLE "set" instance_field_list
                   | "update" IDENTIFIER "(" INTEGER ")" "set" instance_field_list
+                  | "update" IDENTIFIER "set" instance_field_list "where" condition
+                  | "update" IDENTIFIER "set" instance_field_list
+
+instance_field  ::= IDENTIFIER "=" instance_value
+                  | mutation_chain
+                  | IDENTIFIER "=" field_method_chain
+
+(* Mutation chain: method calls on a field without "=" *)
+mutation_chain  ::= IDENTIFIER "." method_name "(" ")"
+                  | IDENTIFIER "." method_name "(" method_arg_list ")"
+                  | mutation_chain "." method_name "(" ")"
+                  | mutation_chain "." method_name "(" method_arg_list ")"
+
+(* Field method chain as instance_value: field.method() or field.method().method() *)
+(* These are parsed as instance_value variants using recursive chaining *)
+field_method_chain ::= IDENTIFIER "." method_name "(" ")"
+                     | IDENTIFIER "." method_name "(" method_arg_list ")"
+                     | field_method_chain "." method_name "(" ")"
+                     | field_method_chain "." method_name "(" method_arg_list ")"
+
+method_name     ::= IDENTIFIER | "sort" | "delete" | "min" | "max"
+
+method_arg_list ::= method_arg
+                  | method_arg_list "," method_arg
+
+method_arg      ::= INTEGER | FLOAT | STRING
+                  | "[" array_elements "]"
+                  | IDENTIFIER "(" instance_field_list ")"  (* inline instance *)
+                  | VARIABLE
+                  | "." IDENTIFIER                          (* sort key: .field *)
+                  | "." IDENTIFIER "desc"                   (* sort key: .field desc *)
+                  | "." IDENTIFIER "asc"                    (* sort key: .field asc *)
+                  | "desc"                                  (* bare descending *)
+                  | "asc"                                   (* bare ascending *)
+
+
+(* ========== Array Methods ========== *)
+(*
+ * Array fields support method calls in SELECT (read-only) and UPDATE (mutations).
+ *
+ * Read-only methods (SELECT/WHERE):
+ *   field.length()         -- number of elements (0 for null)
+ *   field.isEmpty()        -- true if empty or null
+ *   field.contains(value)  -- true if array contains value
+ *   field.min()            -- minimum element (null for empty/null)
+ *   field.max()            -- maximum element (null for empty/null)
+ *   field.min(.key)        -- minimum by composite field key
+ *   field.max(.key)        -- maximum by composite field key
+ *
+ * Mutation methods (UPDATE ... SET):
+ *   field.reverse()
+ *   field.swap(i, j)
+ *   field.sort()                    -- ascending
+ *   field.sort(desc)                -- descending
+ *   field.sort(.key)                -- sort by composite field
+ *   field.sort(.key desc, .key2)    -- multi-key sort
+ *   field.append(value, ...)
+ *   field.prepend(value, ...)
+ *   field.insert(index, value, ...)
+ *   field.delete(index, ...)
+ *   field.remove(value)             -- first occurrence
+ *   field.removeAll(value)          -- all occurrences
+ *   field.replace(old, new)         -- first match
+ *   field.replaceAll(old, new)      -- all matches
+ *
+ * Chained projections (SELECT — immutable, original data unchanged):
+ *   from Sensor select readings.sort().reverse()
+ *   from Sensor select readings.append(5).sort()
+ *
+ * Chained mutations (UPDATE — single write):
+ *   update $s set readings.sort().reverse()
+ *   update $s set readings = readings.append(5).sort()
+ *)
 
 
 (* ========== Scope Block ========== *)

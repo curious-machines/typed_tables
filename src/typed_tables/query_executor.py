@@ -45,6 +45,7 @@ from typed_tables.parsing.query_parser import (
     FunctionCall,
     InlineInstance,
     MethodCall,
+    MethodChainValue,
     NullValue,
     Query,
     QueryParser,
@@ -1523,14 +1524,54 @@ class QueryExecutor:
                     message=f"Unknown field '{fv.name}' on type {type_name}",
                 )
 
+            # Chain mutation (no =): readings.sort().reverse()
+            if fv.method_chain is not None and fv.value is None:
+                error = self._apply_chain_mutation(type_name, base, fv, raw_record)
+                if error:
+                    return error
+                continue
+
+            # Chain/single-method assignment: readings = readings.sort().reverse()
+            if fv.method_name is not None and fv.value is not None:
+                error = self._apply_chain_assignment(type_name, base, fv, raw_record)
+                if error:
+                    return error
+                continue
+
+            if fv.method_chain is not None and fv.value is not None:
+                error = self._apply_chain_assignment(type_name, base, fv, raw_record)
+                if error:
+                    return error
+                continue
+
+            # Single mutation (no =): readings.reverse()
             if fv.method_name is not None:
                 error = self._apply_array_mutation(type_name, base, fv, raw_record)
                 if error:
                     return error
                 continue
 
-            resolved_value = self._resolve_instance_value(fv.value)
             field_base = field_def.type_def.resolve_base_type()
+
+            # Detect EnumValueExpr that's actually a method chain assignment
+            # (for IDENTIFIER methods with no args: readings = readings.reverse())
+            if (isinstance(fv.value, EnumValueExpr) and fv.value.enum_name is not None
+                    and isinstance(field_base, ArrayTypeDefinition)):
+                enum_type = self.registry.get(fv.value.enum_name)
+                if enum_type is None or not isinstance(enum_type.resolve_base_type(), EnumTypeDefinition):
+                    # Not an actual enum — reinterpret as method chain
+                    source_field = fv.value.enum_name
+                    method_name = fv.value.variant_name
+                    method_args = fv.value.args
+                    synthetic_fv = FieldValue(
+                        name=fv.name, value=source_field,
+                        method_name=method_name, method_args=method_args)
+                    error = self._apply_chain_assignment(type_name, base, synthetic_fv, raw_record)
+                    if error:
+                        return error
+                    continue
+
+            resolved_value = self._resolve_instance_value(fv.value)
 
             # Resolve shorthand enum expressions for update context
             if isinstance(resolved_value, EnumValueExpr) and isinstance(field_base, EnumTypeDefinition):
@@ -1556,6 +1597,144 @@ class QueryExecutor:
 
         table.update(index, raw_record)
         return None
+
+    def _apply_chain_mutation(
+        self,
+        type_name: str,
+        base: CompositeTypeDefinition,
+        fv: Any,
+        raw_record: dict,
+    ) -> UpdateResult | None:
+        """Apply a chain of mutations (no =) like readings.sort().reverse(). Read once, apply all, write once."""
+        field_def = base.get_field(fv.name)
+        field_base = field_def.type_def.resolve_base_type()
+
+        if not isinstance(field_base, ArrayTypeDefinition):
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Method chaining can only be applied to array fields",
+            )
+
+        # Read current array value
+        value = self._read_array_for_chain(raw_record.get(fv.name), field_def)
+
+        # Apply each method in the chain as an immutable projection
+        for mc in fv.method_chain:
+            value = self._apply_projection_method(value, mc.method_name, mc.method_args)
+
+        # Write result back
+        self._write_chain_result(raw_record, fv.name, field_def, value)
+        return None
+
+    def _apply_chain_assignment(
+        self,
+        type_name: str,
+        base: CompositeTypeDefinition,
+        fv: Any,
+        raw_record: dict,
+    ) -> UpdateResult | None:
+        """Apply a chain assignment like readings = readings.sort().reverse(). Read source, apply chain, write to target."""
+        field_def = base.get_field(fv.name)
+        field_base = field_def.type_def.resolve_base_type()
+
+        if not isinstance(field_base, ArrayTypeDefinition):
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Method chain assignment can only target array fields",
+            )
+
+        source_field = fv.value  # RHS field name string
+        source_field_def = base.get_field(source_field)
+        if source_field_def is None:
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Unknown source field '{source_field}' on type {type_name}",
+            )
+
+        source_field_base = source_field_def.type_def.resolve_base_type()
+        if not isinstance(source_field_base, ArrayTypeDefinition):
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Source field '{source_field}' is not an array type",
+            )
+
+        # Read source array value
+        value = self._read_array_for_chain(raw_record.get(source_field), source_field_def)
+
+        # Apply chain
+        if fv.method_chain:
+            for mc in fv.method_chain:
+                value = self._apply_projection_method(value, mc.method_name, mc.method_args)
+        else:
+            value = self._apply_projection_method(value, fv.method_name, fv.method_args)
+
+        # Write result to target field
+        self._write_chain_result(raw_record, fv.name, field_def, value)
+        return None
+
+    def _read_array_for_chain(self, ref: Any, field_def: Any) -> Any:
+        """Read an array field value from raw_record ref, returning resolved Python values."""
+        if ref is None:
+            return None
+        start_index, length = ref
+        if length == 0:
+            return []
+        field_base = field_def.type_def.resolve_base_type()
+        array_table = self.storage.get_array_table_for_type(field_def.type_def)
+        elements = [
+            array_table.element_table.get(start_index + j)
+            for j in range(length)
+        ]
+        if is_string_type(field_def.type_def):
+            return "".join(elements)
+        # For composite arrays, resolve each element to a dict
+        elem_type = field_base.element_type
+        elem_base = elem_type.resolve_base_type()
+        if isinstance(elem_base, CompositeTypeDefinition):
+            resolved = []
+            for elem in elements:
+                if isinstance(elem, int):
+                    ref_table = self.storage.get_table(elem_type.name)
+                    raw = ref_table.get(elem)
+                    resolved.append(self._resolve_raw_composite(raw, elem_base, elem_type))
+                else:
+                    resolved.append(elem)
+            return resolved
+        return elements
+
+    def _write_chain_result(self, raw_record: dict, field_name: str, field_def: Any, value: Any) -> None:
+        """Write the result of a chain back to the raw_record."""
+        if value is None:
+            raw_record[field_name] = None
+            return
+        field_base = field_def.type_def.resolve_base_type()
+        if is_string_type(field_def.type_def):
+            if isinstance(value, str):
+                value = list(value)
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            raw_record[field_name] = array_table.insert(value)
+        elif isinstance(value, list):
+            # Check if elements are composite dicts that need to be written as records
+            elem_type = field_base.element_type
+            elem_base = elem_type.resolve_base_type()
+            if isinstance(elem_base, CompositeTypeDefinition) and value and isinstance(value[0], dict):
+                # Convert resolved dicts back to composite record indices
+                ref_table = self.storage.get_table(elem_type.name)
+                indices = []
+                for elem in value:
+                    if isinstance(elem, dict):
+                        idx = self._create_instance(elem_type, elem_base, elem)
+                        indices.append(idx)
+                    else:
+                        indices.append(elem)
+                array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                raw_record[field_name] = array_table.insert(indices)
+            else:
+                array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                raw_record[field_name] = array_table.insert(value)
+        else:
+            # Shouldn't happen for array fields, but handle gracefully
+            raw_record[field_name] = value
 
     def _apply_array_mutation(
         self,

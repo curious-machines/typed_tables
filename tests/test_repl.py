@@ -3534,6 +3534,113 @@ create Sensor(name="pressure", readings=[2, 4, 2])
         pressure = [r for r in result.rows if r["name"] == "pressure"][0]
         assert pressure["readings"] == [2, 4, 2]  # unchanged
 
+    # --- Update chaining tests ---
+
+    def test_update_chain_sort_reverse(self, tmp_path):
+        """Test mutation chain: sort().reverse() gives descending order."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
+""")
+        self._query(db_path, "update Sensor(0) set readings.sort().reverse()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [5, 4, 3, 2, 1]
+
+    def test_update_chain_append_sort(self, tmp_path):
+        """Test mutation chain: append(6).sort() appends then sorts."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
+""")
+        self._query(db_path, "update Sensor(0) set readings.append(6).sort()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3, 4, 5, 6]
+
+    def test_update_chain_single_method_assign(self, tmp_path):
+        """Test single method assignment form: readings = readings.reverse()."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        self._query(db_path, "update Sensor(0) set readings = readings.reverse()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [5, 4, 3, 2, 1]
+
+    def test_update_chain_assignment_form(self, tmp_path):
+        """Test assignment chain: readings = readings.append(6).sort()."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
+""")
+        self._query(db_path, "update Sensor(0) set readings = readings.append(6).sort()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3, 4, 5, 6]
+
+    def test_update_chain_with_where(self, tmp_path):
+        """Test bulk chain mutation with WHERE clause."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 3, 1])
+create Sensor(name="pressure", readings=[9, 7, 8])
+""")
+        self._query(db_path, 'update Sensor set readings.sort().reverse() where name = "temp"')
+        result = self._query(db_path, "from Sensor select name, readings")
+        temp = [r for r in result.rows if r["name"] == "temp"][0]
+        assert temp["readings"] == [5, 3, 1]
+        pressure = [r for r in result.rows if r["name"] == "pressure"][0]
+        assert pressure["readings"] == [9, 7, 8]  # unchanged
+
+    def test_update_chain_mixed(self, tmp_path):
+        """Test chain alongside regular assignment: set name='x', readings.sort().reverse()."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
+""")
+        self._query(db_path, 'update Sensor(0) set name = "updated", readings.sort().reverse()')
+        result = self._query(db_path, "from Sensor select name, readings")
+        assert result.rows[0]["name"] == "updated"
+        assert result.rows[0]["readings"] == [5, 4, 3, 2, 1]
+
+    def test_update_chain_null_array(self, tmp_path):
+        """Test chain on null array: sort on null stays null, append on null creates."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_test")
+""")
+        # sort().reverse() on null → stays null
+        self._query(db_path, "update Sensor(0) set readings.sort().reverse()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] is None
+
+        # append on null creates new array, then sort
+        self._query(db_path, "update Sensor(0) set readings = readings.append(3, 1, 2).sort()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3]
+
+    def test_update_chain_composite_array(self, tmp_path):
+        """Test chain on composite array: sort by field."""
+        db_path = self._setup_db(tmp_path, """
+create type Item { name: string, value: uint8 }
+create type Container { items: Item[] }
+create Container(items=[Item(name="c", value=3), Item(name="a", value=1), Item(name="b", value=2)])
+""")
+        self._query(db_path, "update Container(0) set items.sort(.value)")
+        result = self._query(db_path, "from Container select items")
+        items = result.rows[0]["items"]
+        values = [i["value"] for i in items]
+        assert values == [1, 2, 3]
+
+    def test_update_chain_cross_field(self, tmp_path):
+        """Test cross-field assignment: set backup = readings.sort()."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[], backup: int8[] }
+create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
+""")
+        self._query(db_path, "update Sensor(0) set backup = readings.sort()")
+        result = self._query(db_path, "from Sensor select readings, backup")
+        assert result.rows[0]["readings"] == [5, 3, 1, 4, 2]  # unchanged
+        assert result.rows[0]["backup"] == [1, 2, 3, 4, 5]
+
 
 class TestArrayProjections:
     """Tests for immutable array projections and method chaining in SELECT."""

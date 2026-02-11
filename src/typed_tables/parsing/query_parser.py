@@ -223,6 +223,7 @@ class FieldValue:
     value: Any = None  # Can be literal or FunctionCall; None for mutations
     method_name: str | None = None  # e.g., "reverse", "swap"
     method_args: list[Any] | None = None  # e.g., [0, 3] for swap
+    method_chain: list[MethodCall] | None = None  # For chained methods in assignment
 
 
 @dataclass
@@ -392,6 +393,18 @@ class MethodCall:
 
     method_name: str
     method_args: list[Any] | None = None
+
+
+@dataclass
+class MethodChainValue:
+    """A chained method call expression used as an instance_value.
+
+    Represents expressions like: readings.sort().reverse()
+    Used in assignment form: set readings = readings.sort().reverse()
+    """
+
+    source_field: str
+    chain: list[MethodCall]
 
 
 @dataclass
@@ -895,15 +908,47 @@ class QueryParser:
 
     def p_instance_field(self, p: yacc.YaccProduction) -> None:
         """instance_field : IDENTIFIER EQ instance_value"""
-        p[0] = FieldValue(name=p[1], value=p[3])
+        value = p[3]
+        if isinstance(value, MethodChainValue):
+            if len(value.chain) == 1:
+                mc = value.chain[0]
+                p[0] = FieldValue(name=p[1], value=value.source_field,
+                                  method_name=mc.method_name, method_args=mc.method_args)
+            else:
+                p[0] = FieldValue(name=p[1], value=value.source_field, method_chain=value.chain)
+        else:
+            p[0] = FieldValue(name=p[1], value=value)
 
-    def p_instance_field_mutation_no_args(self, p: yacc.YaccProduction) -> None:
-        """instance_field : IDENTIFIER DOT method_name LPAREN RPAREN"""
-        p[0] = FieldValue(name=p[1], method_name=p[3], method_args=[])
+    def p_instance_field_mutation(self, p: yacc.YaccProduction) -> None:
+        """instance_field : mutation_chain"""
+        field_name, chain = p[1]
+        if len(chain) == 1:
+            mc = chain[0]
+            p[0] = FieldValue(name=field_name, method_name=mc.method_name, method_args=mc.method_args)
+        else:
+            p[0] = FieldValue(name=field_name, method_chain=chain)
 
-    def p_instance_field_mutation_with_args(self, p: yacc.YaccProduction) -> None:
-        """instance_field : IDENTIFIER DOT method_name LPAREN method_arg_list RPAREN"""
-        p[0] = FieldValue(name=p[1], method_name=p[3], method_args=p[5])
+    # --- mutation_chain: field.method().method() chains in UPDATE SET ---
+
+    def p_mutation_chain_base_no_args(self, p: yacc.YaccProduction) -> None:
+        """mutation_chain : IDENTIFIER DOT method_name LPAREN RPAREN"""
+        p[0] = (p[1], [MethodCall(method_name=p[3], method_args=[])])
+
+    def p_mutation_chain_base_with_args(self, p: yacc.YaccProduction) -> None:
+        """mutation_chain : IDENTIFIER DOT method_name LPAREN method_arg_list RPAREN"""
+        p[0] = (p[1], [MethodCall(method_name=p[3], method_args=p[5])])
+
+    def p_mutation_chain_extend_no_args(self, p: yacc.YaccProduction) -> None:
+        """mutation_chain : mutation_chain DOT method_name LPAREN RPAREN"""
+        field_name, chain = p[1]
+        chain.append(MethodCall(method_name=p[3], method_args=[]))
+        p[0] = (field_name, chain)
+
+    def p_mutation_chain_extend_with_args(self, p: yacc.YaccProduction) -> None:
+        """mutation_chain : mutation_chain DOT method_name LPAREN method_arg_list RPAREN"""
+        field_name, chain = p[1]
+        chain.append(MethodCall(method_name=p[3], method_args=p[5]))
+        p[0] = (field_name, chain)
 
     def p_method_name_identifier(self, p: yacc.YaccProduction) -> None:
         """method_name : IDENTIFIER"""
@@ -1000,6 +1045,55 @@ class QueryParser:
     def p_instance_value_enum_shorthand_with_args_empty(self, p: yacc.YaccProduction) -> None:
         """instance_value : DOT IDENTIFIER LPAREN RPAREN"""
         p[0] = EnumValueExpr(enum_name=None, variant_name=p[2], args=[])
+
+    # --- Method chain values (SORT/DELETE keyword methods + positional args + chaining) ---
+
+    def p_instance_value_method_keyword_bare(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER DOT SORT
+                          | IDENTIFIER DOT DELETE"""
+        p[0] = MethodChainValue(source_field=p[1], chain=[MethodCall(method_name=p[3])])
+
+    def p_instance_value_method_keyword_no_args(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER DOT SORT LPAREN RPAREN
+                          | IDENTIFIER DOT DELETE LPAREN RPAREN"""
+        p[0] = MethodChainValue(source_field=p[1], chain=[MethodCall(method_name=p[3], method_args=[])])
+
+    def p_instance_value_method_keyword_with_args(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER DOT SORT LPAREN method_arg_list RPAREN
+                          | IDENTIFIER DOT DELETE LPAREN method_arg_list RPAREN"""
+        p[0] = MethodChainValue(source_field=p[1], chain=[MethodCall(method_name=p[3], method_args=p[5])])
+
+    def p_instance_value_method_positional_args(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER DOT IDENTIFIER LPAREN method_arg_list RPAREN"""
+        p[0] = MethodChainValue(source_field=p[1], chain=[MethodCall(method_name=p[3], method_args=p[5])])
+
+    def p_instance_value_chain_extend_no_args(self, p: yacc.YaccProduction) -> None:
+        """instance_value : instance_value DOT method_name LPAREN RPAREN"""
+        base = p[1]
+        if isinstance(base, MethodChainValue):
+            base.chain.append(MethodCall(method_name=p[3], method_args=[]))
+            p[0] = base
+        elif isinstance(base, EnumValueExpr) and base.enum_name is not None:
+            p[0] = MethodChainValue(
+                source_field=base.enum_name,
+                chain=[MethodCall(method_name=base.variant_name, method_args=base.args),
+                       MethodCall(method_name=p[3], method_args=[])])
+        else:
+            raise SyntaxError(f"Cannot chain method call on {type(base).__name__}")
+
+    def p_instance_value_chain_extend_with_args(self, p: yacc.YaccProduction) -> None:
+        """instance_value : instance_value DOT method_name LPAREN method_arg_list RPAREN"""
+        base = p[1]
+        if isinstance(base, MethodChainValue):
+            base.chain.append(MethodCall(method_name=p[3], method_args=p[5]))
+            p[0] = base
+        elif isinstance(base, EnumValueExpr) and base.enum_name is not None:
+            p[0] = MethodChainValue(
+                source_field=base.enum_name,
+                chain=[MethodCall(method_name=base.variant_name, method_args=base.args),
+                       MethodCall(method_name=p[3], method_args=p[5])])
+        else:
+            raise SyntaxError(f"Cannot chain method call on {type(base).__name__}")
 
     def p_instance_value_tag_reference(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER"""

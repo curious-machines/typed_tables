@@ -1608,6 +1608,61 @@ class TestMethodCallParsing:
         assert f.method_name == "length"
         assert f.method_chain is None
 
+    # --- Update chain parsing ---
+
+    def test_parse_update_mutation_chain(self):
+        """Test parsing mutation chain (no =) in UPDATE SET."""
+        parser = QueryParser()
+        query = parser.parse("update Sensor(0) set readings.sort().reverse()")
+
+        assert isinstance(query, UpdateQuery)
+        fv = query.fields[0]
+        assert fv.name == "readings"
+        assert fv.value is None
+        assert fv.method_name is None
+        assert fv.method_chain is not None
+        assert len(fv.method_chain) == 2
+        assert fv.method_chain[0].method_name == "sort"
+        assert fv.method_chain[1].method_name == "reverse"
+
+    def test_parse_update_assignment_chain(self):
+        """Test parsing assignment chain (with =) in UPDATE SET."""
+        parser = QueryParser()
+        query = parser.parse("update Sensor(0) set readings = readings.append(5).sort().reverse()")
+
+        assert isinstance(query, UpdateQuery)
+        fv = query.fields[0]
+        assert fv.name == "readings"
+        assert fv.value == "readings"
+        assert fv.method_chain is not None
+        assert len(fv.method_chain) == 3
+        assert fv.method_chain[0].method_name == "append"
+        assert fv.method_chain[0].method_args == [5]
+        assert fv.method_chain[1].method_name == "sort"
+        assert fv.method_chain[2].method_name == "reverse"
+
+    def test_parse_update_single_method_assignment(self):
+        """Test parsing single method assignment (keyword method)."""
+        parser = QueryParser()
+        query = parser.parse("update Sensor(0) set readings = readings.sort()")
+
+        fv = query.fields[0]
+        assert fv.name == "readings"
+        assert fv.value == "readings"
+        assert fv.method_name == "sort"
+        assert fv.method_args == []
+        assert fv.method_chain is None
+
+    def test_parse_update_cross_field_assignment(self):
+        """Test parsing cross-field chain assignment."""
+        parser = QueryParser()
+        query = parser.parse("update Sensor(0) set backup = readings.sort()")
+
+        fv = query.fields[0]
+        assert fv.name == "backup"
+        assert fv.value == "readings"
+        assert fv.method_name == "sort"
+
 
 class TestExpressionParsing:
     """Tests for arithmetic expression parsing in eval queries."""
