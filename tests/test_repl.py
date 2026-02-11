@@ -2303,3 +2303,1482 @@ create Person(name="Alice", age=30);
         # Compact instance: all on one line
         assert 'create Person(name="Alice", age=30)' in dump_result.script
         storage.close()
+
+
+class TestArrayMethods:
+    """Tests for array method calls (length, isEmpty)."""
+
+    def _setup_db(self, tmp_path, script_text):
+        """Helper to create a database with the given script."""
+        db_path = tmp_path / "testdb"
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"use {db_path}\n{script_text}\n")
+        result, _ = run_file(script, None, verbose=False)
+        assert result == 0
+        return db_path
+
+    def _query(self, db_path, query_text):
+        """Helper to run a query and return the result."""
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+        result = executor.execute(parser.parse(query_text))
+        storage.close()
+        return result
+
+    def test_array_length_method(self, tmp_path):
+        """Test length() on array fields in SELECT."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[25, 26, 24, 27])
+create Sensor(name="empty", readings=[])
+""")
+        result = self._query(db_path, "from Sensor select name, readings.length()")
+        assert "readings.length()" in result.columns
+        assert len(result.rows) == 2
+        assert result.rows[0]["readings.length()"] == 4
+        assert result.rows[1]["readings.length()"] == 0
+
+    def test_array_isEmpty_method(self, tmp_path):
+        """Test isEmpty() for filtering in WHERE."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[25, 26, 24])
+create Sensor(name="empty", readings=[])
+""")
+        result = self._query(db_path, "from Sensor select name where readings.isEmpty()")
+        assert len(result.rows) == 1
+        assert result.rows[0]["name"] == "empty"
+
+    def test_array_method_where_comparison(self, tmp_path):
+        """Test length() with comparison in WHERE."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="many", readings=[1, 2, 3, 4, 5])
+create Sensor(name="few", readings=[1, 2])
+create Sensor(name="none", readings=[])
+""")
+        result = self._query(db_path, "from Sensor select name where readings.length() > 2")
+        assert len(result.rows) == 1
+        assert result.rows[0]["name"] == "many"
+
+    def test_string_length_method(self, tmp_path):
+        """Test length() on string fields (strings are character arrays)."""
+        db_path = self._setup_db(tmp_path, """
+create type Person { name: string }
+create Person(name="Alice")
+create Person(name="Bo")
+""")
+        result = self._query(db_path, "from Person select name, name.length()")
+        assert result.rows[0]["name.length()"] == 5
+        assert result.rows[1]["name.length()"] == 2
+
+    def test_array_method_null_field(self, tmp_path):
+        """Test method call on null array field."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="no_readings")
+""")
+        result = self._query(db_path, "from Sensor select name, readings.length()")
+        assert result.rows[0]["readings.length()"] == 0
+
+    def test_array_isEmpty_on_null(self, tmp_path):
+        """Test isEmpty() on null array field returns true."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="no_readings")
+""")
+        result = self._query(db_path, "from Sensor select * where readings.isEmpty()")
+        assert len(result.rows) == 1
+        assert result.rows[0]["name"] == "no_readings"
+
+    def test_array_length_in_select_and_where(self, tmp_path):
+        """Test length() used in both SELECT and WHERE simultaneously."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="big", readings=[1, 2, 3, 4, 5])
+create Sensor(name="small", readings=[1])
+""")
+        result = self._query(db_path, "from Sensor select name, readings.length() where readings.length() >= 3")
+        assert len(result.rows) == 1
+        assert result.rows[0]["name"] == "big"
+        assert result.rows[0]["readings.length()"] == 5
+
+    def test_isEmpty_select_displays_boolean(self, tmp_path):
+        """Test that isEmpty() in SELECT returns boolean values."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="has_data", readings=[1, 2])
+create Sensor(name="empty", readings=[])
+""")
+        result = self._query(db_path, "from Sensor select name, readings.isEmpty()")
+        assert result.rows[0]["readings.isEmpty()"] is False
+        assert result.rows[1]["readings.isEmpty()"] is True
+
+    def test_unknown_method_error(self, tmp_path):
+        """Test that unknown method names produce an error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        import pytest
+        with pytest.raises(RuntimeError, match="Unknown array method"):
+            self._query(db_path, "from Sensor select readings.foobar()")
+
+    def test_contains_match(self, tmp_path):
+        """Test contains() returns True when element is found."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        result = self._query(db_path, "from Sensor select name, readings.contains(3)")
+        assert result.rows[0]["readings.contains(3)"] is True
+
+    def test_contains_no_match(self, tmp_path):
+        """Test contains() returns False when element is not found."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        result = self._query(db_path, "from Sensor select name, readings.contains(99)")
+        assert result.rows[0]["readings.contains(99)"] is False
+
+    def test_contains_on_null(self, tmp_path):
+        """Test contains() on null array returns False."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty")
+""")
+        result = self._query(db_path, "from Sensor select name, readings.contains(1)")
+        assert result.rows[0]["readings.contains(1)"] is False
+
+    def test_contains_on_empty(self, tmp_path):
+        """Test contains() on empty array returns False."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty", readings=[])
+""")
+        result = self._query(db_path, "from Sensor select name, readings.contains(1)")
+        assert result.rows[0]["readings.contains(1)"] is False
+
+    def test_contains_in_where(self, tmp_path):
+        """Test contains() as boolean filter in WHERE clause."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="has3", readings=[1, 2, 3])
+create Sensor(name="no3", readings=[4, 5, 6])
+create Sensor(name="also3", readings=[3, 7, 8])
+""")
+        result = self._query(db_path, "from Sensor select name where readings.contains(3)")
+        names = [r["name"] for r in result.rows]
+        assert "has3" in names
+        assert "also3" in names
+        assert "no3" not in names
+
+    def test_contains_string(self, tmp_path):
+        """Test contains() on string field checks substring."""
+        db_path = self._setup_db(tmp_path, """
+create type Person { name: string }
+create Person(name="Alice")
+create Person(name="Bob")
+""")
+        result = self._query(db_path, "from Person select name, name.contains(\"li\")")
+        assert result.rows[0]["name.contains('li')"] is True
+        assert result.rows[1]["name.contains('li')"] is False
+
+    def test_min_primitive_array(self, tmp_path):
+        """Test min() on primitive array returns minimum value."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 2, 8, 1, 9])
+""")
+        result = self._query(db_path, "from Sensor select readings.min()")
+        assert result.rows[0]["readings.min()"] == 1
+
+    def test_max_primitive_array(self, tmp_path):
+        """Test max() on primitive array returns maximum value."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 2, 8, 1, 9])
+""")
+        result = self._query(db_path, "from Sensor select readings.max()")
+        assert result.rows[0]["readings.max()"] == 9
+
+    def test_min_on_null(self, tmp_path):
+        """Test min() on null array returns None."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty")
+""")
+        result = self._query(db_path, "from Sensor select readings.min()")
+        assert result.rows[0]["readings.min()"] is None
+
+    def test_max_on_empty(self, tmp_path):
+        """Test max() on empty array returns None."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty", readings=[])
+""")
+        result = self._query(db_path, "from Sensor select readings.max()")
+        assert result.rows[0]["readings.max()"] is None
+
+    def test_min_composite_key(self, tmp_path):
+        """Test min(.salary) on composite array returns min value of field."""
+        db_path = self._setup_db(tmp_path, """
+create type Employee { name: string, salary: uint32 }
+create type Team { name: string, members: Employee[] }
+create Team(name="eng", members=[
+    Employee(name="Alice", salary=90000),
+    Employee(name="Bob", salary=70000),
+    Employee(name="Charlie", salary=110000)
+])
+""")
+        result = self._query(db_path, "from Team select members.min(.salary)")
+        assert result.rows[0]["members.min(.salary)"] == 70000
+
+    def test_max_composite_key(self, tmp_path):
+        """Test max(.salary) on composite array returns max value of field."""
+        db_path = self._setup_db(tmp_path, """
+create type Employee { name: string, salary: uint32 }
+create type Team { name: string, members: Employee[] }
+create Team(name="eng", members=[
+    Employee(name="Alice", salary=90000),
+    Employee(name="Bob", salary=70000),
+    Employee(name="Charlie", salary=110000)
+])
+""")
+        result = self._query(db_path, "from Team select members.max(.salary)")
+        assert result.rows[0]["members.max(.salary)"] == 110000
+
+    def test_min_aggregate(self, tmp_path):
+        """Test min(age) as row aggregate."""
+        db_path = self._setup_db(tmp_path, """
+create type Person { name: string, age: uint8 }
+create Person(name="Alice", age=30)
+create Person(name="Bob", age=25)
+create Person(name="Charlie", age=35)
+""")
+        result = self._query(db_path, "from Person select min(age)")
+        assert result.rows[0]["min(age)"] == 25
+
+    def test_max_aggregate(self, tmp_path):
+        """Test max(age) as row aggregate."""
+        db_path = self._setup_db(tmp_path, """
+create type Person { name: string, age: uint8 }
+create Person(name="Alice", age=30)
+create Person(name="Bob", age=25)
+create Person(name="Charlie", age=35)
+""")
+        result = self._query(db_path, "from Person select max(age)")
+        assert result.rows[0]["max(age)"] == 35
+
+
+class TestArrayMutations:
+    """Tests for array mutation methods (reverse, swap) in UPDATE SET."""
+
+    def _setup_db(self, tmp_path, script_text):
+        """Helper to create a database with the given script."""
+        db_path = tmp_path / "testdb"
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"use {db_path}\n{script_text}\n")
+        result, _ = run_file(script, None, verbose=False)
+        assert result == 0
+        return db_path
+
+    def _query(self, db_path, query_text):
+        """Helper to run a query and return the result."""
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+        result = executor.execute(parser.parse(query_text))
+        storage.close()
+        return result
+
+    def test_reverse_primitive_array(self, tmp_path):
+        """Test reverse() on a primitive array reverses elements."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        self._query(db_path, "update Sensor(0) set readings.reverse()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [5, 4, 3, 2, 1]
+
+    def test_reverse_empty_array(self, tmp_path):
+        """Test reverse() on empty array is a no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty", readings=[])
+""")
+        self._query(db_path, "update Sensor(0) set readings.reverse()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == []
+
+    def test_reverse_null_array(self, tmp_path):
+        """Test reverse() on null array is a no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_readings")
+""")
+        self._query(db_path, "update Sensor(0) set readings.reverse()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] is None
+
+    def test_reverse_string_field(self, tmp_path):
+        """Test reverse() on string field reverses characters."""
+        db_path = self._setup_db(tmp_path, """
+create type Item { name: string }
+create Item(name="hello")
+""")
+        self._query(db_path, "update Item(0) set name.reverse()")
+        result = self._query(db_path, "from Item select name")
+        assert result.rows[0]["name"] == "olleh"
+
+    def test_swap_primitive_array(self, tmp_path):
+        """Test swap(i, j) swaps two elements."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[10, 20, 30, 40, 50])
+""")
+        self._query(db_path, "update Sensor(0) set readings.swap(0, 4)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [50, 20, 30, 40, 10]
+
+    def test_swap_out_of_bounds(self, tmp_path):
+        """Test swap() with out of bounds index returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "update Sensor(0) set readings.swap(0, 5)")
+        assert "out of range" in result.message
+
+    def test_swap_wrong_arg_count(self, tmp_path):
+        """Test swap() with wrong number of arguments returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "update Sensor(0) set readings.swap(0)")
+        assert "requires exactly 2 arguments" in result.message
+
+    def test_swap_null_array(self, tmp_path):
+        """Test swap() on null array returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_readings")
+""")
+        result = self._query(db_path, "update Sensor(0) set readings.swap(0, 1)")
+        assert "null" in result.message.lower()
+
+    def test_mixed_mutation_and_assignment(self, tmp_path):
+        """Test mixing mutation with field assignment in same SET."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, 'update Sensor(0) set name = "updated", readings.reverse()')
+        result = self._query(db_path, "from Sensor select *")
+        assert result.rows[0]["name"] == "updated"
+        assert result.rows[0]["readings"] == [3, 2, 1]
+
+    def test_bulk_update_mutation_with_where(self, tmp_path):
+        """Test bulk update with WHERE and mutation."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+create Sensor(name="pressure", readings=[10, 20, 30])
+""")
+        self._query(db_path, 'update Sensor set readings.reverse() where name = "temp"')
+        result = self._query(db_path, "from Sensor select name, readings")
+        # temp should be reversed
+        temp = [r for r in result.rows if r["name"] == "temp"][0]
+        assert temp["readings"] == [3, 2, 1]
+        # pressure should be unchanged
+        pressure = [r for r in result.rows if r["name"] == "pressure"][0]
+        assert pressure["readings"] == [10, 20, 30]
+
+    def test_bulk_update_mutation_all_records(self, tmp_path):
+        """Test bulk update mutation without WHERE affects all records."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="a", readings=[1, 2, 3])
+create Sensor(name="b", readings=[4, 5, 6])
+""")
+        self._query(db_path, "update Sensor set readings.reverse()")
+        result = self._query(db_path, "from Sensor select name, readings")
+        a = [r for r in result.rows if r["name"] == "a"][0]
+        b = [r for r in result.rows if r["name"] == "b"][0]
+        assert a["readings"] == [3, 2, 1]
+        assert b["readings"] == [6, 5, 4]
+
+    def test_reverse_composite_array(self, tmp_path):
+        """Test reverse() on composite array reverses element references."""
+        db_path = self._setup_db(tmp_path, """
+create type Point { x: uint8, y: uint8 }
+create type Shape { name: string, points: Point[] }
+create Shape(name="tri", points=[Point(x=1, y=1), Point(x=2, y=2), Point(x=3, y=3)])
+""")
+        self._query(db_path, "update Shape(0) set points.reverse()")
+        result = self._query(db_path, "from Shape select points")
+        points = result.rows[0]["points"]
+        assert points[0]["x"] == 3
+        assert points[1]["x"] == 2
+        assert points[2]["x"] == 1
+
+    def test_reverse_preserves_start_index_length(self, tmp_path):
+        """Test that reverse() doesn't change (start_index, length) in composite record."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        # Get raw record before
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.storage import StorageManager
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        table = storage.get_table("Sensor")
+        raw_before = table.get(0)
+        ref_before = raw_before["readings"]
+        storage.close()
+
+        # Reverse
+        self._query(db_path, "update Sensor(0) set readings.reverse()")
+
+        # Get raw record after
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        table = storage.get_table("Sensor")
+        raw_after = table.get(0)
+        ref_after = raw_after["readings"]
+        storage.close()
+
+        # start_index and length should be unchanged
+        assert ref_before == ref_after
+
+    def test_unknown_mutation_method(self, tmp_path):
+        """Test that unknown mutation method returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "update Sensor(0) set readings.foobar()")
+        assert "Unknown array mutation method" in result.message
+
+    def test_mutation_on_non_array_field(self, tmp_path):
+        """Test mutation on non-array field returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, value: uint8 }
+create Sensor(name="temp", value=42)
+""")
+        result = self._query(db_path, "update Sensor(0) set value.reverse()")
+        assert "can only be applied to array fields" in result.message
+
+    # --- append() tests ---
+
+    def test_append_single_element(self, tmp_path):
+        """Test append(5) on primitive array."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.append(5)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3, 5]
+
+    def test_append_multiple_elements(self, tmp_path):
+        """Test append(5, 6, 7) appends multiple elements."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.append(5, 6, 7)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3, 5, 6, 7]
+
+    def test_append_array_literal(self, tmp_path):
+        """Test append([1, 2, 3]) flattens and appends."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[10, 20])
+""")
+        self._query(db_path, "update Sensor(0) set readings.append([1, 2, 3])")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [10, 20, 1, 2, 3]
+
+    def test_append_on_null_array(self, tmp_path):
+        """Test append() on null array creates new array."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_readings")
+""")
+        self._query(db_path, "update Sensor(0) set readings.append(1, 2, 3)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3]
+
+    def test_append_on_empty_array(self, tmp_path):
+        """Test append() on empty array."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty", readings=[])
+""")
+        self._query(db_path, "update Sensor(0) set readings.append(42)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [42]
+
+    def test_append_string_to_string_field(self, tmp_path):
+        """Test append("x") on string field appends character."""
+        db_path = self._setup_db(tmp_path, """
+create type Item { name: string }
+create Item(name="hello")
+""")
+        self._query(db_path, 'update Item(0) set name.append("!")')
+        result = self._query(db_path, "from Item select name")
+        assert result.rows[0]["name"] == "hello!"
+
+    def test_append_composite_element(self, tmp_path):
+        """Test append(Point(x=4, y=4)) on composite array."""
+        db_path = self._setup_db(tmp_path, """
+create type Point { x: uint8, y: uint8 }
+create type Shape { name: string, points: Point[] }
+create Shape(name="tri", points=[Point(x=1, y=1), Point(x=2, y=2), Point(x=3, y=3)])
+""")
+        self._query(db_path, "update Shape(0) set points.append(Point(x=4, y=4))")
+        result = self._query(db_path, "from Shape select points")
+        points = result.rows[0]["points"]
+        assert len(points) == 4
+        assert points[3]["x"] == 4
+        assert points[3]["y"] == 4
+
+    def test_append_composite_ref_to_composite_array(self, tmp_path):
+        """Test append(Point(0)) on composite array using composite reference."""
+        db_path = self._setup_db(tmp_path, """
+create type Point { x: uint8, y: uint8 }
+create type Shape { name: string, points: Point[] }
+create Point(x=10, y=20)
+create Shape(name="line", points=[Point(x=1, y=1)])
+""")
+        self._query(db_path, "update Shape(0) set points.append(Point(0))")
+        result = self._query(db_path, "from Shape select points")
+        points = result.rows[0]["points"]
+        assert len(points) == 2
+        assert points[1]["x"] == 10
+        assert points[1]["y"] == 20
+
+    def test_append_no_args_error(self, tmp_path):
+        """Test append() with no args returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "update Sensor(0) set readings.append()")
+        assert "requires at least 1 argument" in result.message
+
+    def test_append_tail_fast_path(self, tmp_path):
+        """Test tail fast path: single record append keeps start_index."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        # Get raw record before
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.storage import StorageManager
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        table = storage.get_table("Sensor")
+        raw_before = table.get(0)
+        start_before, len_before = raw_before["readings"]
+        storage.close()
+
+        self._query(db_path, "update Sensor(0) set readings.append(4, 5)")
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        table = storage.get_table("Sensor")
+        raw_after = table.get(0)
+        start_after, len_after = raw_after["readings"]
+        storage.close()
+
+        # Tail fast path: start_index unchanged, length increased
+        assert start_before == start_after
+        assert len_after == len_before + 2
+
+    def test_append_copy_on_write(self, tmp_path):
+        """Test copy-on-write: append to first of two records changes start_index."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="first", readings=[1, 2, 3])
+create Sensor(name="second", readings=[4, 5, 6])
+""")
+        # Get raw record before
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.storage import StorageManager
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        table = storage.get_table("Sensor")
+        raw_before = table.get(0)
+        start_before, _ = raw_before["readings"]
+        storage.close()
+
+        self._query(db_path, 'update Sensor(0) set readings.append(99)')
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        table = storage.get_table("Sensor")
+        raw_after = table.get(0)
+        start_after, len_after = raw_after["readings"]
+        storage.close()
+
+        # Copy-on-write: start_index should change (moved to end)
+        assert start_before != start_after
+        assert len_after == 4
+
+        # Verify data is correct
+        result = self._query(db_path, "from Sensor select name, readings")
+        first = [r for r in result.rows if r["name"] == "first"][0]
+        assert first["readings"] == [1, 2, 3, 99]
+        # Second should be unchanged
+        second = [r for r in result.rows if r["name"] == "second"][0]
+        assert second["readings"] == [4, 5, 6]
+
+    def test_append_bulk_update_with_where(self, tmp_path):
+        """Test bulk append with WHERE clause."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+create Sensor(name="pressure", readings=[10, 20, 30])
+""")
+        self._query(db_path, 'update Sensor set readings.append(0) where name = "temp"')
+        result = self._query(db_path, "from Sensor select name, readings")
+        temp = [r for r in result.rows if r["name"] == "temp"][0]
+        assert temp["readings"] == [1, 2, 3, 0]
+        pressure = [r for r in result.rows if r["name"] == "pressure"][0]
+        assert pressure["readings"] == [10, 20, 30]
+
+    def test_append_mixed_with_assignment(self, tmp_path):
+        """Test mixing append with field assignment in same SET."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, 'update Sensor(0) set name = "updated", readings.append(99)')
+        result = self._query(db_path, "from Sensor select *")
+        assert result.rows[0]["name"] == "updated"
+        assert result.rows[0]["readings"] == [1, 2, 3, 99]
+
+    # --- prepend() tests ---
+
+    def test_prepend_single_element(self, tmp_path):
+        """Test prepend(5) on primitive array."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.prepend(5)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [5, 1, 2, 3]
+
+    def test_prepend_multiple_elements(self, tmp_path):
+        """Test prepend(5, 6, 7) prepends multiple elements."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.prepend(5, 6, 7)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [5, 6, 7, 1, 2, 3]
+
+    def test_prepend_array_literal(self, tmp_path):
+        """Test prepend([1, 2, 3]) flattens and prepends."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[10, 20])
+""")
+        self._query(db_path, "update Sensor(0) set readings.prepend([1, 2, 3])")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3, 10, 20]
+
+    def test_prepend_on_null_array(self, tmp_path):
+        """Test prepend() on null array creates new array."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_readings")
+""")
+        self._query(db_path, "update Sensor(0) set readings.prepend(1, 2, 3)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3]
+
+    def test_prepend_composite_element(self, tmp_path):
+        """Test prepend(Point(...)) on composite array."""
+        db_path = self._setup_db(tmp_path, """
+create type Point { x: uint8, y: uint8 }
+create type Shape { name: string, points: Point[] }
+create Shape(name="line", points=[Point(x=2, y=2), Point(x=3, y=3)])
+""")
+        self._query(db_path, "update Shape(0) set points.prepend(Point(x=1, y=1))")
+        result = self._query(db_path, "from Shape select points")
+        points = result.rows[0]["points"]
+        assert len(points) == 3
+        assert points[0]["x"] == 1
+        assert points[1]["x"] == 2
+        assert points[2]["x"] == 3
+
+    # --- insert() tests ---
+
+    def test_insert_at_middle(self, tmp_path):
+        """Test insert(2, 99) at middle position."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        self._query(db_path, "update Sensor(0) set readings.insert(2, 99)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 99, 3, 4, 5]
+
+    def test_insert_at_start(self, tmp_path):
+        """Test insert(0, 99) at start (= prepend)."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.insert(0, 99)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [99, 1, 2, 3]
+
+    def test_insert_at_end(self, tmp_path):
+        """Test insert(length, 99) at end (= append)."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.insert(3, 99)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3, 99]
+
+    def test_insert_flattened_elements(self, tmp_path):
+        """Test insert(0, [1, 2, 3]) flattens elements at index."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[10, 20])
+""")
+        self._query(db_path, "update Sensor(0) set readings.insert(1, [5, 6, 7])")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [10, 5, 6, 7, 20]
+
+    def test_insert_out_of_bounds(self, tmp_path):
+        """Test insert() with out of bounds index returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "update Sensor(0) set readings.insert(5, 99)")
+        assert "out of range" in result.message
+
+    def test_insert_on_null_at_zero(self, tmp_path):
+        """Test insert(0, 1) on null array creates new array."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_readings")
+""")
+        self._query(db_path, "update Sensor(0) set readings.insert(0, 1)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1]
+
+    # --- delete() tests ---
+
+    def test_delete_first_element(self, tmp_path):
+        """Test delete(0) removes first element."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        self._query(db_path, "update Sensor(0) set readings.delete(0)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [2, 3, 4, 5]
+
+    def test_delete_middle_element(self, tmp_path):
+        """Test delete(2) removes middle element."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        self._query(db_path, "update Sensor(0) set readings.delete(2)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 4, 5]
+
+    def test_delete_multiple_indices(self, tmp_path):
+        """Test delete(0, 2, 4) removes elements at multiple indices."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        self._query(db_path, "update Sensor(0) set readings.delete(0, 2, 4)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [2, 4]
+
+    def test_delete_out_of_bounds(self, tmp_path):
+        """Test delete() with out of bounds index returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "update Sensor(0) set readings.delete(10)")
+        assert "out of range" in result.message
+
+    def test_delete_on_null_array(self, tmp_path):
+        """Test delete() on null array returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_readings")
+""")
+        result = self._query(db_path, "update Sensor(0) set readings.delete(0)")
+        assert "null" in result.message.lower()
+
+    def test_delete_all_elements(self, tmp_path):
+        """Test deleting all elements results in empty array."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.delete(0, 1, 2)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == []
+
+    # --- remove() tests ---
+
+    def test_remove_first_occurrence(self, tmp_path):
+        """Test remove(5) removes first occurrence."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 5, 3, 5, 2])
+""")
+        self._query(db_path, "update Sensor(0) set readings.remove(5)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 3, 5, 2]
+
+    def test_remove_not_found(self, tmp_path):
+        """Test remove(99) when not found is a no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.remove(99)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3]
+
+    def test_remove_on_null_array(self, tmp_path):
+        """Test remove() on null array is a no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_readings")
+""")
+        self._query(db_path, "update Sensor(0) set readings.remove(5)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] is None
+
+    def test_remove_composite_element(self, tmp_path):
+        """Test remove() on composite array with inline instance."""
+        db_path = self._setup_db(tmp_path, """
+create type Point { x: uint8, y: uint8 }
+create type Shape { name: string, points: Point[] }
+create Shape(name="tri", points=[Point(x=1, y=1), Point(x=2, y=2), Point(x=3, y=3)])
+""")
+        self._query(db_path, "update Shape(0) set points.remove(Point(x=2, y=2))")
+        result = self._query(db_path, "from Shape select points")
+        points = result.rows[0]["points"]
+        assert len(points) == 2
+        assert points[0]["x"] == 1
+        assert points[1]["x"] == 3
+
+    def test_remove_no_args_error(self, tmp_path):
+        """Test remove() with no args returns error."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "update Sensor(0) set readings.remove()")
+        assert "requires exactly 1 argument" in result.message
+
+    # --- removeAll() tests ---
+
+    def test_removeAll_all_occurrences(self, tmp_path):
+        """Test removeAll(5) removes all occurrences."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 1, 5, 2, 5, 3, 5])
+""")
+        self._query(db_path, "update Sensor(0) set readings.removeAll(5)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3]
+
+    def test_removeAll_not_found(self, tmp_path):
+        """Test removeAll(99) when not found is a no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.removeAll(99)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3]
+
+    def test_removeAll_on_null_array(self, tmp_path):
+        """Test removeAll() on null array is a no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_readings")
+""")
+        self._query(db_path, "update Sensor(0) set readings.removeAll(5)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] is None
+
+    def test_removeAll_all_elements(self, tmp_path):
+        """Test removeAll removes all elements when all match."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 5, 5])
+""")
+        self._query(db_path, "update Sensor(0) set readings.removeAll(5)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == []
+
+    # --- Cross-cutting tests ---
+
+    def test_bulk_prepend_with_where(self, tmp_path):
+        """Test bulk update with WHERE + prepend."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+create Sensor(name="pressure", readings=[10, 20, 30])
+""")
+        self._query(db_path, 'update Sensor set readings.prepend(0) where name = "temp"')
+        result = self._query(db_path, "from Sensor select name, readings")
+        temp = [r for r in result.rows if r["name"] == "temp"][0]
+        assert temp["readings"] == [0, 1, 2, 3]
+        pressure = [r for r in result.rows if r["name"] == "pressure"][0]
+        assert pressure["readings"] == [10, 20, 30]
+
+    def test_mixed_assignment_and_delete(self, tmp_path):
+        """Test mixing field assignment with delete mutation in same SET."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
+""")
+        self._query(db_path, 'update Sensor(0) set name = "updated", readings.delete(0)')
+        result = self._query(db_path, "from Sensor select *")
+        assert result.rows[0]["name"] == "updated"
+        assert result.rows[0]["readings"] == [2, 3, 4, 5]
+
+    # --- sort() tests ---
+
+    def test_sort_primitive_ascending(self, tmp_path):
+        """Test sort() on primitive array sorts ascending."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
+""")
+        self._query(db_path, "update Sensor(0) set readings.sort()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3, 4, 5]
+
+    def test_sort_primitive_descending(self, tmp_path):
+        """Test sort(desc) on primitive array sorts descending."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
+""")
+        self._query(db_path, "update Sensor(0) set readings.sort(desc)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [5, 4, 3, 2, 1]
+
+    def test_sort_null_noop(self, tmp_path):
+        """Test sort() on null array is a no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="null_readings")
+""")
+        self._query(db_path, "update Sensor(0) set readings.sort()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] is None
+
+    def test_sort_empty_noop(self, tmp_path):
+        """Test sort() on empty array is a no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty", readings=[])
+""")
+        self._query(db_path, "update Sensor(0) set readings.sort()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == []
+
+    def test_sort_composite_single_field(self, tmp_path):
+        """Test sort(.salary) on composite array."""
+        db_path = self._setup_db(tmp_path, """
+create type Employee { name: string, salary: uint32 }
+create type Team { name: string, members: Employee[] }
+create Team(name="eng", members=[
+    Employee(name="Charlie", salary=80000),
+    Employee(name="Alice", salary=50000),
+    Employee(name="Bob", salary=70000)
+])
+""")
+        self._query(db_path, "update Team(0) set members.sort(.salary)")
+        result = self._query(db_path, "from Team select members")
+        members = result.rows[0]["members"]
+        # Sorted by salary ascending: 50000, 70000, 80000
+        assert members[0]["salary"] == 50000
+        assert members[1]["salary"] == 70000
+        assert members[2]["salary"] == 80000
+
+    def test_sort_composite_single_field_desc(self, tmp_path):
+        """Test sort(.salary desc) on composite array."""
+        db_path = self._setup_db(tmp_path, """
+create type Employee { name: string, salary: uint32 }
+create type Team { name: string, members: Employee[] }
+create Team(name="eng", members=[
+    Employee(name="Charlie", salary=80000),
+    Employee(name="Alice", salary=50000),
+    Employee(name="Bob", salary=70000)
+])
+""")
+        self._query(db_path, "update Team(0) set members.sort(.salary desc)")
+        result = self._query(db_path, "from Team select members")
+        members = result.rows[0]["members"]
+        # Sorted by salary descending: 80000, 70000, 50000
+        assert members[0]["salary"] == 80000
+        assert members[1]["salary"] == 70000
+        assert members[2]["salary"] == 50000
+
+    def test_sort_composite_multi_key(self, tmp_path):
+        """Test sort(.age, .salary) on composite array — multi-field sort."""
+        db_path = self._setup_db(tmp_path, """
+create type Employee { age: uint8, salary: uint32 }
+create type Team { name: string, members: Employee[] }
+create Team(name="eng", members=[
+    Employee(age=30, salary=80000),
+    Employee(age=25, salary=50000),
+    Employee(age=30, salary=60000)
+])
+""")
+        self._query(db_path, "update Team(0) set members.sort(.age, .salary)")
+        result = self._query(db_path, "from Team select members")
+        members = result.rows[0]["members"]
+        # age 25 first, then age 30 sorted by salary
+        assert members[0]["age"] == 25
+        assert members[0]["salary"] == 50000
+        assert members[1]["age"] == 30
+        assert members[1]["salary"] == 60000
+        assert members[2]["age"] == 30
+        assert members[2]["salary"] == 80000
+
+    def test_sort_composite_mixed_directions(self, tmp_path):
+        """Test sort(.age desc, .salary) on composite array — mixed directions."""
+        db_path = self._setup_db(tmp_path, """
+create type Employee { age: uint8, salary: uint32 }
+create type Team { name: string, members: Employee[] }
+create Team(name="eng", members=[
+    Employee(age=25, salary=70000),
+    Employee(age=30, salary=50000),
+    Employee(age=25, salary=60000),
+    Employee(age=30, salary=80000)
+])
+""")
+        self._query(db_path, "update Team(0) set members.sort(.age desc, .salary)")
+        result = self._query(db_path, "from Team select members")
+        members = result.rows[0]["members"]
+        # age desc: 30, 30, 25, 25; then salary asc within same age
+        assert members[0]["age"] == 30
+        assert members[0]["salary"] == 50000
+        assert members[1]["age"] == 30
+        assert members[1]["salary"] == 80000
+        assert members[2]["age"] == 25
+        assert members[2]["salary"] == 60000
+        assert members[3]["age"] == 25
+        assert members[3]["salary"] == 70000
+
+    def test_sort_composite_string_field(self, tmp_path):
+        """Test sort(.name) sorts alphabetically on string field."""
+        db_path = self._setup_db(tmp_path, """
+create type Employee { name: string, age: uint8 }
+create type Team { name: string, members: Employee[] }
+create Team(name="eng", members=[
+    Employee(name="Charlie", age=30),
+    Employee(name="Alice", age=25),
+    Employee(name="Bob", age=35)
+])
+""")
+        self._query(db_path, "update Team(0) set members.sort(.name)")
+        result = self._query(db_path, "from Team select members")
+        members = result.rows[0]["members"]
+        # Verify by checking age which is a primitive inline field
+        assert members[0]["age"] == 25   # Alice
+        assert members[1]["age"] == 35   # Bob
+        assert members[2]["age"] == 30   # Charlie
+
+    def test_sort_bulk_with_where(self, tmp_path):
+        """Test bulk sort with WHERE clause."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
+create Sensor(name="pressure", readings=[30, 10, 20])
+""")
+        self._query(db_path, 'update Sensor set readings.sort() where name = "temp"')
+        result = self._query(db_path, "from Sensor select name, readings")
+        temp = [r for r in result.rows if r["name"] == "temp"][0]
+        assert temp["readings"] == [1, 2, 3, 4, 5]
+        pressure = [r for r in result.rows if r["name"] == "pressure"][0]
+        assert pressure["readings"] == [30, 10, 20]  # unchanged
+
+    def test_sort_single_element_noop(self, tmp_path):
+        """Test sort() on single-element array is a no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="single", readings=[42])
+""")
+        self._query(db_path, "update Sensor(0) set readings.sort()")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [42]
+
+    def test_replace_first_match(self, tmp_path):
+        """Test replace(old, new) replaces first occurrence."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 2, 5])
+""")
+        self._query(db_path, "update Sensor(0) set readings.replace(2, 10)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 10, 3, 2, 5]
+
+    def test_replace_not_found(self, tmp_path):
+        """Test replace() when value is not found — no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.replace(99, 10)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3]
+
+    def test_replace_on_null(self, tmp_path):
+        """Test replace() on null array — no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty")
+""")
+        self._query(db_path, "update Sensor(0) set readings.replace(1, 2)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] is None
+
+    def test_replace_on_empty(self, tmp_path):
+        """Test replace() on empty array — no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty", readings=[])
+""")
+        self._query(db_path, "update Sensor(0) set readings.replace(1, 2)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == []
+
+    def test_replaceAll_all_matches(self, tmp_path):
+        """Test replaceAll(old, new) replaces all occurrences."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 2, 5, 2])
+""")
+        self._query(db_path, "update Sensor(0) set readings.replaceAll(2, 10)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 10, 3, 10, 5, 10]
+
+    def test_replaceAll_not_found(self, tmp_path):
+        """Test replaceAll() when value is not found — no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        self._query(db_path, "update Sensor(0) set readings.replaceAll(99, 10)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3]
+
+    def test_replaceAll_on_null(self, tmp_path):
+        """Test replaceAll() on null array — no-op."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="empty")
+""")
+        self._query(db_path, "update Sensor(0) set readings.replaceAll(1, 2)")
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] is None
+
+    def test_replace_bulk_with_where(self, tmp_path):
+        """Test bulk replace with WHERE clause."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 2])
+create Sensor(name="pressure", readings=[2, 4, 2])
+""")
+        self._query(db_path, 'update Sensor set readings.replaceAll(2, 0) where name = "temp"')
+        result = self._query(db_path, "from Sensor select name, readings")
+        temp = [r for r in result.rows if r["name"] == "temp"][0]
+        assert temp["readings"] == [1, 0, 3, 0]
+        pressure = [r for r in result.rows if r["name"] == "pressure"][0]
+        assert pressure["readings"] == [2, 4, 2]  # unchanged
+
+
+class TestArrayProjections:
+    """Tests for immutable array projections and method chaining in SELECT."""
+
+    def _setup_db(self, tmp_path, script_text):
+        """Helper to create a database with the given script."""
+        db_path = tmp_path / "testdb"
+        script = tmp_path / "setup.ttq"
+        script.write_text(f"use {db_path}\n{script_text}\n")
+        result, _ = run_file(script, None, verbose=False)
+        assert result == 0
+        return db_path
+
+    def _query(self, db_path, query_text):
+        """Helper to run a query and return the result."""
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+        result = executor.execute(parser.parse(query_text))
+        storage.close()
+        return result
+
+    # --- Immutable projection tests ---
+
+    def test_sort_projection_returns_sorted_copy(self, tmp_path):
+        """Test readings.sort() returns sorted copy, original unchanged."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
+""")
+        result = self._query(db_path, "from Sensor select readings.sort()")
+        assert result.rows[0]["readings.sort()"] == [1, 1, 3, 4, 5]
+        # Verify original unchanged
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [3, 1, 4, 1, 5]
+
+    def test_sort_projection_descending(self, tmp_path):
+        """Test readings.sort(desc) returns descending sorted copy."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
+""")
+        result = self._query(db_path, "from Sensor select readings.sort(desc)")
+        assert result.rows[0]["readings.sort(desc)"] == [5, 4, 3, 1, 1]
+
+    def test_sort_projection_composite_key(self, tmp_path):
+        """Test members.sort(.salary) on composite array."""
+        db_path = self._setup_db(tmp_path, """
+create type Employee { name: string, salary: uint32 }
+create type Team { members: Employee[] }
+create Team(members=[Employee(name="Bob", salary=60000), Employee(name="Alice", salary=50000), Employee(name="Carol", salary=70000)])
+""")
+        result = self._query(db_path, "from Team select members.sort(.salary)")
+        sorted_members = result.rows[0]["members.sort(.salary)"]
+        assert [m["name"] for m in sorted_members] == ["Alice", "Bob", "Carol"]
+
+    def test_reverse_projection(self, tmp_path):
+        """Test readings.reverse() returns reversed copy, original unchanged."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4])
+""")
+        result = self._query(db_path, "from Sensor select readings.reverse()")
+        assert result.rows[0]["readings.reverse()"] == [4, 3, 2, 1]
+        # Verify original unchanged
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3, 4]
+
+    def test_append_projection(self, tmp_path):
+        """Test readings.append(99) returns list with 99 appended, original unchanged."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "from Sensor select readings.append(99)")
+        assert result.rows[0]["readings.append(99)"] == [1, 2, 3, 99]
+        # Verify original unchanged
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [1, 2, 3]
+
+    def test_prepend_projection(self, tmp_path):
+        """Test readings.prepend(0) returns list with 0 prepended."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "from Sensor select readings.prepend(0)")
+        assert result.rows[0]["readings.prepend(0)"] == [0, 1, 2, 3]
+
+    def test_insert_projection(self, tmp_path):
+        """Test readings.insert(1, 99) returns list with 99 at index 1."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "from Sensor select readings.insert(1, 99)")
+        assert result.rows[0]["readings.insert(1, 99)"] == [1, 99, 2, 3]
+
+    def test_delete_projection(self, tmp_path):
+        """Test readings.delete(0) returns list without first element."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "from Sensor select readings.delete(0)")
+        assert result.rows[0]["readings.delete(0)"] == [2, 3]
+
+    def test_remove_projection(self, tmp_path):
+        """Test readings.remove(2) returns list without first occurrence of 2."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 2])
+""")
+        result = self._query(db_path, "from Sensor select readings.remove(2)")
+        assert result.rows[0]["readings.remove(2)"] == [1, 3, 2]
+
+    def test_removeAll_projection(self, tmp_path):
+        """Test readings.removeAll(1) returns list without any 1s."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 1, 3, 1])
+""")
+        result = self._query(db_path, "from Sensor select readings.removeAll(1)")
+        assert result.rows[0]["readings.removeAll(1)"] == [2, 3]
+
+    def test_replace_projection(self, tmp_path):
+        """Test readings.replace(2, 99) replaces first 2 with 99."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 2])
+""")
+        result = self._query(db_path, "from Sensor select readings.replace(2, 99)")
+        assert result.rows[0]["readings.replace(2, 99)"] == [1, 99, 3, 2]
+
+    def test_replaceAll_projection(self, tmp_path):
+        """Test readings.replaceAll(1, 99) replaces all 1s with 99."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 1, 3])
+""")
+        result = self._query(db_path, "from Sensor select readings.replaceAll(1, 99)")
+        assert result.rows[0]["readings.replaceAll(1, 99)"] == [99, 2, 99, 3]
+
+    def test_swap_projection(self, tmp_path):
+        """Test readings.swap(0, 2) returns copy with elements swapped."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3])
+""")
+        result = self._query(db_path, "from Sensor select readings.swap(0, 2)")
+        assert result.rows[0]["readings.swap(0, 2)"] == [3, 2, 1]
+
+    def test_projection_on_null_returns_none(self, tmp_path):
+        """Test projections on null return None (except append/prepend)."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp")
+""")
+        result = self._query(db_path, "from Sensor select readings.sort()")
+        assert result.rows[0]["readings.sort()"] is None
+        result = self._query(db_path, "from Sensor select readings.reverse()")
+        assert result.rows[0]["readings.reverse()"] is None
+
+    def test_append_on_null_creates_list(self, tmp_path):
+        """Test append on null creates a new list."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp")
+""")
+        result = self._query(db_path, "from Sensor select readings.append(42)")
+        assert result.rows[0]["readings.append(42)"] == [42]
+
+    # --- Method chaining tests ---
+
+    def test_chain_sort_reverse(self, tmp_path):
+        """Test readings.sort().reverse() = descending sort."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
+""")
+        result = self._query(db_path, "from Sensor select readings.sort().reverse()")
+        assert result.rows[0]["readings.sort().reverse()"] == [5, 4, 3, 1, 1]
+
+    def test_chain_sort_length(self, tmp_path):
+        """Test readings.sort().length() = length of sorted (same as original length)."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
+""")
+        result = self._query(db_path, "from Sensor select readings.sort().length()")
+        assert result.rows[0]["readings.sort().length()"] == 5
+
+    def test_chain_append_sort(self, tmp_path):
+        """Test readings.append(0).sort() = sorted with 0 included."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[3, 1, 4])
+""")
+        result = self._query(db_path, "from Sensor select readings.append(0).sort()")
+        assert result.rows[0]["readings.append(0).sort()"] == [0, 1, 3, 4]
+
+    def test_chain_reverse_reverse(self, tmp_path):
+        """Test readings.reverse().reverse() = original."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[1, 2, 3, 4])
+""")
+        result = self._query(db_path, "from Sensor select readings.reverse().reverse()")
+        assert result.rows[0]["readings.reverse().reverse()"] == [1, 2, 3, 4]
+
+    def test_chain_in_where(self, tmp_path):
+        """Test chain in WHERE clause: where readings.sort().length() > 3."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="short", readings=[1, 2])
+create Sensor(name="long", readings=[1, 2, 3, 4])
+""")
+        result = self._query(db_path, "from Sensor select name where readings.sort().length() > 3")
+        assert len(result.rows) == 1
+        assert result.rows[0]["name"] == "long"
+
+    def test_chain_in_where_boolean(self, tmp_path):
+        """Test chain in WHERE clause as boolean: where readings.append(1).contains(1)."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="has_one", readings=[2, 3])
+create Sensor(name="no_one", readings=[2, 3])
+""")
+        result = self._query(db_path, "from Sensor select name where readings.append(1).contains(1)")
+        assert len(result.rows) == 2  # both get 1 appended, so both match
+
+    def test_chain_original_unchanged(self, tmp_path):
+        """Test that chained projections don't modify the original."""
+        db_path = self._setup_db(tmp_path, """
+create type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[3, 1, 4])
+""")
+        result = self._query(db_path, "from Sensor select readings.sort().reverse()")
+        assert result.rows[0]["readings.sort().reverse()"] == [4, 3, 1]
+        # Verify original unchanged
+        result = self._query(db_path, "from Sensor select readings")
+        assert result.rows[0]["readings"] == [3, 1, 4]

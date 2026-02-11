@@ -73,6 +73,68 @@ class ArrayTable:
 
         return [self.element_table.get(start_index + i) for i in range(length)]
 
+    def append(self, start_index: int, length: int, new_elements: list[Any]) -> tuple[int, int]:
+        """Append elements. Returns new (start_index, length).
+
+        Tail fast path: if array is at end of element table, extend in place.
+        Otherwise: copy-on-write (read existing + new, write all to end).
+        """
+        if not new_elements:
+            return (start_index, length)
+
+        if start_index + length == self.element_table.count:
+            # Tail fast path — just extend
+            for elem in new_elements:
+                self.element_table.insert(elem)
+            return (start_index, length + len(new_elements))
+
+        # Copy-on-write
+        existing = self.get(start_index, length)
+        return self.insert(existing + new_elements)
+
+    def prepend(self, start_index: int, length: int, new_elements: list[Any]) -> tuple[int, int]:
+        """Prepend elements. Copy-on-write: new_elements + existing → write to end."""
+        if not new_elements:
+            return (start_index, length)
+        existing = self.get(start_index, length)
+        return self.insert(new_elements + existing)
+
+    def delete(self, start_index: int, length: int, indices_to_delete: set[int]) -> tuple[int, int]:
+        """Delete elements at given indices. Returns new (start_index, length).
+
+        Fast paths:
+        - All deleted from end → just decrement length
+        - All deleted from start → bump start_index
+        - General → copy-on-write with only surviving elements
+        """
+        if not indices_to_delete:
+            return (start_index, length)
+
+        new_length = length - len(indices_to_delete)
+        if new_length == 0:
+            return (0, 0)
+
+        sorted_indices = sorted(indices_to_delete)
+
+        # Fast path: all deleted from end
+        if sorted_indices == list(range(length - len(indices_to_delete), length)):
+            return (start_index, new_length)
+
+        # Fast path: all deleted from start
+        if sorted_indices == list(range(len(indices_to_delete))):
+            return (start_index + len(indices_to_delete), new_length)
+
+        # General case: copy-on-write
+        existing = self.get(start_index, length)
+        surviving = [elem for i, elem in enumerate(existing) if i not in indices_to_delete]
+        return self.insert(surviving)
+
+    def update_in_place(self, start_index: int, length: int, elements: list[Any]) -> None:
+        """Overwrite elements at existing positions. Length must match original."""
+        assert len(elements) == length
+        for i, element in enumerate(elements):
+            self.element_table.update(start_index + i, element)
+
     def close(self) -> None:
         """Close underlying tables."""
         self.element_table.close()

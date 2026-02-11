@@ -43,12 +43,14 @@ from typed_tables.parsing.query_parser import (
     FieldValue,
     FunctionCall,
     InlineInstance,
+    MethodCall,
     NullValue,
     Query,
     QueryParser,
     RestoreQuery,
     ScopeBlock,
     SelectField,
+    SortKeyExpr,
     SelectQuery,
     ShowReferencesQuery,
     ShowTypesQuery,
@@ -1519,6 +1521,12 @@ class QueryExecutor:
                     message=f"Unknown field '{fv.name}' on type {type_name}",
                 )
 
+            if fv.method_name is not None:
+                error = self._apply_array_mutation(type_name, base, fv, raw_record)
+                if error:
+                    return error
+                continue
+
             resolved_value = self._resolve_instance_value(fv.value)
             field_base = field_def.type_def.resolve_base_type()
 
@@ -1546,6 +1554,445 @@ class QueryExecutor:
 
         table.update(index, raw_record)
         return None
+
+    def _apply_array_mutation(
+        self,
+        type_name: str,
+        base: CompositeTypeDefinition,
+        fv: Any,
+        raw_record: dict,
+    ) -> UpdateResult | None:
+        """Apply an array mutation (e.g. reverse(), swap()) to a field. Returns error UpdateResult or None."""
+        field_def = base.get_field(fv.name)
+        field_base = field_def.type_def.resolve_base_type()
+
+        if not isinstance(field_base, ArrayTypeDefinition):
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Method '{fv.method_name}()' can only be applied to array fields",
+            )
+
+        ref = raw_record.get(fv.name)
+
+        if fv.method_name == "reverse":
+            if ref is None:
+                return None  # no-op on null
+            start_index, length = ref
+            if length <= 1:
+                return None  # no-op on empty or single-element
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = array_table.get(start_index, length)
+            elements.reverse()
+            array_table.update_in_place(start_index, length, elements)
+            return None
+
+        elif fv.method_name == "append":
+            args = fv.method_args or []
+            if not args:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message="append() requires at least 1 argument",
+                )
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = self._resolve_append_elements(args, field_base)
+            if ref is None:
+                # Null array → create new array
+                raw_record[fv.name] = array_table.insert(elements)
+            else:
+                start_index, length = ref
+                raw_record[fv.name] = array_table.append(start_index, length, elements)
+            return None
+
+        elif fv.method_name == "prepend":
+            args = fv.method_args or []
+            if not args:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message="prepend() requires at least 1 argument",
+                )
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = self._resolve_append_elements(args, field_base)
+            if ref is None:
+                # Null array → create new array
+                raw_record[fv.name] = array_table.insert(elements)
+            else:
+                start_index, length = ref
+                raw_record[fv.name] = array_table.prepend(start_index, length, elements)
+            return None
+
+        elif fv.method_name == "insert":
+            args = fv.method_args or []
+            if len(args) < 2:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message="insert() requires at least 2 arguments: insert(index, value, ...)",
+                )
+            index_arg = self._resolve_instance_value(args[0])
+            if not isinstance(index_arg, int):
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"insert() first argument must be an integer index, got {type(index_arg).__name__}",
+                )
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            insert_elements = self._resolve_append_elements(args[1:], field_base)
+            if ref is None:
+                if index_arg == 0:
+                    raw_record[fv.name] = array_table.insert(insert_elements)
+                else:
+                    return UpdateResult(
+                        columns=[], rows=[],
+                        message=f"Cannot insert at index {index_arg} into null array (only index 0 allowed)",
+                    )
+            else:
+                start_index, length = ref
+                if index_arg < 0 or index_arg > length:
+                    return UpdateResult(
+                        columns=[], rows=[],
+                        message=f"insert() index {index_arg} out of range for array of length {length}",
+                    )
+                existing = array_table.get(start_index, length)
+                spliced = existing[:index_arg] + insert_elements + existing[index_arg:]
+                raw_record[fv.name] = array_table.insert(spliced)
+            return None
+
+        elif fv.method_name == "delete":
+            args = fv.method_args or []
+            if not args:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message="delete() requires at least 1 argument",
+                )
+            if ref is None:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"Cannot apply delete() to null array field '{fv.name}'",
+                )
+            start_index, length = ref
+            indices_to_delete = set()
+            for arg in args:
+                idx = int(self._resolve_instance_value(arg))
+                if idx < 0 or idx >= length:
+                    return UpdateResult(
+                        columns=[], rows=[],
+                        message=f"delete() index {idx} out of range for array of length {length}",
+                    )
+                indices_to_delete.add(idx)
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            raw_record[fv.name] = array_table.delete(start_index, length, indices_to_delete)
+            return None
+
+        elif fv.method_name == "remove":
+            args = fv.method_args or []
+            if len(args) != 1:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"remove() requires exactly 1 argument, got {len(args)}",
+                )
+            if ref is None:
+                return None  # no-op on null
+            start_index, length = ref
+            if length == 0:
+                return None  # no-op on empty
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = array_table.get(start_index, length)
+            search_value = self._resolve_remove_search_value(args[0], field_base)
+            for i, elem in enumerate(elements):
+                if self._compare_array_element(elem, search_value, field_base):
+                    raw_record[fv.name] = array_table.delete(start_index, length, {i})
+                    return None
+            return None  # not found → no-op
+
+        elif fv.method_name == "removeAll":
+            args = fv.method_args or []
+            if len(args) != 1:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"removeAll() requires exactly 1 argument, got {len(args)}",
+                )
+            if ref is None:
+                return None  # no-op on null
+            start_index, length = ref
+            if length == 0:
+                return None  # no-op on empty
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = array_table.get(start_index, length)
+            search_value = self._resolve_remove_search_value(args[0], field_base)
+            indices_to_delete = set()
+            for i, elem in enumerate(elements):
+                if self._compare_array_element(elem, search_value, field_base):
+                    indices_to_delete.add(i)
+            if indices_to_delete:
+                raw_record[fv.name] = array_table.delete(start_index, length, indices_to_delete)
+            return None  # no matches → no-op
+
+        elif fv.method_name == "replace":
+            args = fv.method_args or []
+            if len(args) != 2:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"replace() requires exactly 2 arguments, got {len(args)}",
+                )
+            if ref is None:
+                return None  # no-op on null
+            start_index, length = ref
+            if length == 0:
+                return None  # no-op on empty
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = array_table.get(start_index, length)
+            search_value = self._resolve_remove_search_value(args[0], field_base)
+            replacement = self._resolve_append_elements([args[1]], field_base)
+            for i, elem in enumerate(elements):
+                if self._compare_array_element(elem, search_value, field_base):
+                    if len(replacement) == 1:
+                        # Length-preserving: update in place
+                        elements[i] = replacement[0]
+                        array_table.update_in_place(start_index, length, elements)
+                    else:
+                        # Different length: copy-on-write
+                        new_elements = elements[:i] + replacement + elements[i + 1:]
+                        raw_record[fv.name] = array_table.insert(new_elements)
+                    return None
+            return None  # not found → no-op
+
+        elif fv.method_name == "replaceAll":
+            args = fv.method_args or []
+            if len(args) != 2:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"replaceAll() requires exactly 2 arguments, got {len(args)}",
+                )
+            if ref is None:
+                return None  # no-op on null
+            start_index, length = ref
+            if length == 0:
+                return None  # no-op on empty
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = array_table.get(start_index, length)
+            search_value = self._resolve_remove_search_value(args[0], field_base)
+            replacement = self._resolve_append_elements([args[1]], field_base)
+            found = False
+            if len(replacement) == 1:
+                # Length-preserving: replace in place
+                for i, elem in enumerate(elements):
+                    if self._compare_array_element(elem, search_value, field_base):
+                        elements[i] = replacement[0]
+                        found = True
+                if found:
+                    array_table.update_in_place(start_index, length, elements)
+            else:
+                # Different length: build new list
+                new_elements = []
+                for elem in elements:
+                    if self._compare_array_element(elem, search_value, field_base):
+                        new_elements.extend(replacement)
+                        found = True
+                    else:
+                        new_elements.append(elem)
+                if found:
+                    raw_record[fv.name] = array_table.insert(new_elements)
+            return None  # no matches → no-op
+
+        elif fv.method_name == "sort":
+            if ref is None:
+                return None  # no-op on null
+            start_index, length = ref
+            if length <= 1:
+                return None  # no-op on empty or single-element
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = array_table.get(start_index, length)
+
+            args = fv.method_args or []
+            elem_base = field_base.element_type.resolve_base_type()
+            is_composite = isinstance(elem_base, CompositeTypeDefinition)
+
+            sort_keys = self._parse_sort_keys(args, is_composite)
+            if isinstance(sort_keys, UpdateResult):
+                return sort_keys  # error
+
+            elements = self._sort_array_elements(elements, sort_keys, is_composite, elem_base)
+            array_table.update_in_place(start_index, length, elements)
+            return None
+
+        elif fv.method_name == "swap":
+            args = fv.method_args or []
+            if len(args) != 2:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"swap() requires exactly 2 arguments, got {len(args)}",
+                )
+            if ref is None:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"Cannot apply swap() to null array field '{fv.name}'",
+                )
+            start_index, length = ref
+            i, j = int(args[0]), int(args[1])
+            if i < 0 or i >= length:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"swap() index {i} out of range for array of length {length}",
+                )
+            if j < 0 or j >= length:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"swap() index {j} out of range for array of length {length}",
+                )
+            if i == j:
+                return None  # no-op
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = array_table.get(start_index, length)
+            elements[i], elements[j] = elements[j], elements[i]
+            array_table.update_in_place(start_index, length, elements)
+            return None
+
+        else:
+            return UpdateResult(
+                columns=[], rows=[],
+                message=f"Unknown array mutation method: {fv.method_name}()",
+            )
+
+    def _resolve_append_elements(
+        self,
+        args: list[Any],
+        array_type: ArrayTypeDefinition,
+    ) -> list[Any]:
+        """Resolve append() arguments into a flat list of elements for the array element table."""
+        elem_base = array_type.element_type.resolve_base_type()
+        is_composite_elem = isinstance(elem_base, CompositeTypeDefinition)
+        elements: list[Any] = []
+
+        for arg in args:
+            resolved = self._resolve_instance_value(arg)
+
+            if isinstance(resolved, list):
+                # Array literal — flatten into individual elements
+                if is_composite_elem:
+                    for elem in resolved:
+                        elements.append(self._resolve_composite_element(elem, array_type))
+                else:
+                    elements.extend(resolved)
+            elif is_composite_elem:
+                elements.append(self._resolve_composite_element(resolved, array_type))
+            elif isinstance(resolved, str) and not is_composite_elem:
+                # String arg on character array → flatten to char list
+                elements.extend(list(resolved))
+            else:
+                elements.append(resolved)
+
+        return elements
+
+    def _resolve_composite_element(
+        self,
+        value: Any,
+        array_type: ArrayTypeDefinition,
+    ) -> dict[str, Any]:
+        """Resolve a single composite element for array storage.
+
+        For composite arrays, element table stores full serialized records (dicts),
+        not indices. InlineInstances are resolved to field reference dicts.
+        Integer references are read from the main table.
+        """
+        if isinstance(value, InlineInstance):
+            inline_type = self.registry.get(value.type_name)
+            inline_base = inline_type.resolve_base_type()
+            inline_values = {}
+            for fv in value.fields:
+                inline_values[fv.name] = self._resolve_instance_value(fv.value)
+            return self._build_field_references(inline_base, inline_values)
+        elif isinstance(value, int):
+            elem_type_name = array_type.element_type.name
+            ref_table = self.storage.get_table(elem_type_name)
+            return ref_table.get(value)
+        elif isinstance(value, dict):
+            return value
+        else:
+            raise ValueError(f"Cannot append value of type {type(value).__name__} to composite array")
+
+    def _resolve_remove_search_value(self, arg: Any, array_type: ArrayTypeDefinition) -> Any:
+        """Resolve a remove()/removeAll() argument to a comparable value."""
+        resolved = self._resolve_instance_value(arg)
+        elem_base = array_type.element_type.resolve_base_type()
+        if isinstance(elem_base, CompositeTypeDefinition):
+            return self._resolve_composite_element(resolved, array_type)
+        return resolved
+
+    def _compare_array_element(self, element: Any, search_value: Any, array_type: ArrayTypeDefinition) -> bool:
+        """Compare an array element against a search value for remove/removeAll."""
+        return element == search_value
+
+    def _parse_sort_keys(
+        self, args: list[Any], is_composite: bool
+    ) -> list[tuple[str | None, bool]] | UpdateResult:
+        """Parse sort() arguments into list of (field_name|None, descending) tuples.
+
+        Returns list of tuples or UpdateResult on error.
+        """
+        if not args:
+            return [(None, False)]  # default: ascending, no key
+
+        keys: list[tuple[str | None, bool]] = []
+        for arg in args:
+            if isinstance(arg, SortKeyExpr):
+                if arg.field_name is not None and not is_composite:
+                    return UpdateResult(
+                        columns=[], rows=[],
+                        message=f"sort() field key '.{arg.field_name}' can only be used on composite arrays",
+                    )
+                keys.append((arg.field_name, arg.descending))
+            elif isinstance(arg, EnumValueExpr) and arg.enum_name is None:
+                # .field shorthand (parsed as EnumValueExpr with no enum_name)
+                if not is_composite:
+                    return UpdateResult(
+                        columns=[], rows=[],
+                        message=f"sort() field key '.{arg.variant_name}' can only be used on composite arrays",
+                    )
+                keys.append((arg.variant_name, False))
+            else:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"sort() arguments must be sort keys (.field, desc, asc), got {type(arg).__name__}",
+                )
+        return keys
+
+    def _sort_array_elements(
+        self,
+        elements: list[Any],
+        sort_keys: list[tuple[str | None, bool]],
+        is_composite: bool,
+        elem_base: Any,
+    ) -> list[Any]:
+        """Sort elements using parsed sort keys.
+
+        Primitive: direct comparison. Composite: extract field values.
+        Null values sort last. Uses reverse-stable-sort trick for multi-key mixed directions.
+        """
+        for field_name, descending in reversed(sort_keys):
+            def make_key(fn: str | None) -> Any:
+                def key_fn(elem: Any) -> tuple:
+                    if is_composite and fn is not None:
+                        val = elem.get(fn) if isinstance(elem, dict) else None
+                        # Resolve string fields from raw (start_index, length) tuples
+                        if val is not None and isinstance(val, tuple) and len(val) == 2:
+                            field_def = elem_base.get_field(fn)
+                            if field_def and is_string_type(field_def.type_def):
+                                arr_table = self.storage.get_array_table_for_type(field_def.type_def)
+                                start, length = val
+                                chars = arr_table.get(start, length)
+                                val = "".join(chars)
+                    else:
+                        val = elem
+                    if val is None:
+                        return (1, "")
+                    elif isinstance(val, (int, float)):
+                        return (0, val)
+                    elif isinstance(val, list):
+                        return (0, "".join(str(c) for c in val))
+                    else:
+                        return (0, str(val))
+                return key_fn
+
+            elements.sort(key=make_key(field_name), reverse=descending)
+        return elements
 
     def _execute_bulk_update(self, query: UpdateQuery) -> UpdateResult:
         """Execute bulk UPDATE: UPDATE Type SET ... [WHERE ...]."""
@@ -2588,6 +3035,11 @@ class QueryExecutor:
                 return left or right
 
         field_value = record.get(condition.field)
+        if condition.method_chain is not None:
+            for mc in condition.method_chain:
+                field_value = self._apply_projection_method(field_value, mc.method_name, mc.method_args)
+        elif condition.method_name is not None:
+            field_value = self._apply_projection_method(field_value, condition.method_name, condition.method_args)
         if field_value is None:
             # Allow null comparisons: field = null, field != null
             if isinstance(condition.value, NullValue):
@@ -2648,6 +3100,258 @@ class QueryExecutor:
             return False
 
         return False
+
+    def _format_single_method_call(self, mc_name: str, mc_args: list[Any] | None) -> str:
+        """Format a single method call with args."""
+        if mc_args:
+            arg_strs = []
+            for a in mc_args:
+                if isinstance(a, EnumValueExpr) and a.enum_name is None:
+                    arg_strs.append(f".{a.variant_name}")
+                elif isinstance(a, SortKeyExpr):
+                    if a.field_name:
+                        arg_strs.append(f".{a.field_name}" + (" desc" if a.descending else ""))
+                    else:
+                        arg_strs.append("desc" if a.descending else "asc")
+                else:
+                    arg_strs.append(repr(a) if isinstance(a, str) else str(a))
+            return f"{mc_name}({', '.join(arg_strs)})"
+        return f"{mc_name}()"
+
+    def _format_method_col_name(self, field: Any) -> str:
+        """Format a column name for a method call field."""
+        if field.method_chain is not None:
+            parts = [self._format_single_method_call(mc.method_name, mc.method_args)
+                     for mc in field.method_chain]
+            return f"{field.name}.{'.'.join(parts)}"
+        return f"{field.name}.{self._format_single_method_call(field.method_name, field.method_args)}"
+
+    def _apply_array_method(self, value: Any, method_name: str, args: list[Any] | None) -> Any:
+        """Apply an array method to a value."""
+        if method_name == "length":
+            if isinstance(value, (list, str)):
+                return len(value)
+            return 0 if value is None else None
+        elif method_name == "isEmpty":
+            if isinstance(value, (list, str)):
+                return len(value) == 0
+            return True if value is None else None
+        elif method_name == "contains":
+            if args is None or len(args) != 1:
+                raise RuntimeError("contains() requires exactly 1 argument")
+            if value is None:
+                return False
+            search = self._resolve_instance_value(args[0]) if not isinstance(args[0], (int, float, str)) else args[0]
+            if isinstance(value, str):
+                return isinstance(search, str) and search in value
+            if isinstance(value, list):
+                for elem in value:
+                    if elem == search:
+                        return True
+                return False
+            return False
+        elif method_name in ("min", "max"):
+            if value is None or not isinstance(value, list) or len(value) == 0:
+                return None
+            builtin = min if method_name == "min" else max
+            if not args:
+                nums = [v for v in value if isinstance(v, (int, float))]
+                return builtin(nums) if nums else None
+            # With .field key: composite array
+            key_field = None
+            if isinstance(args[0], EnumValueExpr) and args[0].enum_name is None:
+                key_field = args[0].variant_name
+            elif isinstance(args[0], SortKeyExpr) and args[0].field_name:
+                key_field = args[0].field_name
+            if key_field:
+                nums = [(elem.get(key_field), elem) for elem in value
+                        if isinstance(elem, dict) and isinstance(elem.get(key_field), (int, float))]
+                return builtin(nums, key=lambda x: x[0])[0] if nums else None
+            return None
+        else:
+            raise RuntimeError(f"Unknown array method: {method_name}()")
+
+    def _sort_resolved_elements(
+        self, elements: list[Any], sort_keys: list[tuple[str | None, bool]]
+    ) -> list[Any]:
+        """Sort already-resolved Python values (strings are strings, not raw tuples)."""
+        result = list(elements)
+        for field_name, descending in reversed(sort_keys):
+            def make_key(fn: str | None) -> Any:
+                def key_fn(elem: Any) -> tuple:
+                    if fn is not None:
+                        val = elem.get(fn) if isinstance(elem, dict) else None
+                    else:
+                        val = elem
+                    if val is None:
+                        return (1, "")
+                    elif isinstance(val, (int, float)):
+                        return (0, val)
+                    elif isinstance(val, list):
+                        return (0, "".join(str(c) for c in val))
+                    else:
+                        return (0, str(val))
+                return key_fn
+            result.sort(key=make_key(field_name), reverse=descending)
+        return result
+
+    def _resolve_projection_arg(self, arg: Any) -> Any:
+        """Resolve a method argument for use in projection context (no storage writes)."""
+        if isinstance(arg, (int, float, str)):
+            return arg
+        if isinstance(arg, NullValue):
+            return None
+        if isinstance(arg, list):
+            return [self._resolve_projection_arg(a) for a in arg]
+        raise RuntimeError(f"Projection methods only support literal arguments, got {type(arg).__name__}")
+
+    def _apply_projection_method(self, value: Any, method_name: str, args: list[Any] | None) -> Any:
+        """Apply a method as an immutable projection (returns copy, no storage writes)."""
+        # Read-only methods → delegate
+        if method_name in ("length", "isEmpty", "contains", "min", "max"):
+            return self._apply_array_method(value, method_name, args)
+
+        # Null handling: most projections on None return None
+        if value is None:
+            if method_name in ("append", "prepend"):
+                # append/prepend on null → create new list from args
+                if not args:
+                    raise RuntimeError(f"{method_name}() requires at least 1 argument")
+                return [self._resolve_projection_arg(a) for a in args]
+            return None
+
+        if method_name == "sort":
+            if not isinstance(value, list):
+                return value
+            is_composite = any(isinstance(e, dict) for e in value)
+            sort_keys = self._parse_sort_keys(args or [], is_composite)
+            if isinstance(sort_keys, UpdateResult):
+                raise RuntimeError(sort_keys.message)
+            return self._sort_resolved_elements(value, sort_keys)
+
+        elif method_name == "reverse":
+            if isinstance(value, list):
+                return list(reversed(value))
+            elif isinstance(value, str):
+                return value[::-1]
+            return value
+
+        elif method_name == "append":
+            if not args:
+                raise RuntimeError("append() requires at least 1 argument")
+            resolved = [self._resolve_projection_arg(a) for a in args]
+            # Flatten: if arg is a list, extend rather than nest
+            new_elements = []
+            for r in resolved:
+                if isinstance(r, list):
+                    new_elements.extend(r)
+                else:
+                    new_elements.append(r)
+            if isinstance(value, list):
+                return value + new_elements
+            elif isinstance(value, str):
+                return value + "".join(str(e) for e in new_elements)
+            return value
+
+        elif method_name == "prepend":
+            if not args:
+                raise RuntimeError("prepend() requires at least 1 argument")
+            resolved = [self._resolve_projection_arg(a) for a in args]
+            new_elements = []
+            for r in resolved:
+                if isinstance(r, list):
+                    new_elements.extend(r)
+                else:
+                    new_elements.append(r)
+            if isinstance(value, list):
+                return new_elements + value
+            elif isinstance(value, str):
+                return "".join(str(e) for e in new_elements) + value
+            return value
+
+        elif method_name == "insert":
+            if not args or len(args) < 2:
+                raise RuntimeError("insert() requires at least 2 arguments: index, value(s)")
+            idx = self._resolve_projection_arg(args[0])
+            if not isinstance(idx, int):
+                raise RuntimeError(f"insert() index must be an integer, got {type(idx).__name__}")
+            new_elements = [self._resolve_projection_arg(a) for a in args[1:]]
+            if isinstance(value, list):
+                return value[:idx] + new_elements + value[idx:]
+            return value
+
+        elif method_name == "delete":
+            if not args or len(args) != 1:
+                raise RuntimeError("delete() requires exactly 1 argument: index")
+            idx = self._resolve_projection_arg(args[0])
+            if not isinstance(idx, int):
+                raise RuntimeError(f"delete() index must be an integer, got {type(idx).__name__}")
+            if isinstance(value, list):
+                if idx < 0 or idx >= len(value):
+                    raise RuntimeError(f"delete() index {idx} out of range for array of length {len(value)}")
+                return value[:idx] + value[idx + 1:]
+            return value
+
+        elif method_name == "remove":
+            if not args or len(args) != 1:
+                raise RuntimeError("remove() requires exactly 1 argument")
+            search = self._resolve_projection_arg(args[0])
+            if isinstance(value, list):
+                result = list(value)
+                for i, elem in enumerate(result):
+                    if elem == search:
+                        return result[:i] + result[i + 1:]
+                return result
+            return value
+
+        elif method_name == "removeAll":
+            if not args or len(args) != 1:
+                raise RuntimeError("removeAll() requires exactly 1 argument")
+            search = self._resolve_projection_arg(args[0])
+            if isinstance(value, list):
+                return [e for e in value if e != search]
+            return value
+
+        elif method_name == "replace":
+            if not args or len(args) != 2:
+                raise RuntimeError("replace() requires exactly 2 arguments: old, new")
+            old = self._resolve_projection_arg(args[0])
+            new = self._resolve_projection_arg(args[1])
+            if isinstance(value, list):
+                result = list(value)
+                for i, elem in enumerate(result):
+                    if elem == old:
+                        result[i] = new
+                        return result
+                return result
+            return value
+
+        elif method_name == "replaceAll":
+            if not args or len(args) != 2:
+                raise RuntimeError("replaceAll() requires exactly 2 arguments: old, new")
+            old = self._resolve_projection_arg(args[0])
+            new = self._resolve_projection_arg(args[1])
+            if isinstance(value, list):
+                return [new if e == old else e for e in value]
+            return value
+
+        elif method_name == "swap":
+            if not args or len(args) != 2:
+                raise RuntimeError("swap() requires exactly 2 arguments: index_a, index_b")
+            a = self._resolve_projection_arg(args[0])
+            b = self._resolve_projection_arg(args[1])
+            if not isinstance(a, int) or not isinstance(b, int):
+                raise RuntimeError("swap() indices must be integers")
+            if isinstance(value, list):
+                if a < 0 or a >= len(value) or b < 0 or b >= len(value):
+                    raise RuntimeError(f"swap() index out of range for array of length {len(value)}")
+                result = list(value)
+                result[a], result[b] = result[b], result[a]
+                return result
+            return value
+
+        else:
+            raise RuntimeError(f"Unknown array method: {method_name}()")
 
     def _resolve_and_expand_enum_expr(self, expr: EnumValueExpr, field_value: EnumValue) -> EnumValue:
         """Resolve an EnumValueExpr by inferring the enum type from a field's EnumValue."""
@@ -2758,6 +3462,8 @@ class QueryExecutor:
                     columns.append(f"{field.name}[{self._format_array_index(field.array_index)}].{post}")
                 elif field.array_index is not None:
                     columns.append(f"{field.name}[{self._format_array_index(field.array_index)}]")
+                elif field.method_chain is not None or field.method_name is not None:
+                    columns.append(self._format_method_col_name(field))
                 else:
                     columns.append(field.name)
 
@@ -2792,9 +3498,20 @@ class QueryExecutor:
                     # Apply post-index path (e.g., employees[0].name)
                     if field.post_path is not None and value is not None:
                         value = self._resolve_post_index_path(value, field.post_path, field, type_def)
+                    # Resolve raw composite array elements before projection
+                    if (field.method_chain is not None or field.method_name is not None):
+                        value = self._maybe_resolve_composite_array(value, field.path, type_def)
+                    # Apply method call (e.g., readings.length())
+                    if field.method_chain is not None:
+                        for mc in field.method_chain:
+                            value = self._apply_projection_method(value, mc.method_name, mc.method_args)
+                    elif field.method_name is not None:
+                        value = self._apply_projection_method(value, field.method_name, field.method_args)
                     # Build column name with index notation if applicable
                     col_name = field.name
-                    if field.array_index is not None and field.post_path is not None:
+                    if field.method_chain is not None or field.method_name is not None:
+                        col_name = self._format_method_col_name(field)
+                    elif field.array_index is not None and field.post_path is not None:
                         post = ".".join(field.post_path)
                         col_name = f"{field.name}[{self._format_array_index(field.array_index)}].{post}"
                     elif field.array_index is not None:
@@ -2897,6 +3614,31 @@ class QueryExecutor:
                 # Primitive — value is already inline
                 resolved[f.name] = ref
         return resolved
+
+    def _maybe_resolve_composite_array(
+        self, value: Any, path: list[str], type_def: TypeDefinition
+    ) -> Any:
+        """Resolve raw composite array elements (with unresolved string fields) to fully resolved dicts."""
+        if not isinstance(value, list) or not value or not isinstance(value[0], dict):
+            return value
+        base = type_def.resolve_base_type()
+        if not isinstance(base, CompositeTypeDefinition):
+            return value
+        field_def = base.get_field(path[0])
+        if field_def is None:
+            return value
+        field_base = field_def.type_def.resolve_base_type()
+        if not isinstance(field_base, ArrayTypeDefinition):
+            return value
+        elem_type = field_base.element_type
+        elem_base = elem_type.resolve_base_type()
+        if not isinstance(elem_base, CompositeTypeDefinition):
+            return value
+        return [
+            self._resolve_raw_composite(elem, elem_base, elem_type)
+            if isinstance(elem, dict) else elem
+            for elem in value
+        ]
 
     def _load_composite_record(
         self,
@@ -3006,6 +3748,10 @@ class QueryExecutor:
             return result
         elif aggregate == "count":
             return len(values)
+        elif aggregate == "min":
+            return min(values)
+        elif aggregate == "max":
+            return max(values)
 
         return None
 

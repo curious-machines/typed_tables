@@ -33,6 +33,9 @@ class SelectField:
     aggregate: str | None = None  # count, average, sum, product
     array_index: ArrayIndex | None = None  # Optional array indexing
     post_path: list[str] | None = None  # Path after array index: arr[0].name
+    method_name: str | None = None  # e.g., "length", "isEmpty"
+    method_args: list[Any] | None = None  # For future methods with args
+    method_chain: list[MethodCall] | None = None  # For chained methods
 
     @property
     def path(self) -> list[str]:
@@ -50,6 +53,9 @@ class Condition:
     operator: str  # =, !=, <, <=, >, >=, starts_with, matches
     value: Any
     negate: bool = False
+    method_name: str | None = None  # e.g., "length", "isEmpty"
+    method_args: list[Any] | None = None  # For future methods with args
+    method_chain: list[MethodCall] | None = None  # For chained methods
 
 
 @dataclass
@@ -211,10 +217,12 @@ class InlineInstance:
 
 @dataclass
 class FieldValue:
-    """A field value for create instance."""
+    """A field value for create instance or mutation in update."""
 
     name: str
-    value: Any  # Can be literal or FunctionCall
+    value: Any = None  # Can be literal or FunctionCall; None for mutations
+    method_name: str | None = None  # e.g., "reverse", "swap"
+    method_args: list[Any] | None = None  # e.g., [0, 3] for swap
 
 
 @dataclass
@@ -368,6 +376,22 @@ class EnumValueExpr:
     enum_name: str | None
     variant_name: str
     args: list[FieldValue] | None = None  # None for C-style
+
+
+@dataclass
+class SortKeyExpr:
+    """A sort key expression: .field, .field desc, or just desc/asc."""
+
+    field_name: str | None = None  # None for bare direction on primitives
+    descending: bool = False
+
+
+@dataclass
+class MethodCall:
+    """A single method call in a chain."""
+
+    method_name: str
+    method_args: list[Any] | None = None
 
 
 @dataclass
@@ -865,6 +889,62 @@ class QueryParser:
         """instance_field : IDENTIFIER EQ instance_value"""
         p[0] = FieldValue(name=p[1], value=p[3])
 
+    def p_instance_field_mutation_no_args(self, p: yacc.YaccProduction) -> None:
+        """instance_field : IDENTIFIER DOT method_name LPAREN RPAREN"""
+        p[0] = FieldValue(name=p[1], method_name=p[3], method_args=[])
+
+    def p_instance_field_mutation_with_args(self, p: yacc.YaccProduction) -> None:
+        """instance_field : IDENTIFIER DOT method_name LPAREN method_arg_list RPAREN"""
+        p[0] = FieldValue(name=p[1], method_name=p[3], method_args=p[5])
+
+    def p_method_name_identifier(self, p: yacc.YaccProduction) -> None:
+        """method_name : IDENTIFIER"""
+        p[0] = p[1]
+
+    def p_method_name_delete(self, p: yacc.YaccProduction) -> None:
+        """method_name : DELETE"""
+        p[0] = p[1]
+
+    def p_method_name_sort(self, p: yacc.YaccProduction) -> None:
+        """method_name : SORT"""
+        p[0] = p[1]
+
+    def p_method_name_min(self, p: yacc.YaccProduction) -> None:
+        """method_name : MIN"""
+        p[0] = p[1]
+
+    def p_method_name_max(self, p: yacc.YaccProduction) -> None:
+        """method_name : MAX"""
+        p[0] = p[1]
+
+    def p_method_arg_list_single(self, p: yacc.YaccProduction) -> None:
+        """method_arg_list : method_arg"""
+        p[0] = [p[1]]
+
+    def p_method_arg_list_multiple(self, p: yacc.YaccProduction) -> None:
+        """method_arg_list : method_arg_list COMMA method_arg"""
+        p[0] = p[1] + [p[3]]
+
+    def p_method_arg_value(self, p: yacc.YaccProduction) -> None:
+        """method_arg : instance_value"""
+        p[0] = p[1]
+
+    def p_method_arg_sort_key_desc(self, p: yacc.YaccProduction) -> None:
+        """method_arg : DOT IDENTIFIER DESC"""
+        p[0] = SortKeyExpr(field_name=p[2], descending=True)
+
+    def p_method_arg_sort_key_asc(self, p: yacc.YaccProduction) -> None:
+        """method_arg : DOT IDENTIFIER ASC"""
+        p[0] = SortKeyExpr(field_name=p[2], descending=False)
+
+    def p_method_arg_bare_desc(self, p: yacc.YaccProduction) -> None:
+        """method_arg : DESC"""
+        p[0] = SortKeyExpr(field_name=None, descending=True)
+
+    def p_method_arg_bare_asc(self, p: yacc.YaccProduction) -> None:
+        """method_arg : ASC"""
+        p[0] = SortKeyExpr(field_name=None, descending=False)
+
     def p_tagged_instance_field_list_with_tag(self, p: yacc.YaccProduction) -> None:
         """tagged_instance_field_list : TAG LPAREN IDENTIFIER RPAREN COMMA instance_field_list"""
         p[0] = (p[3], p[6])  # (tag_name, field_list)
@@ -1081,6 +1161,57 @@ class QueryParser:
             post_path=p[6].split("."),
         )
 
+    # --- method_chain_expr: accumulates chained method calls ---
+
+    def p_method_chain_base_no_args(self, p: yacc.YaccProduction) -> None:
+        """method_chain_expr : field_path LPAREN RPAREN"""
+        path = p[1]
+        parts = path.rsplit(".", 1)
+        if len(parts) == 2:
+            p[0] = (parts[0], [MethodCall(method_name=parts[1])])
+        else:
+            raise SyntaxError(f"Method call requires a field: {path}()")
+
+    def p_method_chain_base_with_args(self, p: yacc.YaccProduction) -> None:
+        """method_chain_expr : field_path LPAREN method_arg_list RPAREN"""
+        path = p[1]
+        parts = path.rsplit(".", 1)
+        if len(parts) == 2:
+            p[0] = (parts[0], [MethodCall(method_name=parts[1], method_args=p[3])])
+        else:
+            raise SyntaxError(f"Method call requires a field: {path}()")
+
+    def p_method_chain_extend_no_args(self, p: yacc.YaccProduction) -> None:
+        """method_chain_expr : method_chain_expr DOT method_name LPAREN RPAREN"""
+        field_name, chain = p[1]
+        chain.append(MethodCall(method_name=p[3]))
+        p[0] = (field_name, chain)
+
+    def p_method_chain_extend_with_args(self, p: yacc.YaccProduction) -> None:
+        """method_chain_expr : method_chain_expr DOT method_name LPAREN method_arg_list RPAREN"""
+        field_name, chain = p[1]
+        chain.append(MethodCall(method_name=p[3], method_args=p[5]))
+        p[0] = (field_name, chain)
+
+    # --- SELECT field rules using method_chain_expr ---
+
+    def p_select_field_method_chain(self, p: yacc.YaccProduction) -> None:
+        """select_field : method_chain_expr"""
+        field_name, chain = p[1]
+        if len(chain) == 1:
+            mc = chain[0]
+            p[0] = SelectField(name=field_name, method_name=mc.method_name, method_args=mc.method_args)
+        else:
+            p[0] = SelectField(name=field_name, method_chain=chain)
+
+    def p_select_field_method_call_with_index(self, p: yacc.YaccProduction) -> None:
+        """select_field : field_path LBRACKET array_index_list RBRACKET DOT IDENTIFIER LPAREN RPAREN"""
+        p[0] = SelectField(
+            name=p[1],
+            array_index=ArrayIndex(indices=p[3]),
+            method_name=p[6],
+        )
+
     def p_array_index_list_single(self, p: yacc.YaccProduction) -> None:
         """array_index_list : array_index_item"""
         p[0] = [p[1]]
@@ -1110,7 +1241,11 @@ class QueryParser:
         p[0] = p[1]
 
     def p_field_path_dotted(self, p: yacc.YaccProduction) -> None:
-        """field_path : field_path DOT IDENTIFIER"""
+        """field_path : field_path DOT IDENTIFIER
+                      | field_path DOT MIN
+                      | field_path DOT MAX
+                      | field_path DOT SORT
+                      | field_path DOT DELETE"""
         p[0] = f"{p[1]}.{p[3]}"
 
     def p_select_field_count(self, p: yacc.YaccProduction) -> None:
@@ -1120,7 +1255,9 @@ class QueryParser:
     def p_select_field_aggregate(self, p: yacc.YaccProduction) -> None:
         """select_field : AVERAGE LPAREN IDENTIFIER RPAREN
                         | SUM LPAREN IDENTIFIER RPAREN
-                        | PRODUCT LPAREN IDENTIFIER RPAREN"""
+                        | PRODUCT LPAREN IDENTIFIER RPAREN
+                        | MIN LPAREN IDENTIFIER RPAREN
+                        | MAX LPAREN IDENTIFIER RPAREN"""
         p[0] = SelectField(name=p[3], aggregate=p[1].lower())
 
     def p_where_clause_empty(self, p: yacc.YaccProduction) -> None:
@@ -1148,6 +1285,36 @@ class QueryParser:
     def p_condition_matches(self, p: yacc.YaccProduction) -> None:
         """condition : IDENTIFIER MATCHES REGEX"""
         p[0] = Condition(field=p[1], operator="matches", value=p[3])
+
+    # --- WHERE condition rules using method_chain_expr ---
+
+    def p_condition_method_chain_comparison(self, p: yacc.YaccProduction) -> None:
+        """condition : method_chain_expr EQ value
+                     | method_chain_expr NEQ value
+                     | method_chain_expr LT value
+                     | method_chain_expr LTE value
+                     | method_chain_expr GT value
+                     | method_chain_expr GTE value"""
+        field_name, chain = p[1]
+        op_map = {"=": "eq", "!=": "neq", "<": "lt", "<=": "lte", ">": "gt", ">=": "gte"}
+        if len(chain) == 1:
+            mc = chain[0]
+            p[0] = Condition(field=field_name, operator=op_map[p[2]], value=p[3],
+                             method_name=mc.method_name, method_args=mc.method_args)
+        else:
+            p[0] = Condition(field=field_name, operator=op_map[p[2]], value=p[3],
+                             method_chain=chain)
+
+    def p_condition_method_chain_boolean(self, p: yacc.YaccProduction) -> None:
+        """condition : method_chain_expr"""
+        field_name, chain = p[1]
+        if len(chain) == 1:
+            mc = chain[0]
+            p[0] = Condition(field=field_name, operator="eq", value=True,
+                             method_name=mc.method_name, method_args=mc.method_args)
+        else:
+            p[0] = Condition(field=field_name, operator="eq", value=True,
+                             method_chain=chain)
 
     def p_condition_not(self, p: yacc.YaccProduction) -> None:
         """condition : NOT condition"""
@@ -1241,7 +1408,9 @@ class QueryParser:
                     | COUNT
                     | SUM
                     | AVERAGE
-                    | PRODUCT"""
+                    | PRODUCT
+                    | MIN
+                    | MAX"""
         p[0] = p[1].lower()
 
     def p_offset_clause_empty(self, p: yacc.YaccProduction) -> None:

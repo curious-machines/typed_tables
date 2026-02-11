@@ -4,6 +4,9 @@
 
 # Questions
 
+- update chaining for arrays
+- how do we know types when using numbers
+
 ---
 
 # For Consideration
@@ -15,6 +18,27 @@ We should consider if we can approach the query executor as a type of vm. We wou
 We would need to figure out how information is passed between instructions. We could use a stack, which is pretty simple. We could have an notion of registers that store specific types of values.
 
 This would require turning a query into a sequence of instructions; a mini-compiler of sorts. This will be useful for debugging and could serve as a way to distribute queries between multiple running instances.
+
+## Add a Set Type
+
+## More String Operations
+
+## Add a Dictionary Type
+
+## Add Math for Arrays of Primitives
+
+All functions are performed element-by-element. Example: [1, 2, 3, 4] + [5, 6, 7, 8]
+
+We can have a single scalar and then apply the math function to all elements in the array. Examples: 5 * [1, 2, 3, 4], [1, 2, 3, 4] * 5
+
+- Add, Subtract, Multiply, Divide
+
+
+## Status Updates
+
+- Total used disk space for database
+- Show break down by table, using file size of each
+- Per table breakdown: used disk space, unused space in table (space after last record to eof), total hole space, total unused (end space + hole space), ratio of used space to hole space, total space saved if compacted
 
 ---
 
@@ -71,6 +95,36 @@ I'm wondering if we should support some type of import command. For instance, I'
 ## Delete Database on Exit
 
 This is summary of what I typed into Claude Code. Basically, we want to tag a database as being temporary. We can switch to multiple databases and get back to the temporary one. However, when we exit the REPL, it gets deleted. There could be multiple temporary databases in the session that will need to be deleted.
+
+## Add Array Operations
+
+We need to be able to perform the following operations on arrays. These consist of operations for adding to the array, taking away from the array, tests, and metadata.
+
+### Adding Elements
+
+All of these operations should support the addition of a single element or another array or array slice
+
+Append: This adds an element or elements to the end of the array. The new item(s) must be type-compatible with the array member type.
+Prepend: Insert an element or elements to the beginning of the array. The new item(s) must be type-compatible with the array member type.
+InsertAtIndex: Insert an element or elements at any position within the array. An index of 0 is equivalent to Prepend. An index equal to the length of the array is equivalent to Append. So, this could be seen as the generilization of append and prepend.
+
+### Deleting Elements
+
+DeleteIndex: This deletes a single element or multiple element using the array slice syntax. Note that array slicing allows a comma-delimited of index and slices.
+Remove: Remove the first element from the beginning that is equal to the specified element
+RemoveAll: Remove all elements that match the specified element
+
+### Miscellaneous Operations
+
+Length: return the number of elements in the array
+IsEmpty: return true if length is zero.
+Contains: tests if the array has a member of the specified type
+Sort: sort the elements of the array. If the base type is a primitive, a sort can be performed on the member directly. If it is a composite type, then an expression must be specified. We may need to discuss this one as it will grow the language a fair amount
+Reverse: reverse the order of all elements.
+Min / Max: If the base type is a number, this is straightforward. If this is a list of composites, we will need an expression to access the field to compare. We may need to discuss expressions as they are used in other places, like sort
+Replace: replace first occurrence of an item with another item or items. Similar to insertion
+ReplaceAll: replace all occurrences of an item with another item or items. Similar to insertion
+Swap: swap two items by index in the array
 
 ---
 

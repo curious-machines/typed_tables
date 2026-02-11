@@ -8,6 +8,7 @@ from typed_tables.parsing.query_parser import (
     ArraySlice,
     CollectQuery,
     CollectSource,
+    Condition,
     CreateAliasQuery,
     CreateInstanceQuery,
     CreateTypeQuery,
@@ -16,15 +17,20 @@ from typed_tables.parsing.query_parser import (
     DropDatabaseQuery,
     DumpItem,
     DumpQuery,
+    EnumValueExpr,
     EvalQuery,
     FieldDef,
+    FieldValue,
     FunctionCall,
     CompositeRef,
     InlineInstance,
+    MethodCall,
     NullValue,
     QueryParser,
+    SelectField,
     SelectQuery,
     ShowTypesQuery,
+    SortKeyExpr,
     TagReference,
     UpdateQuery,
     UseQuery,
@@ -1222,3 +1228,380 @@ class TestQueryParser:
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Empty"
         assert len(query.fields) == 0
+
+
+class TestMethodCallParsing:
+    """Tests for array method call parsing."""
+
+    def test_parse_select_method_call_length(self):
+        """Test parsing readings.length() in SELECT."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.length()")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "readings"
+        assert query.fields[0].method_name == "length"
+        assert query.fields[0].method_args is None
+
+    def test_parse_select_method_call_isEmpty(self):
+        """Test parsing readings.isEmpty() in SELECT."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.isEmpty()")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "readings"
+        assert query.fields[0].method_name == "isEmpty"
+
+    def test_parse_select_method_with_other_fields(self):
+        """Test parsing method call alongside regular fields."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select name, readings.length()")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 2
+        assert query.fields[0].name == "name"
+        assert query.fields[0].method_name is None
+        assert query.fields[1].name == "readings"
+        assert query.fields[1].method_name == "length"
+
+    def test_parse_where_method_comparison(self):
+        """Test parsing method call in WHERE with comparison."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select * where readings.length() > 0")
+
+        assert isinstance(query, SelectQuery)
+        assert query.where is not None
+        assert isinstance(query.where, Condition)
+        assert query.where.field == "readings"
+        assert query.where.method_name == "length"
+        assert query.where.operator == "gt"
+        assert query.where.value == 0
+
+    def test_parse_where_method_boolean(self):
+        """Test parsing bare method call as boolean condition."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select * where readings.isEmpty()")
+
+        assert isinstance(query, SelectQuery)
+        assert query.where is not None
+        assert isinstance(query.where, Condition)
+        assert query.where.field == "readings"
+        assert query.where.method_name == "isEmpty"
+        assert query.where.operator == "eq"
+        assert query.where.value is True
+
+    def test_parse_where_method_eq(self):
+        """Test parsing method call with = comparison."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select * where readings.length() = 3")
+
+        assert isinstance(query, SelectQuery)
+        assert query.where.field == "readings"
+        assert query.where.method_name == "length"
+        assert query.where.operator == "eq"
+        assert query.where.value == 3
+
+    def test_parse_select_nested_field_method(self):
+        """Test parsing nested field path with method call."""
+        parser = QueryParser()
+        query = parser.parse("from Team select dept.members.length()")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "dept.members"
+        assert query.fields[0].method_name == "length"
+
+    def test_parse_update_mutation_reverse(self):
+        """Test parsing readings.reverse() in UPDATE SET."""
+        parser = QueryParser()
+        query = parser.parse("update $x set readings.reverse()")
+
+        assert isinstance(query, UpdateQuery)
+        assert len(query.fields) == 1
+        fv = query.fields[0]
+        assert fv.name == "readings"
+        assert fv.method_name == "reverse"
+        assert fv.method_args == []
+        assert fv.value is None
+
+    def test_parse_update_mutation_swap(self):
+        """Test parsing readings.swap(0, 3) in UPDATE SET."""
+        parser = QueryParser()
+        query = parser.parse("update $x set readings.swap(0, 3)")
+
+        assert isinstance(query, UpdateQuery)
+        assert len(query.fields) == 1
+        fv = query.fields[0]
+        assert fv.name == "readings"
+        assert fv.method_name == "swap"
+        assert fv.method_args == [0, 3]
+
+    def test_parse_update_mutation_mixed_with_assignment(self):
+        """Test parsing mixed mutation and assignment in UPDATE SET."""
+        parser = QueryParser()
+        query = parser.parse('update $x set name = "foo", readings.reverse()')
+
+        assert isinstance(query, UpdateQuery)
+        assert len(query.fields) == 2
+        assert query.fields[0].name == "name"
+        assert query.fields[0].value == "foo"
+        assert query.fields[0].method_name is None
+        assert query.fields[1].name == "readings"
+        assert query.fields[1].method_name == "reverse"
+
+    def test_parse_bulk_update_mutation_with_where(self):
+        """Test parsing bulk update with mutation and WHERE."""
+        parser = QueryParser()
+        query = parser.parse('update Sensor set readings.reverse() where name = "temp"')
+
+        assert isinstance(query, UpdateQuery)
+        assert query.type_name == "Sensor"
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "readings"
+        assert query.fields[0].method_name == "reverse"
+        assert query.where is not None
+
+    def test_parse_sort_no_args(self):
+        """Test parsing readings.sort() with no arguments."""
+        parser = QueryParser()
+        query = parser.parse("update $x set readings.sort()")
+
+        assert isinstance(query, UpdateQuery)
+        fv = query.fields[0]
+        assert fv.name == "readings"
+        assert fv.method_name == "sort"
+        assert fv.method_args == []
+
+    def test_parse_sort_bare_desc(self):
+        """Test parsing readings.sort(desc)."""
+        parser = QueryParser()
+        query = parser.parse("update $x set readings.sort(desc)")
+
+        assert isinstance(query, UpdateQuery)
+        fv = query.fields[0]
+        assert fv.name == "readings"
+        assert fv.method_name == "sort"
+        assert len(fv.method_args) == 1
+        assert isinstance(fv.method_args[0], SortKeyExpr)
+        assert fv.method_args[0].field_name is None
+        assert fv.method_args[0].descending is True
+
+    def test_parse_sort_dot_field(self):
+        """Test parsing members.sort(.salary) — dot shorthand parses as EnumValueExpr."""
+        parser = QueryParser()
+        query = parser.parse("update $x set members.sort(.salary)")
+
+        assert isinstance(query, UpdateQuery)
+        fv = query.fields[0]
+        assert fv.name == "members"
+        assert fv.method_name == "sort"
+        assert len(fv.method_args) == 1
+        arg = fv.method_args[0]
+        assert isinstance(arg, EnumValueExpr)
+        assert arg.enum_name is None
+        assert arg.variant_name == "salary"
+
+    def test_parse_sort_dot_field_desc(self):
+        """Test parsing members.sort(.salary desc)."""
+        parser = QueryParser()
+        query = parser.parse("update $x set members.sort(.salary desc)")
+
+        assert isinstance(query, UpdateQuery)
+        fv = query.fields[0]
+        assert fv.name == "members"
+        assert fv.method_name == "sort"
+        assert len(fv.method_args) == 1
+        arg = fv.method_args[0]
+        assert isinstance(arg, SortKeyExpr)
+        assert arg.field_name == "salary"
+        assert arg.descending is True
+
+    def test_parse_sort_multi_key(self):
+        """Test parsing members.sort(.age, .name desc)."""
+        parser = QueryParser()
+        query = parser.parse("update $x set members.sort(.age, .name desc)")
+
+        assert isinstance(query, UpdateQuery)
+        fv = query.fields[0]
+        assert fv.name == "members"
+        assert fv.method_name == "sort"
+        assert len(fv.method_args) == 2
+        # First arg: .age — parsed as EnumValueExpr (no direction)
+        assert isinstance(fv.method_args[0], EnumValueExpr)
+        assert fv.method_args[0].variant_name == "age"
+        # Second arg: .name desc — parsed as SortKeyExpr
+        assert isinstance(fv.method_args[1], SortKeyExpr)
+        assert fv.method_args[1].field_name == "name"
+        assert fv.method_args[1].descending is True
+
+    def test_parse_select_contains_with_arg(self):
+        """Test parsing readings.contains(5) in SELECT."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.contains(5)")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "readings"
+        assert query.fields[0].method_name == "contains"
+        assert query.fields[0].method_args == [5]
+
+    def test_parse_where_contains_boolean(self):
+        """Test parsing readings.contains(5) as boolean condition in WHERE."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select * where readings.contains(5)")
+
+        assert isinstance(query, SelectQuery)
+        assert query.where is not None
+        assert isinstance(query.where, Condition)
+        assert query.where.field == "readings"
+        assert query.where.method_name == "contains"
+        assert query.where.method_args == [5]
+        assert query.where.operator == "eq"
+        assert query.where.value is True
+
+    def test_parse_min_aggregate(self):
+        """Test parsing min(age) as aggregate function."""
+        parser = QueryParser()
+        query = parser.parse("from Person select min(age)")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "age"
+        assert query.fields[0].aggregate == "min"
+
+    def test_parse_max_aggregate(self):
+        """Test parsing max(age) as aggregate function."""
+        parser = QueryParser()
+        query = parser.parse("from Person select max(age)")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "age"
+        assert query.fields[0].aggregate == "max"
+
+    def test_parse_select_min_method(self):
+        """Test parsing readings.min() as method call in SELECT."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.min()")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "readings"
+        assert query.fields[0].method_name == "min"
+
+    def test_parse_select_max_method(self):
+        """Test parsing readings.max() as method call in SELECT."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.max()")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "readings"
+        assert query.fields[0].method_name == "max"
+
+    def test_parse_select_min_with_key(self):
+        """Test parsing members.min(.salary) with key arg in SELECT."""
+        parser = QueryParser()
+        query = parser.parse("from Team select members.min(.salary)")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        assert query.fields[0].name == "members"
+        assert query.fields[0].method_name == "min"
+        assert len(query.fields[0].method_args) == 1
+        arg = query.fields[0].method_args[0]
+        assert isinstance(arg, EnumValueExpr)
+        assert arg.enum_name is None
+        assert arg.variant_name == "salary"
+
+    def test_parse_chain_two_methods(self):
+        """Test parsing readings.sort().reverse() — two-element chain."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.sort().reverse()")
+
+        assert isinstance(query, SelectQuery)
+        assert len(query.fields) == 1
+        f = query.fields[0]
+        assert f.name == "readings"
+        assert f.method_name is None  # chain, not single method
+        assert f.method_chain is not None
+        assert len(f.method_chain) == 2
+        assert isinstance(f.method_chain[0], MethodCall)
+        assert f.method_chain[0].method_name == "sort"
+        assert f.method_chain[0].method_args is None
+        assert f.method_chain[1].method_name == "reverse"
+        assert f.method_chain[1].method_args is None
+
+    def test_parse_chain_three_methods(self):
+        """Test parsing readings.sort().reverse().length() — three-element chain."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.sort().reverse().length()")
+
+        assert isinstance(query, SelectQuery)
+        f = query.fields[0]
+        assert f.name == "readings"
+        assert f.method_chain is not None
+        assert len(f.method_chain) == 3
+        assert f.method_chain[0].method_name == "sort"
+        assert f.method_chain[1].method_name == "reverse"
+        assert f.method_chain[2].method_name == "length"
+
+    def test_parse_chain_with_args_on_first(self):
+        """Test parsing readings.sort(desc).reverse() — chain with args on first call."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.sort(desc).reverse()")
+
+        assert isinstance(query, SelectQuery)
+        f = query.fields[0]
+        assert f.name == "readings"
+        assert f.method_chain is not None
+        assert len(f.method_chain) == 2
+        assert f.method_chain[0].method_name == "sort"
+        assert len(f.method_chain[0].method_args) == 1
+        assert isinstance(f.method_chain[0].method_args[0], SortKeyExpr)
+        assert f.method_chain[0].method_args[0].descending is True
+        assert f.method_chain[1].method_name == "reverse"
+
+    def test_parse_where_chain_comparison(self):
+        """Test parsing chain in WHERE with comparison."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select * where readings.sort().length() > 5")
+
+        assert isinstance(query, SelectQuery)
+        cond = query.where
+        assert isinstance(cond, Condition)
+        assert cond.field == "readings"
+        assert cond.method_name is None
+        assert cond.method_chain is not None
+        assert len(cond.method_chain) == 2
+        assert cond.method_chain[0].method_name == "sort"
+        assert cond.method_chain[1].method_name == "length"
+        assert cond.operator == "gt"
+        assert cond.value == 5
+
+    def test_parse_where_chain_boolean(self):
+        """Test parsing chain in WHERE as boolean condition."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select * where readings.sort().isEmpty()")
+
+        assert isinstance(query, SelectQuery)
+        cond = query.where
+        assert isinstance(cond, Condition)
+        assert cond.field == "readings"
+        assert cond.method_chain is not None
+        assert len(cond.method_chain) == 2
+        assert cond.method_chain[0].method_name == "sort"
+        assert cond.method_chain[1].method_name == "isEmpty"
+        assert cond.operator == "eq"
+        assert cond.value is True
+
+    def test_parse_single_method_backward_compat(self):
+        """Test that single method still uses method_name (backward compat)."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings.length()")
+
+        f = query.fields[0]
+        assert f.method_name == "length"
+        assert f.method_chain is None

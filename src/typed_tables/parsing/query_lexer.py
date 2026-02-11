@@ -68,6 +68,10 @@ class QueryLexer:
         "import": "IMPORT",
         "system": "SYSTEM",
         "temp": "TEMP",
+        "asc": "ASC",
+        "desc": "DESC",
+        "min": "MIN",
+        "max": "MAX",
     }
 
     # Token list
