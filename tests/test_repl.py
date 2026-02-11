@@ -2410,6 +2410,42 @@ create Sensor(name="small", readings=[1])
         assert result.rows[0]["name"] == "big"
         assert result.rows[0]["readings.length()"] == 5
 
+    def test_negative_array_index(self, tmp_path):
+        """Test negative array indexing to access elements from the end."""
+        db_path = self._setup_db(tmp_path, """
+type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[10, 20, 30, 40, 50])
+""")
+        result = self._query(db_path, "from Sensor select readings[-1]")
+        assert result.rows[0]["readings[-1]"] == 50
+
+        result = self._query(db_path, "from Sensor select readings[-2]")
+        assert result.rows[0]["readings[-2]"] == 40
+
+    def test_negative_array_slice(self, tmp_path):
+        """Test negative indices in array slices."""
+        db_path = self._setup_db(tmp_path, """
+type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[10, 20, 30, 40, 50])
+""")
+        result = self._query(db_path, "from Sensor select readings[-3:]")
+        assert result.rows[0]["readings[-3:]"] == [30, 40, 50]
+
+        result = self._query(db_path, "from Sensor select readings[:-1]")
+        assert result.rows[0]["readings[:-1]"] == [10, 20, 30, 40]
+
+        result = self._query(db_path, "from Sensor select readings[1:-1]")
+        assert result.rows[0]["readings[1:-1]"] == [20, 30, 40]
+
+    def test_negative_index_out_of_bounds(self, tmp_path):
+        """Test that out-of-bounds negative index returns None."""
+        db_path = self._setup_db(tmp_path, """
+type Sensor { name: string, readings: int8[] }
+create Sensor(name="temp", readings=[10, 20])
+""")
+        result = self._query(db_path, "from Sensor select readings[-5]")
+        assert result.rows[0]["readings[-5]"] is None
+
     def test_isEmpty_select_displays_boolean(self, tmp_path):
         """Test that isEmpty() in SELECT returns boolean values."""
         db_path = self._setup_db(tmp_path, """

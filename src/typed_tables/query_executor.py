@@ -4185,39 +4185,26 @@ class QueryExecutor:
         if not isinstance(value, (list, str)):
             return value
 
-        result = []
-        for idx in array_index.indices:
-            if isinstance(idx, int):
-                # Single index
-                if 0 <= idx < len(value):
-                    result.append(value[idx])
-            elif isinstance(idx, ArraySlice):
-                # Slice
-                start = idx.start if idx.start is not None else 0
-                end = idx.end if idx.end is not None else len(value)
-                result.extend(value[start:end])
+        idx = array_index.index
+        if isinstance(idx, int):
+            if -len(value) <= idx < len(value):
+                return value[idx]
+            return None
+        elif isinstance(idx, ArraySlice):
+            return value[idx.start:idx.end]
 
-        # If only one index was requested, return scalar
-        if len(array_index.indices) == 1 and isinstance(array_index.indices[0], int):
-            return result[0] if result else None
-
-        # For strings, join back together
-        if isinstance(value, str):
-            return "".join(result)
-
-        return result
+        return value
 
     def _format_array_index(self, array_index: ArrayIndex) -> str:
         """Format an ArrayIndex for display."""
-        parts = []
-        for idx in array_index.indices:
-            if isinstance(idx, int):
-                parts.append(str(idx))
-            elif isinstance(idx, ArraySlice):
-                start = str(idx.start) if idx.start is not None else ""
-                end = str(idx.end) if idx.end is not None else ""
-                parts.append(f"{start}:{end}")
-        return ", ".join(parts)
+        idx = array_index.index
+        if isinstance(idx, int):
+            return str(idx)
+        elif isinstance(idx, ArraySlice):
+            start = str(idx.start) if idx.start is not None else ""
+            end = str(idx.end) if idx.end is not None else ""
+            return f"{start}:{end}"
+        return ""
 
     def _format_default_for_dump(self, value: Any, type_def: TypeDefinition) -> str:
         """Format a default value for dump output."""

@@ -13,7 +13,7 @@ I would like to expand the "status" command to report the following. If you thin
 # Questions
 
 - how do we know types when using numbers
-- simplify array indexing to use only indexes or slice, not a comma-delimited list of both
+- When using array method calls in eval expression, the return value is an AST node, not evalulated result
 
 ---
 

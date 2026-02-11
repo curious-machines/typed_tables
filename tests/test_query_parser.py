@@ -438,7 +438,7 @@ class TestQueryParser:
         assert len(query.fields) == 1
         assert query.fields[0].name == "readings"
         assert query.fields[0].array_index is not None
-        assert query.fields[0].array_index.indices == [0]
+        assert query.fields[0].array_index.index == 0
 
     def test_parse_array_index_slice(self):
         """Test parsing array indexing with slice."""
@@ -449,10 +449,9 @@ class TestQueryParser:
         field = query.fields[0]
         assert field.name == "readings"
         assert field.array_index is not None
-        assert len(field.array_index.indices) == 1
-        assert isinstance(field.array_index.indices[0], ArraySlice)
-        assert field.array_index.indices[0].start == 0
-        assert field.array_index.indices[0].end == 5
+        assert isinstance(field.array_index.index, ArraySlice)
+        assert field.array_index.index.start == 0
+        assert field.array_index.index.end == 5
 
     def test_parse_array_index_slice_open_end(self):
         """Test parsing array slice with open end."""
@@ -460,9 +459,9 @@ class TestQueryParser:
         query = parser.parse("from Sensor select readings[5:]")
 
         field = query.fields[0]
-        assert isinstance(field.array_index.indices[0], ArraySlice)
-        assert field.array_index.indices[0].start == 5
-        assert field.array_index.indices[0].end is None
+        assert isinstance(field.array_index.index, ArraySlice)
+        assert field.array_index.index.start == 5
+        assert field.array_index.index.end is None
 
     def test_parse_array_index_slice_open_start(self):
         """Test parsing array slice with open start."""
@@ -470,32 +469,76 @@ class TestQueryParser:
         query = parser.parse("from Sensor select readings[:5]")
 
         field = query.fields[0]
-        assert isinstance(field.array_index.indices[0], ArraySlice)
-        assert field.array_index.indices[0].start is None
-        assert field.array_index.indices[0].end == 5
+        assert isinstance(field.array_index.index, ArraySlice)
+        assert field.array_index.index.start is None
+        assert field.array_index.index.end == 5
 
-    def test_parse_array_index_multiple(self):
-        """Test parsing array indexing with multiple indices."""
+    def test_parse_array_index_negative(self):
+        """Test parsing negative array index."""
         parser = QueryParser()
-        query = parser.parse("from Sensor select readings[0, 2, 4]")
+        query = parser.parse("from Sensor select readings[-1]")
 
         field = query.fields[0]
         assert field.array_index is not None
-        assert field.array_index.indices == [0, 2, 4]
+        assert field.array_index.index == -1
 
-    def test_parse_array_index_mixed(self):
-        """Test parsing array indexing with mixed indices and slices."""
+    def test_parse_array_index_negative_large(self):
+        """Test parsing larger negative array index."""
         parser = QueryParser()
-        query = parser.parse("from Sensor select readings[0, 2:5, 7]")
+        query = parser.parse("from Sensor select readings[-3]")
 
         field = query.fields[0]
-        assert field.array_index is not None
-        assert len(field.array_index.indices) == 3
-        assert field.array_index.indices[0] == 0
-        assert isinstance(field.array_index.indices[1], ArraySlice)
-        assert field.array_index.indices[1].start == 2
-        assert field.array_index.indices[1].end == 5
-        assert field.array_index.indices[2] == 7
+        assert field.array_index.index == -3
+
+    def test_parse_array_slice_negative_start(self):
+        """Test parsing array slice with negative start."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings[-3:]")
+
+        field = query.fields[0]
+        assert isinstance(field.array_index.index, ArraySlice)
+        assert field.array_index.index.start == -3
+        assert field.array_index.index.end is None
+
+    def test_parse_array_slice_negative_end(self):
+        """Test parsing array slice with negative end."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings[:-1]")
+
+        field = query.fields[0]
+        assert isinstance(field.array_index.index, ArraySlice)
+        assert field.array_index.index.start is None
+        assert field.array_index.index.end == -1
+
+    def test_parse_array_slice_both_negative(self):
+        """Test parsing array slice with both negative bounds."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings[-5:-2]")
+
+        field = query.fields[0]
+        assert isinstance(field.array_index.index, ArraySlice)
+        assert field.array_index.index.start == -5
+        assert field.array_index.index.end == -2
+
+    def test_parse_array_slice_mixed_signs(self):
+        """Test parsing array slice with positive start, negative end."""
+        parser = QueryParser()
+        query = parser.parse("from Sensor select readings[1:-1]")
+
+        field = query.fields[0]
+        assert isinstance(field.array_index.index, ArraySlice)
+        assert field.array_index.index.start == 1
+        assert field.array_index.index.end == -1
+
+    def test_parse_array_negative_with_post_path(self):
+        """Test parsing negative index with post-index dot notation."""
+        parser = QueryParser()
+        query = parser.parse("from Team select members[-1].name")
+
+        field = query.fields[0]
+        assert field.name == "members"
+        assert field.array_index.index == -1
+        assert field.post_path == ["name"]
 
     def test_parse_with_semicolon(self):
         """Test parsing queries terminated with a semicolon."""
@@ -583,7 +626,7 @@ class TestQueryParser:
         field = query.fields[0]
         assert field.name == "members"
         assert field.array_index is not None
-        assert field.array_index.indices == [0]
+        assert field.array_index.index == 0
         assert field.post_path == ["name"]
 
     def test_parse_post_index_dot_deep(self):
@@ -595,7 +638,7 @@ class TestQueryParser:
         field = query.fields[0]
         assert field.name == "members"
         assert field.array_index is not None
-        assert field.array_index.indices == [0]
+        assert field.array_index.index == 0
         assert field.post_path == ["address", "city"]
 
     def test_parse_dump_all(self):

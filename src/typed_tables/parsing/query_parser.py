@@ -20,9 +20,9 @@ class ArraySlice:
 
 @dataclass
 class ArrayIndex:
-    """Represents array indexing like [0], [0:5], [0, 2, 4], or [0, 2:5, 7]."""
+    """Represents array indexing like [0], [-1], [0:5], [-3:], etc."""
 
-    indices: list[int | ArraySlice]  # List of single indices or slices
+    index: int | ArraySlice  # Single index or slice
 
 
 @dataclass
@@ -1332,14 +1332,14 @@ class QueryParser:
         p[0] = SelectField(name=p[1])
 
     def p_select_field_with_index(self, p: yacc.YaccProduction) -> None:
-        """select_field : field_path LBRACKET array_index_list RBRACKET"""
-        p[0] = SelectField(name=p[1], array_index=ArrayIndex(indices=p[3]))
+        """select_field : field_path LBRACKET array_index_item RBRACKET"""
+        p[0] = SelectField(name=p[1], array_index=ArrayIndex(index=p[3]))
 
     def p_select_field_with_index_and_path(self, p: yacc.YaccProduction) -> None:
-        """select_field : field_path LBRACKET array_index_list RBRACKET DOT field_path"""
+        """select_field : field_path LBRACKET array_index_item RBRACKET DOT field_path"""
         p[0] = SelectField(
             name=p[1],
-            array_index=ArrayIndex(indices=p[3]),
+            array_index=ArrayIndex(index=p[3]),
             post_path=p[6].split("."),
         )
 
@@ -1404,35 +1404,35 @@ class QueryParser:
                 p[0] = SelectField(name=field_name, method_chain=chain)
 
     def p_select_field_method_call_with_index(self, p: yacc.YaccProduction) -> None:
-        """select_field : field_path LBRACKET array_index_list RBRACKET DOT IDENTIFIER LPAREN RPAREN"""
+        """select_field : field_path LBRACKET array_index_item RBRACKET DOT IDENTIFIER LPAREN RPAREN"""
         p[0] = SelectField(
             name=p[1],
-            array_index=ArrayIndex(indices=p[3]),
+            array_index=ArrayIndex(index=p[3]),
             method_name=p[6],
         )
 
-    def p_array_index_list_single(self, p: yacc.YaccProduction) -> None:
-        """array_index_list : array_index_item"""
-        p[0] = [p[1]]
+    def p_signed_int(self, p: yacc.YaccProduction) -> None:
+        """signed_int : INTEGER"""
+        p[0] = p[1]
 
-    def p_array_index_list_multiple(self, p: yacc.YaccProduction) -> None:
-        """array_index_list : array_index_list COMMA array_index_item"""
-        p[0] = p[1] + [p[3]]
+    def p_signed_int_negative(self, p: yacc.YaccProduction) -> None:
+        """signed_int : MINUS INTEGER"""
+        p[0] = -p[2]
 
     def p_array_index_item_single(self, p: yacc.YaccProduction) -> None:
-        """array_index_item : INTEGER"""
+        """array_index_item : signed_int"""
         p[0] = p[1]
 
     def p_array_index_item_slice_full(self, p: yacc.YaccProduction) -> None:
-        """array_index_item : INTEGER COLON INTEGER"""
+        """array_index_item : signed_int COLON signed_int"""
         p[0] = ArraySlice(start=p[1], end=p[3])
 
     def p_array_index_item_slice_start(self, p: yacc.YaccProduction) -> None:
-        """array_index_item : INTEGER COLON"""
+        """array_index_item : signed_int COLON"""
         p[0] = ArraySlice(start=p[1], end=None)
 
     def p_array_index_item_slice_end(self, p: yacc.YaccProduction) -> None:
-        """array_index_item : COLON INTEGER"""
+        """array_index_item : COLON signed_int"""
         p[0] = ArraySlice(start=None, end=p[2])
 
     def p_field_path_single(self, p: yacc.YaccProduction) -> None:

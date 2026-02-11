@@ -426,17 +426,20 @@ Array fields can be indexed to select specific elements:
 from Sensor select name, readings[0]
 ```
 
-Slices can extract a range of elements:
+Negative indices access elements from the end of the array:
+```ttq
+from Sensor select readings[-1]
+from Sensor select readings[-3]
+```
+
+Slices can extract a range of elements, and support negative indices:
 ```ttq
 from Sensor select readings[0:5]
 from Sensor select readings[5:]
 from Sensor select readings[:3]
-```
-
-Multiple indices and slices can be combined:
-```ttq
-from Sensor select readings[0, 2, 4]
-from Sensor select readings[0, 5:10, 15]
+from Sensor select readings[-3:]
+from Sensor select readings[:-1]
+from Sensor select readings[1:-1]
 ```
 
 Post-index dot notation accesses fields of composite array elements:
