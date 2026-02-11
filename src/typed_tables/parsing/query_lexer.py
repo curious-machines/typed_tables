@@ -30,7 +30,6 @@ class QueryLexer:
         "use": "USE",
         "create": "CREATE",
         "type": "TYPE",
-        "uuid": "UUID",
         "delete": "DELETE",
         "as": "AS",
         "alias": "ALIAS",

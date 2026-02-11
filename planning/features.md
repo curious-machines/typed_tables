@@ -4,10 +4,8 @@
 
 # Questions
 
-- do we have other things that look like functions but are keywords
 - update chaining for arrays
 - phase 8, lambdas and map
-- update docs and help
 
 - how do we know types when using numbers
 - when creating new temp database, say so in REPL

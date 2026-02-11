@@ -191,7 +191,6 @@ eval_expr       ::= STRING
                   | INTEGER
                   | FLOAT
                   | IDENTIFIER "(" ")"                      (* zero-arg function: uuid() *)
-                  | "uuid" "(" ")"
                   | IDENTIFIER "(" eval_arg_list ")"        (* function with args: sum([1,2,3]), min(5,3) *)
                   | "[" eval_expr_items "]"                 (* array literal: [1, 2, 3] *)
                   | "[" "]"                                 (* empty array: [] *)
@@ -357,7 +356,6 @@ instance_value  ::= STRING
                   | INTEGER
                   | FLOAT
                   | IDENTIFIER "(" ")"
-                  | "uuid" "(" ")"
                   | IDENTIFIER "(" INTEGER ")"              (* composite reference: TypeName(index) *)
                   | IDENTIFIER "(" instance_field_list ")"  (* inline instance creation *)
                   | IDENTIFIER "(" "tag" "(" IDENTIFIER ")" "," instance_field_list ")"  (* inline instance with tag *)
@@ -594,7 +592,7 @@ SEMICOLON       ::= ";"
 (*
  * from, select, where, offset, limit, group, sort, by,
  * and, or, not, starts, with, matches, show, types,
- * describe, use, create, type, uuid, delete, as, alias,
+ * describe, use, create, type, delete, as, alias,
  * drop, dump, to, collect, null, update, set, pretty,
  * tag, scope, forward, enum, interface, interfaces,
  * composites, enums, primitives, aliases, references,

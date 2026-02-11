@@ -573,11 +573,8 @@ class QueryParser:
         p[0] = UseQuery(path=p[2], temporary=True)
 
     def p_query_create_alias(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE ALIAS IDENTIFIER AS IDENTIFIER
-                 | CREATE ALIAS UUID AS IDENTIFIER"""
-        # Handle UUID keyword being used as the alias name
-        name = p[3] if isinstance(p[3], str) else "uuid"
-        p[0] = CreateAliasQuery(name=name, base_type=p[5])
+        """query : CREATE ALIAS IDENTIFIER AS IDENTIFIER"""
+        p[0] = CreateAliasQuery(name=p[3], base_type=p[5])
 
     def p_query_create_type(self, p: yacc.YaccProduction) -> None:
         """query : CREATE TYPE IDENTIFIER type_field_list"""
@@ -968,9 +965,8 @@ class QueryParser:
         p[0] = -p[2]
 
     def p_instance_value_func(self, p: yacc.YaccProduction) -> None:
-        """instance_value : IDENTIFIER LPAREN RPAREN
-                          | UUID LPAREN RPAREN"""
-        p[0] = FunctionCall(name=p[1].lower() if isinstance(p[1], str) else "uuid")
+        """instance_value : IDENTIFIER LPAREN RPAREN"""
+        p[0] = FunctionCall(name=p[1].lower())
 
     def p_instance_value_composite_ref(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER LPAREN INTEGER RPAREN"""
@@ -1088,9 +1084,8 @@ class QueryParser:
         p[0] = p[1]
 
     def p_eval_expr_func(self, p: yacc.YaccProduction) -> None:
-        """eval_expr : IDENTIFIER LPAREN RPAREN
-                     | UUID LPAREN RPAREN"""
-        p[0] = FunctionCall(name=p[1].lower() if isinstance(p[1], str) else "uuid")
+        """eval_expr : IDENTIFIER LPAREN RPAREN"""
+        p[0] = FunctionCall(name=p[1].lower())
 
     def p_eval_expr_func_with_args(self, p: yacc.YaccProduction) -> None:
         """eval_expr : IDENTIFIER LPAREN eval_arg_list RPAREN"""

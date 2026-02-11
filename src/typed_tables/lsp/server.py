@@ -53,7 +53,6 @@ KEYWORDS: dict[str, str] = {
     "use": "Select or create a database",
     "create": "Create a type, alias, enum, or instance",
     "type": "Used with 'create type'",
-    "uuid": "Generate a random UUID (function)",
     "delete": "Remove records matching a condition",
     "as": "Rename a column or define an alias",
     "alias": "Define a type alias",
