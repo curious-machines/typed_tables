@@ -235,7 +235,7 @@ class TestDump:
 
         script.write_text(f"""
 use "{db_path}";
-alias uuid as uint128;
+alias uuid = uint128;
 type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);

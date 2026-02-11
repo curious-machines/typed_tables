@@ -25,7 +25,7 @@ class TestTypeDefinitions:
 
     def test_parse_alias(self):
         """Test parsing an alias definition."""
-        registry = _parse_types("alias uuid as uint128")
+        registry = _parse_types("alias uuid = uint128")
 
         assert "uuid" in registry
         type_def = registry.get("uuid")
@@ -34,7 +34,7 @@ class TestTypeDefinitions:
 
     def test_parse_array_alias(self):
         """Test parsing an alias to an array type."""
-        registry = _parse_types("alias name as character[]")
+        registry = _parse_types("alias name = character[]")
 
         assert "name" in registry
         type_def = registry.get("name")
@@ -60,7 +60,7 @@ class TestTypeDefinitions:
     def test_parse_example(self):
         """Test parsing a typical type definition."""
         registry = _parse_types("""
-        alias uuid as uint128
+        alias uuid = uint128
 
         type Person {
             id: uuid,
@@ -126,7 +126,7 @@ class TestTypeDefinitions:
     def test_forward_reference_resolution(self):
         """Test that types can reference types defined later."""
         registry = _parse_types("""
-        alias uuid as uint128
+        alias uuid = uint128
 
         type Person {
             id: uuid

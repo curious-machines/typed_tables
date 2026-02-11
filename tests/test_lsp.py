@@ -137,10 +137,10 @@ class TestFindUserTypes:
         assert _find_user_types("interface Drawable { x: float32 }") == ["Drawable"]
 
     def test_create_alias(self):
-        assert _find_user_types("alias uuid as uint128") == ["uuid"]
+        assert _find_user_types("alias uuid = uint128") == ["uuid"]
 
     def test_alias(self):
-        assert _find_user_types("alias name as character[]") == ["name"]
+        assert _find_user_types("alias name = character[]") == ["name"]
 
     def test_multiple(self):
         source = "type A { x: uint8 }\ntype B { y: uint8 }\nenum C { a, b }"

@@ -2,8 +2,8 @@
 use show_demo
 
 -- Aliases
-alias identifier as uint128
-alias age as uint8
+alias identifier = uint128
+alias age = uint8
 
 -- Enums
 enum Color { red, green, blue }

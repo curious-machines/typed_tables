@@ -4380,7 +4380,7 @@ class QueryExecutor:
         # Emit aliases
         for name, alias_def in aliases:
             base_name = alias_def.base_type.name
-            lines.append(f"alias {name} as {base_name}")
+            lines.append(f"alias {name} = {base_name}")
 
         # Emit enum type definitions
         for name, enum_def in enums:

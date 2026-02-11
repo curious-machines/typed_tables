@@ -595,8 +595,8 @@ class QueryParser:
         p[0] = UseQuery(path=p[2], temporary=True)
 
     def p_query_create_alias(self, p: yacc.YaccProduction) -> None:
-        """query : ALIAS IDENTIFIER AS IDENTIFIER
-                 | ALIAS IDENTIFIER AS IDENTIFIER LBRACKET RBRACKET"""
+        """query : ALIAS IDENTIFIER EQ IDENTIFIER
+                 | ALIAS IDENTIFIER EQ IDENTIFIER LBRACKET RBRACKET"""
         if len(p) == 7:
             p[0] = CreateAliasQuery(name=p[2], base_type=p[4] + "[]")
         else:

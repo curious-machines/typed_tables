@@ -150,7 +150,7 @@ Type a prefix and press `Tab` to expand. Tab stops (`$1`, `$2`, ...) let you cyc
 | `enum` | `create enum Name { a, b, c }` |
 | `enumsw` | `create enum Name { bare, variant(field: type) }` |
 | `interface` | `create interface Name { field: type }` |
-| `alias` | `create alias name as base_type` |
+| `alias` | `alias name = base_type` |
 | `forward` | `forward type Name` |
 
 ### Instances and Data

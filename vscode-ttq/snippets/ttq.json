@@ -49,7 +49,7 @@
   },
   "Create Alias": {
     "prefix": "alias",
-    "body": "alias ${1:name} as ${2:base_type}",
+    "body": "alias ${1:name} = ${2:base_type}",
     "description": "Define a type alias"
   },
   "Forward Declaration": {

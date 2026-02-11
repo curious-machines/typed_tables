@@ -173,8 +173,8 @@ class TestSystemTypes:
         assert "reserved for system use" in result.message
 
     def test_create_alias_rejects_underscore_prefix(self, executor):
-        """alias _x as uint8 -> error."""
-        result = _run(executor, 'alias _x as uint8')
+        """alias _x = uint8 -> error."""
+        result = _run(executor, 'alias _x = uint8')
         assert isinstance(result, CreateResult)
         assert "reserved for system use" in result.message
 

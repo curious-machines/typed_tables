@@ -6,7 +6,7 @@ A Python library that provides a typed, file-based database for structured data.
 
 Typed Tables is a live persistence layer. Types are defined in a DSL. Their format is similar to how a structure is defined in other languages. Only values can be defined, no methods.
 
-In order to improve queries and to keep type table files small, built-in types may be used to define a new type. The representation remains the same, but the name changes. Each type will have its own table, so the new name creates a new table. For example, there is a uint128 type. All uint128 values will be stored in the uint128 table. UUIDs are 128 bits, so we could define `alias UUID as uint128`. When we create a UUID, it will be stored in a UUID table where each entry follows the same format as a uint128.
+In order to improve queries and to keep type table files small, built-in types may be used to define a new type. The representation remains the same, but the name changes. Each type will have its own table, so the new name creates a new table. For example, there is a uint128 type. All uint128 values will be stored in the uint128 table. UUIDs are 128 bits, so we could define `alias UUID = uint128`. When we create a UUID, it will be stored in a UUID table where each entry follows the same format as a uint128.
 
 TTQ is both the query language and the type definition language.
 
@@ -29,7 +29,7 @@ All types have array variants which is indicated by the type name followed by sq
 TTQ syntax is used to describe the schema. Types are defined with the `type` keyword followed by a name and a body surrounded by curly braces. The body contains a list of name:type pairs. An example follows:
 
 ```ttq
-alias uuid as uint128
+alias uuid = uint128
 
 type Person {
   id: uuid,
@@ -193,7 +193,7 @@ NULL values display as `NULL` in select results and as `null` in dump output.
 ### Aliases
 
 ```ttq
-alias uuid as uint128
+alias uuid = uint128
 ```
 
 ### Enumerations
@@ -767,7 +767,7 @@ from typed_tables import Schema
 
 # Define types using TTQ syntax
 types = '''
-alias uuid as uint128
+alias uuid = uint128
 
 type Person {
   id: uuid,

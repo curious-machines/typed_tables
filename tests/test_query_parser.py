@@ -212,7 +212,7 @@ class TestQueryParser:
     def test_parse_create_alias(self):
         """Test parsing alias query."""
         parser = QueryParser()
-        query = parser.parse("alias uuid as uint128")
+        query = parser.parse("alias uuid = uint128")
 
         assert isinstance(query, CreateAliasQuery)
         assert query.name == "uuid"

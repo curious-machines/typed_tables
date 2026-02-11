@@ -261,12 +261,12 @@ use_query       ::= "use"
  * but uses the same format as the base type.
  *
  * Examples:
- *   alias uuid as uint128
- *   alias readings as int8[]
+ *   alias uuid = uint128
+ *   alias readings = int8[]
  *)
 
-alias_query     ::= "alias" IDENTIFIER "as" IDENTIFIER
-                  | "alias" IDENTIFIER "as" IDENTIFIER "[" "]"
+alias_query     ::= "alias" IDENTIFIER "=" IDENTIFIER
+                  | "alias" IDENTIFIER "=" IDENTIFIER "[" "]"
 
 
 (* ========== DROP DATABASE Query ========== *)

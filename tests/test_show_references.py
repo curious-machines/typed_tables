@@ -92,7 +92,7 @@ class TestParseShowReferences:
 class TestShowReferences:
     def _setup_schema(self, executor, parser):
         """Set up a schema with aliases, enums, interfaces, and composites."""
-        _run(executor, parser, 'alias myid as uint128')
+        _run(executor, parser, 'alias myid = uint128')
         _run(executor, parser, 'enum Color { red, green, blue }')
         _run(executor, parser, 'enum Shape { none, circle(r: float32), rect(w: float32, h: float32) }')
         _run(executor, parser, 'interface Named { name: string }')
@@ -230,7 +230,7 @@ class TestShowReferences:
 
 class TestDumpGraph:
     def _setup_schema(self, executor, parser):
-        _run(executor, parser, 'alias myid as uint128')
+        _run(executor, parser, 'alias myid = uint128')
         _run(executor, parser, 'type Person { id: myid, name: string, age: uint8 }')
 
     def test_dump_graph_ttq(self, executor, parser):
@@ -284,7 +284,7 @@ class TestDumpGraph:
 
     def test_dump_graph_dot_node_styles(self, executor, parser):
         _run(executor, parser, 'enum Color { red, green, blue }')
-        _run(executor, parser, 'alias name as string')
+        _run(executor, parser, 'alias name = string')
         _run(executor, parser, 'type Person { name: name, color: Color }')
         result = executor.execute(DumpGraphQuery(output_file="/dev/null/types.dot"))
         script = result.script

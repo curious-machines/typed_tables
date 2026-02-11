@@ -54,7 +54,7 @@ KEYWORDS: dict[str, str] = {
     "create": "Create an instance of a type",
     "type": "Define a composite type",
     "delete": "Remove records matching a condition",
-    "as": "Rename a column or define an alias",
+    "as": "Rename a column in select output",
     "alias": "Define a type alias",
     "drop": "Delete an entire database",
     "dump": "Serialize database contents",

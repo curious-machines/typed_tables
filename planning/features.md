@@ -13,7 +13,6 @@ I would like to expand the "status" command to report the following. If you thin
 # Questions
 
 - how do we know types when using numbers
-- does "alias <alias> as <baseType>" seem backwards? Maybe reverse the positions of <alias> and <baseType>, but I prefer to have the alias name first in the statement. Maybe a different word than "as" should be used here? Or maybe just use "alias <alias>=<baseType>"?
 - simplify array indexing to use only indexes or slice, not a comma-delimited list of both
 
 ---
