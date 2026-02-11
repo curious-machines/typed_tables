@@ -2,16 +2,30 @@
 
 - phase 8, lambdas and map
 
-- when creating new temp database, say so in REPL
-- can I create an array of a given size and fill elements with a value
-- create array of range of numbers
+Now that we support expressions and functions, our query language is starting to look like a programming language. That's OK with me because that was my intention from the start. I would like to make a few changes to syntax.
+
+1. remove "create" when creating types, instances and aliases (do we have any other create queries?). To create a type, use "type Person { name: string }", to create an instance, use "Person(name='me'), to create an alias, use "alias length as uint32".
+
+2. I would like to remove "select" for eval expressions. So, instead of "select [1,2,3}]", I would say "[1, 2, 3]".
+
+Please investigate if these changes are possible. If there are any issues with these, please tell me what those issues are.
+
+3. I should be able to use array methods on array literals. For example, "[1, 9, 5, 7, 3].sort"
+
+Please update all examples and documentation to use the new syntax.
+
+- remove "create" from syntax for creating types, instances, and aliases
+- remove select from eval queries
+- remove type dsl
+- update all examples and docs
+
+- I should be able to call array methods on array literals
 
 ---
 
 # Questions
 
 - how do we know types when using numbers
-- should I be able to call array methods on array literals
 
 ---
 

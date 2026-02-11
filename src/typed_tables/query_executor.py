@@ -2297,9 +2297,16 @@ class QueryExecutor:
             if value.name == "uuid":
                 # Generate a random UUID as uint128
                 return uuid_module.uuid4().int
+            elif value.args:
+                # Functions with positional args: range(), repeat()
+                evaluated_args = [self._resolve_instance_value(a) for a in value.args]
+                return self._evaluate_math_func(value.name, evaluated_args)
             else:
                 raise ValueError(f"Unknown function: {value.name}()")
         elif isinstance(value, CompositeRef):
+            # Check if this is actually a single-arg function call (e.g., range(5))
+            if value.type_name in ("range", "repeat"):
+                return self._evaluate_math_func(value.type_name, [value.index])
             # Return the index directly - the type will be validated during instance creation
             return value.index
         elif isinstance(value, EnumValueExpr):
@@ -2829,6 +2836,28 @@ class QueryExecutor:
                     return max(arg) if arg else None
                 return arg
             return max(args)
+
+        if name == "repeat":
+            if len(args) != 2:
+                raise RuntimeError("repeat() requires exactly 2 arguments: repeat(value, count)")
+            value, count = args
+            if not isinstance(count, int):
+                raise RuntimeError(f"repeat() count must be an integer, got {type(count).__name__}")
+            if count < 0:
+                raise RuntimeError(f"repeat() count must be non-negative, got {count}")
+            return [value] * count
+
+        if name == "range":
+            if len(args) == 1:
+                if not isinstance(args[0], (int, float)):
+                    raise RuntimeError(f"range() arguments must be numeric, got {type(args[0]).__name__}")
+                return list(range(int(args[0])))
+            elif len(args) == 2:
+                return list(range(int(args[0]), int(args[1])))
+            elif len(args) == 3:
+                return list(range(int(args[0]), int(args[1]), int(args[2])))
+            else:
+                raise RuntimeError("range() takes 1-3 arguments")
 
         func = self._MATH_FUNCS_1.get(name)
         if func is None:

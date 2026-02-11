@@ -4373,3 +4373,164 @@ create Reading(value=10)
         result = self._query(db_path, "from Person select sum(age)")
         assert len(result.rows) == 1
         assert result.rows[0]["sum(age)"] == 70
+
+
+class TestArrayGenerators:
+    """Tests for repeat() and range() array generator functions."""
+
+    def _eval(self, query_text):
+        """Helper to evaluate an expression query and return the result."""
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.storage import StorageManager
+        from typed_tables.types import TypeRegistry
+
+        registry = TypeRegistry()
+        executor = QueryExecutor.__new__(QueryExecutor)
+        executor.registry = registry
+        executor.storage = None
+        executor._variables = {}
+
+        parser = QueryParser()
+        stmt = parser.parse(query_text)
+        return executor.execute(stmt)
+
+    def _setup_db(self, tmp_path, script_text):
+        """Helper to create a database with the given script."""
+        from typed_tables.repl import run_file
+
+        db_path = tmp_path / "testdb"
+        script = tmp_path / "setup.ttq"
+        script.write_text(f'use "{db_path}"\n{script_text}\n')
+        result, _ = run_file(script, None, verbose=False)
+        assert result == 0
+        return db_path
+
+    def _query(self, db_path, query_text):
+        """Helper to run a query against an existing database."""
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.query_executor import QueryExecutor
+        from typed_tables.parsing.query_parser import QueryParser
+        from typed_tables.storage import StorageManager
+
+        registry = load_registry_from_metadata(db_path)
+        storage = StorageManager(db_path, registry)
+        executor = QueryExecutor(storage, registry)
+        parser = QueryParser()
+        result = executor.execute(parser.parse(query_text))
+        storage.close()
+        return result
+
+    # --- repeat() in eval_expr context ---
+
+    def test_repeat_integers(self):
+        result = self._eval("select repeat(0, 5)")
+        assert result.rows[0]["repeat(0, 5)"] == [0, 0, 0, 0, 0]
+
+    def test_repeat_string(self):
+        result = self._eval('select repeat("hello", 3)')
+        assert result.rows[0]['repeat("hello", 3)'] == ["hello", "hello", "hello"]
+
+    def test_repeat_zero_count(self):
+        result = self._eval("select repeat(0, 0)")
+        assert result.rows[0]["repeat(0, 0)"] == []
+
+    def test_repeat_float(self):
+        result = self._eval("select repeat(3.14, 2)")
+        assert result.rows[0]["repeat(3.14, 2)"] == [3.14, 3.14]
+
+    def test_repeat_negative_count_error(self):
+        with pytest.raises(RuntimeError, match="non-negative"):
+            self._eval("select repeat(1, -1)")
+
+    def test_repeat_too_many_args_error(self):
+        with pytest.raises(RuntimeError, match="exactly 2 arguments"):
+            self._eval("select repeat(1, 2, 3)")
+
+    # --- range() in eval_expr context ---
+
+    def test_range_single_arg(self):
+        result = self._eval("select range(5)")
+        assert result.rows[0]["range(5)"] == [0, 1, 2, 3, 4]
+
+    def test_range_two_args(self):
+        result = self._eval("select range(1, 6)")
+        assert result.rows[0]["range(1, 6)"] == [1, 2, 3, 4, 5]
+
+    def test_range_three_args(self):
+        result = self._eval("select range(0, 10, 2)")
+        assert result.rows[0]["range(0, 10, 2)"] == [0, 2, 4, 6, 8]
+
+    def test_range_negative_step(self):
+        result = self._eval("select range(5, 0, -1)")
+        assert result.rows[0]["range(5, 0, -1)"] == [5, 4, 3, 2, 1]
+
+    def test_range_zero(self):
+        result = self._eval("select range(0)")
+        assert result.rows[0]["range(0)"] == []
+
+    def test_range_empty(self):
+        result = self._eval("select range(5, 5)")
+        assert result.rows[0]["range(5, 5)"] == []
+
+    def test_range_too_many_args_error(self):
+        with pytest.raises(RuntimeError, match="1-3 arguments"):
+            self._eval("select range(1, 2, 3, 4)")
+
+    def test_range_string_arg_error(self):
+        with pytest.raises(RuntimeError, match="numeric"):
+            self._eval('select range("a")')
+
+    # --- Composition with array math ---
+
+    def test_repeat_plus_range(self):
+        result = self._eval("select repeat(1, 5) + range(5)")
+        assert result.rows[0]["repeat(1, 5) + range(5)"] == [1, 2, 3, 4, 5]
+
+    def test_range_times_scalar(self):
+        result = self._eval("select range(5) * 2")
+        assert result.rows[0]["range(5) * 2"] == [0, 2, 4, 6, 8]
+
+    # --- repeat() and range() in instance_value context (create/update) ---
+
+    def test_create_with_repeat(self, tmp_path):
+        db_path = self._setup_db(tmp_path, """
+            create type Sensor { name: string, readings: int8[] }
+            create Sensor(name="test", readings=repeat(0, 5))
+        """)
+        result = self._query(db_path, "from Sensor select *")
+        assert result.rows[0]["readings"] == [0, 0, 0, 0, 0]
+
+    def test_create_with_range_two_args(self, tmp_path):
+        db_path = self._setup_db(tmp_path, """
+            create type Sensor { name: string, readings: int8[] }
+            create Sensor(name="test", readings=range(1, 6))
+        """)
+        result = self._query(db_path, "from Sensor select *")
+        assert result.rows[0]["readings"] == [1, 2, 3, 4, 5]
+
+    def test_create_with_range_single_arg(self, tmp_path):
+        db_path = self._setup_db(tmp_path, """
+            create type Sensor { name: string, readings: int8[] }
+            create Sensor(name="test", readings=range(5))
+        """)
+        result = self._query(db_path, "from Sensor select *")
+        assert result.rows[0]["readings"] == [0, 1, 2, 3, 4]
+
+    def test_update_with_repeat(self, tmp_path):
+        db_path = self._setup_db(tmp_path, """
+            create type Sensor { name: string, readings: int8[] }
+            $s = create Sensor(name="test", readings=[1, 2, 3])
+            update $s set readings=repeat(1, 3)
+        """)
+        result = self._query(db_path, "from Sensor select *")
+        assert result.rows[0]["readings"] == [1, 1, 1]
+
+    def test_update_with_range(self, tmp_path):
+        db_path = self._setup_db(tmp_path, """
+            create type Sensor { name: string, readings: int8[] }
+            $s = create Sensor(name="test", readings=[1, 2, 3])
+            update $s set readings=range(0, 10, 2)
+        """)
+        result = self._query(db_path, "from Sensor select *")
+        assert result.rows[0]["readings"] == [0, 2, 4, 6, 8]

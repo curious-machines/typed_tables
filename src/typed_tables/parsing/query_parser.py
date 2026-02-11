@@ -1013,6 +1013,18 @@ class QueryParser:
         """instance_value : IDENTIFIER LPAREN RPAREN"""
         p[0] = FunctionCall(name=p[1].lower())
 
+    def p_instance_value_func_with_positional_args(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER LPAREN func_positional_args RPAREN"""
+        p[0] = FunctionCall(name=p[1].lower(), args=p[3])
+
+    def p_func_positional_args_two(self, p: yacc.YaccProduction) -> None:
+        """func_positional_args : instance_value COMMA instance_value"""
+        p[0] = [p[1], p[3]]
+
+    def p_func_positional_args_extend(self, p: yacc.YaccProduction) -> None:
+        """func_positional_args : func_positional_args COMMA instance_value"""
+        p[0] = p[1] + [p[3]]
+
     def p_instance_value_composite_ref(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER LPAREN INTEGER RPAREN"""
         p[0] = CompositeRef(type_name=p[1], index=p[3])
