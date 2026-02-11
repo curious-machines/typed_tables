@@ -478,7 +478,28 @@ from Person select product(age)
 ```
 
 ```ttq
+from Person select min(age)
+```
+
+```ttq
+from Person select max(age)
+```
+
+```ttq
 from Person select name, age sort by age, name
+```
+
+Aggregate functions (`count`, `average`, `sum`, `product`, `min`, `max`) are not reserved keywords — they can also be used as field names:
+```ttq
+create type Stats { count: uint32, sum: float64 }
+```
+
+In eval expressions (SELECT without FROM), aggregates operate on arrays:
+```ttq
+select sum([1, 2, 3])       -- 6
+select average([10, 20])     -- 15.0
+select min(5, 3)             -- 3 (multi-arg)
+select max([5, 3, 7])        -- 7
 ```
 
 ### Special Queries

@@ -4,7 +4,7 @@
 
 # Questions
 
-- generalize function calls and dispatch by name instead of using reserved words
+- do we have other things that look like functions but are keywords
 - update chaining for arrays
 - phase 8, lambdas and map
 - update docs and help

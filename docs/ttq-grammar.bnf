@@ -68,10 +68,21 @@ field_list      ::= select_field
 select_field    ::= field_path
                   | field_path "[" array_index_list "]"                 (* array indexing *)
                   | field_path "[" array_index_list "]" "." field_path  (* post-index dot notation *)
-                  | "count" "(" ")"
-                  | "average" "(" IDENTIFIER ")"
-                  | "sum" "(" IDENTIFIER ")"
-                  | "product" "(" IDENTIFIER ")"
+                  | method_chain_expr                                   (* method calls and aggregates *)
+
+(* Aggregates are parsed as identifier-based function calls:
+ *   count()           → aggregate, no field
+ *   sum(age)          → aggregate with field name
+ *   readings.min()    → array method call
+ *   field.method().method()  → chained method calls
+ *
+ * Aggregate function names: count, average, sum, product, min, max.
+ * These are NOT reserved keywords — they can also be used as field names.
+ *)
+method_chain_expr ::= field_path "(" ")"
+                    | field_path "(" method_arg_list ")"
+                    | method_chain_expr "." IDENTIFIER "(" ")"
+                    | method_chain_expr "." IDENTIFIER "(" method_arg_list ")"
 
 (* Field paths support dot notation for nested composite fields *)
 field_path      ::= IDENTIFIER
@@ -179,8 +190,23 @@ eval_expr_with_alias ::= eval_expr "as" STRING
 eval_expr       ::= STRING
                   | INTEGER
                   | FLOAT
-                  | IDENTIFIER "(" ")"
+                  | IDENTIFIER "(" ")"                      (* zero-arg function: uuid() *)
                   | "uuid" "(" ")"
+                  | IDENTIFIER "(" eval_arg_list ")"        (* function with args: sum([1,2,3]), min(5,3) *)
+                  | "[" eval_expr_items "]"                 (* array literal: [1, 2, 3] *)
+                  | "[" "]"                                 (* empty array: [] *)
+                  | eval_expr binop eval_expr               (* arithmetic: 5 + 3, [1,2] * 3 *)
+                  | "-" eval_expr                           (* unary minus *)
+                  | "+" eval_expr                           (* unary plus *)
+                  | "(" eval_expr ")"                       (* grouping *)
+
+eval_arg_list   ::= eval_expr
+                  | eval_arg_list "," eval_expr
+
+eval_expr_items ::= eval_expr
+                  | eval_expr_items "," eval_expr
+
+binop           ::= "+" | "-" | "*" | "/" | "%" | "//" | "++"
 
 
 (* ========== SHOW TABLES Query ========== *)
@@ -567,10 +593,17 @@ SEMICOLON       ::= ";"
 (* ========== Reserved Keywords ========== *)
 (*
  * from, select, where, offset, limit, group, sort, by,
- * and, or, not, starts, with, matches, show, tables,
- * describe, count, average, sum, product, use, create,
- * type, uuid, delete, as, alias, drop, dump, to, collect,
- * null, update, set, pretty, tag, scope, forward, yaml, json, xml
+ * and, or, not, starts, with, matches, show, types,
+ * describe, use, create, type, uuid, delete, as, alias,
+ * drop, dump, to, collect, null, update, set, pretty,
+ * tag, scope, forward, enum, interface, interfaces,
+ * composites, enums, primitives, aliases, references,
+ * graph, yaml, json, xml, compact, archive, restore,
+ * execute, import, system, temp, asc, desc
+ *
+ * Note: count, average, sum, product, min, max are NOT
+ * reserved — they are parsed as identifiers and can be
+ * used as field names.
  *)
 
 
@@ -585,11 +618,25 @@ SEMICOLON       ::= ";"
 
 (* ========== Built-in Functions ========== *)
 (*
- * uuid()    - Generate a random UUID (128-bit)
- * count()   - Count records (aggregate)
- * sum(f)    - Sum of field values (aggregate)
- * average(f) - Average of field values (aggregate)
- * product(f) - Product of field values (aggregate)
+ * uuid()      - Generate a random UUID (128-bit)
+ * count()     - Count records (aggregate); count(arr) in eval
+ * sum(f)      - Sum of field values (aggregate); sum(arr) in eval
+ * average(f)  - Average of field values (aggregate); average(arr) in eval
+ * product(f)  - Product of field values (aggregate); product(arr) in eval
+ * min(f)      - Minimum field value (aggregate); min(arr) or min(a,b) in eval
+ * max(f)      - Maximum field value (aggregate); max(arr) or max(a,b) in eval
+ * sqrt(x)     - Square root
+ * pow(x, y)   - Exponentiation
+ * abs(x)      - Absolute value
+ * ceil(x)     - Ceiling
+ * floor(x)    - Floor
+ * round(x)    - Round to nearest integer
+ * log(x)      - Natural logarithm
+ * log2(x)     - Base-2 logarithm
+ * log10(x)    - Base-10 logarithm
+ * sin(x), cos(x), tan(x) - Trigonometric functions
+ *
+ * Math functions vectorize over arrays: sqrt([1,4,9]) → [1.0,2.0,3.0]
  *)
 
 

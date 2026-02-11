@@ -30,7 +30,7 @@ class SelectField:
     """A field in a SELECT clause."""
 
     name: str  # Field name or "*" or dotted path like "address.state"
-    aggregate: str | None = None  # count, average, sum, product
+    aggregate: str | None = None  # count, average, sum, product, min, max
     array_index: ArrayIndex | None = None  # Optional array indexing
     post_path: list[str] | None = None  # Path after array index: arr[0].name
     method_name: str | None = None  # e.g., "length", "isEmpty"

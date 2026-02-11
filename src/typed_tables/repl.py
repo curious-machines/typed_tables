@@ -586,17 +586,21 @@ CONDITIONS:
   cond1 or cond2           Logical OR
   not condition            Logical NOT
 
-AGGREGATES:
+AGGREGATES (in FROM ... SELECT):
   count()                  Count records
   sum(field)               Sum of field values
   average(field)           Average of field values
   product(field)           Product of field values
+  min(field)               Minimum field value
+  max(field)               Maximum field value
 
 EXPRESSIONS (SELECT without FROM):
   select uuid()            Generate a random UUID
   select 1, 2, 3           Evaluate literal values
   select uuid(), uuid()    Multiple expressions
   select uuid() as "id"    Name the result column
+  select sum([1, 2, 3])    Aggregate functions on arrays
+  select min(5, 3)         Multi-argument min/max
 
 TYPES:
   string                   Built-in string type (stored as character[], displayed as string)

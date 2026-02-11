@@ -56,7 +56,9 @@ uint128 int128  float32 float64
 ```
 
 ### Functions
-Highlighted when followed by `(`: `count`, `average`, `sum`, `product`, `uuid`.
+Highlighted when followed by `(`: `count`, `average`, `sum`, `product`, `min`, `max`, `uuid`, `sqrt`, `pow`, `abs`, `ceil`, `floor`, `round`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`.
+
+Note: `count`, `average`, `sum`, `product`, `min`, `max` are **not** reserved keywords — they can also be used as field names.
 
 ### Type Names
 Capitalized identifiers are highlighted as type names: `Person`, `Address`, `Node`.

@@ -116,7 +116,7 @@
       "name": "support.type.ttq"
     },
     "aggregate-functions": {
-      "match": "(?i)\\b(count|average|sum|product|uuid)\\s*(?=\\()",
+      "match": "(?i)\\b(count|average|sum|product|min|max|uuid|sqrt|pow|abs|ceil|floor|round|log|log2|log10|sin|cos|tan)\\s*(?=\\()",
       "name": "support.function.ttq"
     },
     "operator": {
