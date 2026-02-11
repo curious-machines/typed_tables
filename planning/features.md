@@ -4,8 +4,13 @@
 
 # Questions
 
+- generalize function calls and dispatch by name instead of using reserved words
 - update chaining for arrays
+- phase 8, lambdas and map
+- update docs and help
+
 - how do we know types when using numbers
+- when creating new temp database, say so in REPL
 
 ---
 
@@ -24,15 +29,6 @@ This would require turning a query into a sequence of instructions; a mini-compi
 ## More String Operations
 
 ## Add a Dictionary Type
-
-## Add Math for Arrays of Primitives
-
-All functions are performed element-by-element. Example: [1, 2, 3, 4] + [5, 6, 7, 8]
-
-We can have a single scalar and then apply the math function to all elements in the array. Examples: 5 * [1, 2, 3, 4], [1, 2, 3, 4] * 5
-
-- Add, Subtract, Multiply, Divide
-
 
 ## Status Updates
 
@@ -125,6 +121,16 @@ Min / Max: If the base type is a number, this is straightforward. If this is a l
 Replace: replace first occurrence of an item with another item or items. Similar to insertion
 ReplaceAll: replace all occurrences of an item with another item or items. Similar to insertion
 Swap: swap two items by index in the array
+
+## Add Math for Arrays of Primitives
+
+- Add, Subtract, Multiply, Divide
+- Maybe for functions like sqrt, pow, log, sin, cos, tan, etc.
+- Comparison operators
+
+All functions are performed element-by-element. Example: [1, 2, 3, 4] + [5, 6, 7, 8]
+
+We can have a single scalar and then apply the math function to all elements in the array. Examples: 5 * [1, 2, 3, 4], [1, 2, 3, 4] * 5
 
 ---
 
