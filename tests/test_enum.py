@@ -146,7 +146,7 @@ class TestEnumParsing:
         return QueryParser()
 
     def test_parse_c_style_enum(self, parser):
-        query = parser.parse("create enum Color { red, green, blue }")
+        query = parser.parse("enum Color { red, green, blue }")
         assert isinstance(query, CreateEnumQuery)
         assert query.name == "Color"
         assert len(query.variants) == 3
@@ -155,14 +155,14 @@ class TestEnumParsing:
         assert query.variants[2].name == "blue"
 
     def test_parse_c_style_explicit_values(self, parser):
-        query = parser.parse("create enum HttpStatus { ok = 200, not_found = 404 }")
+        query = parser.parse("enum HttpStatus { ok = 200, not_found = 404 }")
         assert isinstance(query, CreateEnumQuery)
         assert query.variants[0].explicit_value == 200
         assert query.variants[1].explicit_value == 404
 
     def test_parse_swift_style_enum(self, parser):
         query = parser.parse(
-            "create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }"
+            "enum Shape { none, circle(cx: float32, cy: float32, r: float32) }"
         )
         assert isinstance(query, CreateEnumQuery)
         assert len(query.variants) == 2
@@ -174,7 +174,7 @@ class TestEnumParsing:
         assert query.variants[1].fields[0].type_name == "float32"
 
     def test_parse_trailing_comma(self, parser):
-        query = parser.parse("create enum Color { red, green, blue, }")
+        query = parser.parse("enum Color { red, green, blue, }")
         assert isinstance(query, CreateEnumQuery)
         assert len(query.variants) == 3
 
@@ -240,11 +240,12 @@ class TestEnumParsing:
 
 class TestTypeDSLEnum:
     def test_type_dsl_c_style_enum(self):
-        from typed_tables.parsing.type_parser import TypeParser
+        import tempfile
+        from typed_tables import Schema
 
-        parser = TypeParser()
-        registry = parser.parse("enum Color { red, green, blue }")
-        color = registry.get("Color")
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = Schema.parse("enum Color { red, green, blue }", tmp)
+            color = schema.registry.get("Color")
         assert isinstance(color, EnumTypeDefinition)
         assert len(color.variants) == 3
         assert color.variants[0].name == "red"
@@ -252,23 +253,25 @@ class TestTypeDSLEnum:
         assert color.variants[2].discriminant == 2
 
     def test_type_dsl_explicit_values(self):
-        from typed_tables.parsing.type_parser import TypeParser
+        import tempfile
+        from typed_tables import Schema
 
-        parser = TypeParser()
-        registry = parser.parse("enum Status { ok = 200, not_found = 404, error = 500 }")
-        status = registry.get("Status")
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = Schema.parse("enum Status { ok = 200, not_found = 404, error = 500 }", tmp)
+            status = schema.registry.get("Status")
         assert isinstance(status, EnumTypeDefinition)
         assert status.has_explicit_values is True
         assert status.get_variant("ok").discriminant == 200
 
     def test_type_dsl_swift_style(self):
-        from typed_tables.parsing.type_parser import TypeParser
+        import tempfile
+        from typed_tables import Schema
 
-        parser = TypeParser()
-        registry = parser.parse(
-            "enum Shape { none, circle(cx: float32, cy: float32, r: float32) }"
-        )
-        shape = registry.get("Shape")
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = Schema.parse(
+                "enum Shape { none, circle(cx: float32, cy: float32, r: float32) }", tmp
+            )
+            shape = schema.registry.get("Shape")
         assert isinstance(shape, EnumTypeDefinition)
         assert len(shape.variants) == 2
         circle = shape.get_variant("circle")
@@ -276,11 +279,12 @@ class TestTypeDSLEnum:
         assert circle.fields[0].name == "cx"
 
     def test_type_dsl_enum_mixed_reject(self):
-        from typed_tables.parsing.type_parser import TypeParser
+        import tempfile
+        from typed_tables import Schema
 
-        parser = TypeParser()
-        with pytest.raises(ValueError, match="cannot coexist"):
-            parser.parse("enum Bad { a = 1, b(x: uint8) }")
+        with tempfile.TemporaryDirectory() as tmp:
+            with pytest.raises((ValueError, RuntimeError), match="cannot coexist|Cannot mix"):
+                Schema.parse("enum Bad { a = 1, b(x: uint8) }", tmp)
 
 
 # ---- Integration tests ----
@@ -305,7 +309,7 @@ def executor(db_dir):
 class TestEnumExecution:
     def test_create_c_style_enum(self, executor):
         parser = QueryParser()
-        query = parser.parse("create enum Color { red, green, blue }")
+        query = parser.parse("enum Color { red, green, blue }")
         result = executor.execute(query)
         assert isinstance(result, CreateResult)
         assert "Created enum" in result.message
@@ -317,7 +321,7 @@ class TestEnumExecution:
 
     def test_create_enum_with_explicit_values(self, executor):
         parser = QueryParser()
-        query = parser.parse("create enum HttpStatus { ok = 200, not_found = 404, error = 500 }")
+        query = parser.parse("enum HttpStatus { ok = 200, not_found = 404, error = 500 }")
         result = executor.execute(query)
         assert "Created enum" in result.message
 
@@ -328,7 +332,7 @@ class TestEnumExecution:
     def test_create_swift_style_enum(self, executor):
         parser = QueryParser()
         query = parser.parse(
-            "create enum Shape { none, line(x1: float32, y1: float32, x2: float32, y2: float32), circle(cx: float32, cy: float32, r: float32) }"
+            "enum Shape { none, line(x1: float32, y1: float32, x2: float32, y2: float32), circle(cx: float32, cy: float32, r: float32) }"
         )
         result = executor.execute(query)
         assert "Created enum" in result.message
@@ -336,15 +340,15 @@ class TestEnumExecution:
 
     def test_reject_mixed_enum(self, executor):
         parser = QueryParser()
-        query = parser.parse("create enum Bad { a = 1, b(x: uint8) }")
+        query = parser.parse("enum Bad { a = 1, b(x: uint8) }")
         result = executor.execute(query)
         assert "cannot coexist" in result.message
 
     def test_create_instance_with_c_style_enum(self, executor):
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=Color.red)
         """)
         for stmt in stmts:
@@ -366,8 +370,8 @@ class TestEnumExecution:
     def test_create_instance_with_swift_style_enum(self, executor):
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
-            create type Canvas { name: string, bg: Shape }
+            enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            type Canvas { name: string, bg: Shape }
             create Canvas(name="test", bg=Shape.circle(cx=50.0, cy=50.0, r=25.0))
         """)
         for stmt in stmts:
@@ -387,8 +391,8 @@ class TestEnumExecution:
     def test_enum_null_field(self, executor):
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0)
         """)
         for stmt in stmts:
@@ -402,8 +406,8 @@ class TestEnumExecution:
         """from Color select * should scan composites and find enum values."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=Color.red)
             create Pixel(x=1, y=0, color=Color.blue)
         """)
@@ -420,8 +424,8 @@ class TestEnumExecution:
         """from Shape.circle select * should filter to circle variant with fields as columns."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
-            create type Canvas { name: string, bg: Shape, fg: Shape }
+            enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            type Canvas { name: string, bg: Shape, fg: Shape }
             create Canvas(name="test", bg=Shape.none, fg=Shape.circle(cx=50.0, cy=50.0, r=25.0))
         """)
         for stmt in stmts:
@@ -440,8 +444,8 @@ class TestEnumExecution:
         """from Shape.circle select * where r > 20 should filter."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
-            create type Canvas { name: string, bg: Shape }
+            enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            type Canvas { name: string, bg: Shape }
             create Canvas(name="big", bg=Shape.circle(cx=0.0, cy=0.0, r=50.0))
             create Canvas(name="small", bg=Shape.circle(cx=0.0, cy=0.0, r=5.0))
         """)
@@ -456,7 +460,7 @@ class TestEnumExecution:
     def test_describe_enum(self, executor):
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
+            enum Color { red, green, blue }
         """)
         for stmt in stmts:
             executor.execute(stmt)
@@ -471,7 +475,7 @@ class TestEnumExecution:
     def test_describe_enum_variant(self, executor):
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
         """)
         for stmt in stmts:
             executor.execute(stmt)
@@ -484,8 +488,8 @@ class TestEnumExecution:
     def test_dump_with_enum(self, executor):
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=Color.red)
         """)
         for stmt in stmts:
@@ -493,14 +497,14 @@ class TestEnumExecution:
 
         query = parser.parse("dump")
         result = executor.execute(query)
-        assert "create enum Color" in result.script
+        assert "enum Color" in result.script
         assert "Color.red" in result.script
 
     def test_dump_with_swift_style_enum(self, executor):
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
-            create type Canvas { name: string, bg: Shape }
+            enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            type Canvas { name: string, bg: Shape }
             create Canvas(name="test", bg=Shape.circle(cx=50.0, cy=50.0, r=25.0))
         """)
         for stmt in stmts:
@@ -508,13 +512,13 @@ class TestEnumExecution:
 
         query = parser.parse("dump")
         result = executor.execute(query)
-        assert "create enum Shape" in result.script
+        assert "enum Shape" in result.script
         assert "Shape.circle" in result.script
 
     def test_dump_explicit_values(self, executor):
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum HttpStatus { ok = 200, not_found = 404 }
+            enum HttpStatus { ok = 200, not_found = 404 }
         """)
         for stmt in stmts:
             executor.execute(stmt)
@@ -528,8 +532,8 @@ class TestEnumExecution:
         """Enum types should survive metadata save/load."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            enum Color { red, green, blue }
+            enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
         """)
         for stmt in stmts:
             executor.execute(stmt)
@@ -551,8 +555,8 @@ class TestEnumExecution:
         """SELECT with WHERE on enum field using shorthand syntax."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { none, red, green, hex(value: string) }
-            create type Style { fill: Color, stroke: Color }
+            enum Color { none, red, green, hex(value: string) }
+            type Style { fill: Color, stroke: Color }
             create Style(fill=.hex(value="#87CEEB"), stroke=.none)
             create Style(fill=.green, stroke=.none)
             create Style(fill=.green, stroke=.red)
@@ -582,8 +586,8 @@ class TestEnumExecution:
         """WHERE should not be allowed on enum overview queries."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=Color.red)
         """)
         for stmt in stmts:
@@ -596,8 +600,8 @@ class TestEnumExecution:
     def test_update_enum_field(self, executor):
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             $p = create Pixel(x=0, y=0, color=Color.red)
             update $p set color=Color.blue
         """)
@@ -612,9 +616,9 @@ class TestEnumExecution:
         """Composite with two enum fields of different types."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create enum Shape { none, circle(r: float32) }
-            create type Widget { color: Color, shape: Shape }
+            enum Color { red, green, blue }
+            enum Shape { none, circle(r: float32) }
+            type Widget { color: Color, shape: Shape }
             create Widget(color=Color.green, shape=Shape.circle(r=10.0))
         """)
         for stmt in stmts:
@@ -631,8 +635,8 @@ class TestEnumExecution:
         """Shorthand .variant syntax for C-style enums."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=.red)
             create Pixel(x=1, y=0, color=.blue)
         """)
@@ -649,8 +653,8 @@ class TestEnumExecution:
         """Shorthand .variant(args) syntax for Swift-style enums."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
-            create type Canvas { name: string, bg: Shape }
+            enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            type Canvas { name: string, bg: Shape }
             create Canvas(name="test", bg=.circle(cx=50.0, cy=50.0, r=25.0))
             create Canvas(name="empty", bg=.none)
         """)
@@ -668,8 +672,8 @@ class TestEnumExecution:
         """Both shorthand and fully-qualified forms work in the same program."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=Color.red)
             create Pixel(x=1, y=0, color=.blue)
         """)
@@ -685,8 +689,8 @@ class TestEnumExecution:
         """Bulk update with WHERE on C-style enum field."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=.red)
             create Pixel(x=1, y=1, color=.green)
             create Pixel(x=2, y=2, color=.green)
@@ -712,8 +716,8 @@ class TestEnumExecution:
         """Bulk update with WHERE on Swift-style enum field with associated values."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { none, red, green, blue, hex(value: string) }
-            create type Style { fill: Color, stroke: Color }
+            enum Color { none, red, green, blue, hex(value: string) }
+            type Style { fill: Color, stroke: Color }
             create Style(fill=.hex(value="#87CEEB"), stroke=.none)
             create Style(fill=.green, stroke=.none)
             create Style(fill=.hex(value="#87CEEB"), stroke=.red)
@@ -736,8 +740,8 @@ class TestEnumExecution:
         """Bulk update with fully-qualified enum value in WHERE."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=Color.red)
             create Pixel(x=1, y=1, color=Color.green)
         """)
@@ -757,8 +761,8 @@ class TestEnumExecution:
         """Bulk update without WHERE updates all records."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=.red)
             create Pixel(x=1, y=1, color=.green)
             create Pixel(x=2, y=2, color=.blue)
@@ -779,8 +783,8 @@ class TestEnumExecution:
         """Bulk update with WHERE that matches no records."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=.red)
         """)
         for stmt in stmts:
@@ -794,7 +798,7 @@ class TestEnumExecution:
         """Bulk update with WHERE on a primitive field."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create type Item { name: string, value: uint8 }
+            type Item { name: string, value: uint8 }
             create Item(name="a", value=10)
             create Item(name="b", value=20)
             create Item(name="c", value=10)
@@ -840,8 +844,8 @@ class TestEnumExecution:
         """Shorthand with unknown variant name returns error."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
         """)
         for stmt in stmts:
             executor.execute(stmt)
@@ -854,8 +858,8 @@ class TestEnumExecution:
         """Swift-style enum creates variant table files in enum folder."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
-            create type Canvas { name: string, bg: Shape }
+            enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            type Canvas { name: string, bg: Shape }
             create Canvas(name="test", bg=.circle(cx=50.0, cy=50.0, r=25.0))
         """)
         for stmt in stmts:
@@ -873,8 +877,8 @@ class TestEnumExecution:
         """C-style enum should not create any variant folders."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, y: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, y: uint16, color: Color }
             create Pixel(x=0, y=0, color=.red)
         """)
         for stmt in stmts:
@@ -886,12 +890,12 @@ class TestEnumExecution:
         """Swift-style enum values roundtrip through variant tables."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape {
+            enum Shape {
                 none,
                 line(x1: float32, y1: float32, x2: float32, y2: float32),
                 circle(cx: float32, cy: float32, r: float32)
             }
-            create type Canvas { name: string, bg: Shape }
+            type Canvas { name: string, bg: Shape }
             create Canvas(name="circle", bg=.circle(cx=50.0, cy=50.0, r=25.0))
             create Canvas(name="line", bg=.line(x1=0.0, y1=0.0, x2=100.0, y2=100.0))
             create Canvas(name="empty", bg=.none)
@@ -925,8 +929,8 @@ class TestEnumExecution:
         """Bare variant in Swift-style enum uses NULL_REF index."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape { none, circle(r: float32) }
-            create type Canvas { bg: Shape }
+            enum Shape { none, circle(r: float32) }
+            type Canvas { bg: Shape }
             create Canvas(bg=.none)
         """)
         for stmt in stmts:
@@ -943,8 +947,8 @@ class TestEnumExecution:
         """Dump and re-execute should produce identical results with variant tables."""
         parser = QueryParser()
         stmts = parser.parse_program("""
-            create enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
-            create type Canvas { name: string, bg: Shape }
+            enum Shape { none, circle(cx: float32, cy: float32, r: float32) }
+            type Canvas { name: string, bg: Shape }
             create Canvas(name="test", bg=.circle(cx=50.0, cy=50.0, r=25.0))
             create Canvas(name="empty", bg=.none)
         """)

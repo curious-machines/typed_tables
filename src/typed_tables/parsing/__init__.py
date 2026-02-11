@@ -1,6 +1,5 @@
-"""Parsing module for type and query DSLs."""
+"""Parsing module for the TTQ query language."""
 
-from typed_tables.parsing.type_parser import TypeParser
 from typed_tables.parsing.query_parser import (
     ArrayIndex,
     ArraySlice,
@@ -15,5 +14,4 @@ __all__ = [
     "QueryParser",
     "SelectField",
     "SelectQuery",
-    "TypeParser",
 ]

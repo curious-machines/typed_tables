@@ -27,7 +27,7 @@ class TestRunFile:
 use "{db_path}";
 
 -- Create a type
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 
 -- Create an instance
 create Person(name="Alice", age=30)
@@ -46,7 +46,7 @@ from Person select *
         db_path = tmp_path / "testdb"
 
         script.write_text(f"""
-use "{db_path}"; create type Point {{ x: float32, y: float32 }}; create Point(x=1.0, y=2.0); from Point select *
+use "{db_path}"; type Point {{ x: float32, y: float32 }}; create Point(x=1.0, y=2.0); from Point select *
 """)
 
         result, _ = run_file(script, None, verbose=False)
@@ -59,7 +59,7 @@ use "{db_path}"; create type Point {{ x: float32, y: float32 }}; create Point(x=
 
         script = tmp_path / "test.ttq"
         script.write_text("""
-create type Item { name: string }
+type Item { name: string }
 create Item(name="test");
 from Item select *;
 """)
@@ -97,7 +97,7 @@ from where;
 -- This is a comment
 use "{db_path}";
 -- Another comment
-create type Test {{ value: uint8 }}
+type Test {{ value: uint8 }}
 -- Final comment
 """)
 
@@ -113,7 +113,7 @@ create type Test {{ value: uint8 }}
         # The semicolons help separate the queries
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(
   name="Alice",
   age=30
@@ -136,7 +136,7 @@ class TestExecuteCommand:
         db_path = tmp_path / "testdb"
         subscript = tmp_path / "subscript.ttq"
         subscript.write_text("""
-create type Item { name: string }
+type Item { name: string }
 create Item(name="from subscript");
 """)
 
@@ -163,8 +163,8 @@ class TestInlineInstanceAndProjection:
 
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 from Person select *;
 """)
@@ -179,8 +179,8 @@ from Person select *;
 
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 from Person select address.city;
 """)
@@ -195,8 +195,8 @@ from Person select address.city;
 
         script.write_text(f"""
 use "{db_path}";
-create type Employee {{ name: string }}
-create type Team {{ title: string, employees: Employee[] }}
+type Employee {{ name: string }}
+type Team {{ title: string, employees: Employee[] }}
 create Employee(name="Alice");
 create Employee(name="Bob");
 create Team(title="Engineering", employees=[0, 1]);
@@ -213,8 +213,8 @@ from Team select employees[0].name;
 
         script.write_text(f"""
 use "{db_path}";
-create type Employee {{ name: string }}
-create type Team {{ title: string, employees: Employee[] }}
+type Employee {{ name: string }}
+type Team {{ title: string, employees: Employee[] }}
 create Employee(name="Alice");
 create Employee(name="Bob");
 create Team(title="Engineering", employees=[0, 1]);
@@ -235,8 +235,8 @@ class TestDump:
 
         script.write_text(f"""
 use "{db_path}";
-create alias uuid as uint128;
-create type Person {{ name: string, age: uint8 }}
+alias uuid as uint128;
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 """)
@@ -261,8 +261,8 @@ dump;
 
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=Address(street="456 Oak", city="Shelbyville"));
 dump Person;
@@ -278,8 +278,8 @@ dump Person;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 """)
 
@@ -309,8 +309,8 @@ create Person(name="Alice", address=Address(street="123 Main", city="Springfield
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, age: uint8, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, age: uint8, address: Address }}
 create Person(name="Alice", age=30, address=Address(street="123 Main", city="Springfield"));
 create Person(name="Bob", age=25, address=Address(street="456 Oak", city="Shelbyville"));
 """)
@@ -364,8 +364,8 @@ create Person(name="Bob", age=25, address=Address(street="456 Oak", city="Shelby
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Employee {{ name: string }}
-create type Team {{ title: string, employees: Employee[] }}
+type Employee {{ name: string }}
+type Team {{ title: string, employees: Employee[] }}
 create Team(title="Engineering", employees=[Employee(name="Alice"), Employee(name="Bob")]);
 from Team select *;
 """)
@@ -381,7 +381,7 @@ from Team select *;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 dump to "{tmp_path / 'dump_output.ttq'}";
@@ -393,7 +393,7 @@ dump to "{tmp_path / 'dump_output.ttq'}";
         dump_file = tmp_path / "dump_output.ttq"
         assert dump_file.exists()
         content = dump_file.read_text()
-        assert "create type Person" in content
+        assert "type Person" in content
         assert "create Person(" in content
 
     def test_dump_table_to_file(self, tmp_path: Path):
@@ -403,8 +403,8 @@ dump to "{tmp_path / 'dump_output.ttq'}";
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 dump Person to "{tmp_path / 'person_dump.ttq'}";
 """)
@@ -424,7 +424,7 @@ dump Person to "{tmp_path / 'person_dump.ttq'}";
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 dump to "{tmp_path / 'dump_output.ttq'}";
@@ -474,8 +474,8 @@ class TestVariableBindings:
 
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=$addr);
 from Person select address.city;
@@ -491,8 +491,8 @@ from Person select address.city;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=$addr);
 create Person(name="Bob", address=$addr);
@@ -525,7 +525,7 @@ create Person(name="Bob", address=$addr);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
+type Address {{ street: string, city: string }}
 $addr = create Address(street="123 Main", city="Springfield");
 $addr = create Address(street="456 Oak", city="Shelbyville");
 """)
@@ -543,8 +543,8 @@ $addr = create Address(street="456 Oak", city="Shelbyville");
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=$undefined);
 """)
 
@@ -558,8 +558,8 @@ create Person(name="Alice", address=$undefined);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Employee {{ name: string }}
-create type Team {{ title: string, employees: Employee[] }}
+type Employee {{ name: string }}
+type Team {{ title: string, employees: Employee[] }}
 $e1 = create Employee(name="Alice");
 $e2 = create Employee(name="Bob");
 create Team(title="Engineering", employees=[$e1, $e2]);
@@ -576,8 +576,8 @@ from Team select employees.name;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=$addr);
 create Person(name="Bob", address=$addr);
@@ -609,8 +609,8 @@ create Person(name="Bob", address=$addr);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 $addr = create Address(street="123 Main", city="Springfield");
 create Person(name="Alice", address=$addr);
 create Person(name="Bob", address=$addr);
@@ -665,7 +665,7 @@ class TestCyclicalTypes:
 
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, children: Node[] }}
+type Node {{ value: uint8, children: Node[] }}
 describe Node;
 """)
 
@@ -679,7 +679,7 @@ describe Node;
 
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, children: Node[] }}
+type Node {{ value: uint8, children: Node[] }}
 create Node(value=1, children=[]);
 create Node(value=2, children=[]);
 create Node(value=0, children=[Node(value=1, children=[]), Node(value=2, children=[])]);
@@ -696,7 +696,7 @@ from Node select *;
 
         script.write_text(f"""
 use "{db_path}";
-create type LinkedNode {{ value: uint8, next: LinkedNode }}
+type LinkedNode {{ value: uint8, next: LinkedNode }}
 create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)));
 from LinkedNode select *;
 """)
@@ -711,9 +711,9 @@ from LinkedNode select *;
 
         script.write_text(f"""
 use "{db_path}";
-forward type B;
-create type A {{ value: uint8, b: B }}
-create type B {{ value: uint8, a: A }}
+forward B;
+type A {{ value: uint8, b: B }}
+type B {{ value: uint8, a: A }}
 describe A;
 describe B;
 """)
@@ -728,9 +728,9 @@ describe B;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-forward type B;
-create type A {{ value: uint8, b: B }}
-create type B {{ value: uint8, a: A }}
+forward B;
+type A {{ value: uint8, b: B }}
+type B {{ value: uint8, a: A }}
 $a = create A(value=1, b=B(value=2, a=A(0)));
 from A select *;
 from B select *;
@@ -746,7 +746,7 @@ from B select *;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, children: Node[] }}
+type Node {{ value: uint8, children: Node[] }}
 create Node(value=1, children=[]);
 create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, children=[])]);
 """)
@@ -795,9 +795,9 @@ create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, childre
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-forward type B;
-create type A {{ value: uint8, b: B }}
-create type B {{ value: uint8, a: A }}
+forward B;
+type A {{ value: uint8, b: B }}
+type B {{ value: uint8, a: A }}
 create A(value=1, b=B(value=2, a=A(0)));
 """)
 
@@ -816,7 +816,7 @@ create A(value=1, b=B(value=2, a=A(0)));
         dump_result = executor.execute(DumpQuery())
         assert isinstance(dump_result, DumpResult)
         # Should contain forward declarations
-        assert "forward type A" in dump_result.script or "forward type B" in dump_result.script
+        assert "forward A" in dump_result.script or "forward B" in dump_result.script
         storage.close()
 
         # Execute dump into fresh db
@@ -851,7 +851,7 @@ create A(value=1, b=B(value=2, a=A(0)));
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type LinkedNode {{ value: uint8, next: LinkedNode }}
+type LinkedNode {{ value: uint8, next: LinkedNode }}
 create LinkedNode(value=42, next=LinkedNode(0));
 """)
 
@@ -887,7 +887,7 @@ class TestCollect:
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -905,7 +905,7 @@ dump $seniors;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Item {{ name: string }}
+type Item {{ name: string }}
 create Item(name="A");
 create Item(name="B");
 create Item(name="C");
@@ -923,7 +923,7 @@ dump $all;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Score {{ name: string, value: uint8 }}
+type Score {{ name: string, value: uint8 }}
 create Score(name="Alice", value=90);
 create Score(name="Bob", value=80);
 create Score(name="Carol", value=95);
@@ -941,7 +941,7 @@ dump $top2;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Item {{ name: string }}
+type Item {{ name: string }}
 create Item(name="A");
 $items = collect Item;
 $items = collect Item;
@@ -960,8 +960,8 @@ $items = collect Item;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Item {{ name: string }}
-create type Wrapper {{ item: Item }}
+type Item {{ name: string }}
+type Wrapper {{ item: Item }}
 create Item(name="A");
 $items = collect Item;
 create Wrapper(item=$items);
@@ -977,7 +977,7 @@ create Wrapper(item=$items);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 $bob = create Person(name="Bob", age=25);
 create Person(name="Carol", age=40);
@@ -995,7 +995,7 @@ dump $bob;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 $all = collect Person;
@@ -1015,7 +1015,7 @@ dump $all to "{output_file}";
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1061,7 +1061,7 @@ dump $seniors to "{tmp_path / 'seniors.ttq'}";
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 $nobody = collect Person where age >= 100;
 dump $nobody;
@@ -1080,7 +1080,7 @@ class TestFromVariable:
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1096,7 +1096,7 @@ from $seniors select name, age sort by age;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=60);
 create Person(name="Carol", age=90);
@@ -1118,7 +1118,7 @@ from $old select average(age);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1149,7 +1149,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 """)
         result, _ = run_file(script, None, verbose=False)
         assert result == 0
@@ -1176,7 +1176,7 @@ create type Person {{ name: string, age: uint8 }}
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 $bob = create Person(name="Bob", age=25);
 create Person(name="Carol", age=40);
@@ -1212,7 +1212,7 @@ class TestCollectMultiSource:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1242,7 +1242,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1266,8 +1266,8 @@ create Person(name="Carol", age=70);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
-create type Item {{ name: string }}
+type Person {{ name: string, age: uint8 }}
+type Item {{ name: string }}
 create Person(name="Alice", age=30);
 create Item(name="Widget");
 $mixed = collect Person, Item;
@@ -1287,7 +1287,7 @@ $mixed = collect Person, Item;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1317,7 +1317,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1348,7 +1348,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1376,7 +1376,7 @@ class TestDumpList:
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 dump [Person];
@@ -1396,8 +1396,8 @@ dump [Person];
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
-create type Item {{ name: string }}
+type Person {{ name: string, age: uint8 }}
+type Item {{ name: string }}
 create Person(name="Alice", age=30);
 create Item(name="Widget");
 """)
@@ -1426,7 +1426,7 @@ create Item(name="Widget");
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
@@ -1457,7 +1457,7 @@ create Person(name="Carol", age=70);
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 dump [Person] to "{output_file}";
 """)
@@ -1479,8 +1479,8 @@ dump [Person] to "{output_file}";
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
-create type Item {{ name: string }}
+type Person {{ name: string, age: uint8 }}
+type Item {{ name: string }}
 create Person(name="Alice", age=30);
 create Item(name="Widget");
 """)
@@ -1534,7 +1534,7 @@ class TestMain:
 
         script.write_text(f"""
 use "{db_path}";
-create type Simple {{ value: uint8 }}
+type Simple {{ value: uint8 }}
 """)
 
         result = main(["-f", str(script)])
@@ -1572,7 +1572,7 @@ class TestNullValues:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -1601,7 +1601,7 @@ create Node(value=1, next=null);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 create Node(value=2, next=null);
 """)
@@ -1648,7 +1648,7 @@ create Node(value=2, next=null);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 create Node(value=1);
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -1681,7 +1681,7 @@ class TestUpdate:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=null);
 update $n1 set next=$n2;
@@ -1716,7 +1716,7 @@ update $n1 set next=$n2;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 create Node(value=1, next=null);
 create Node(value=2, next=null);
 """)
@@ -1748,7 +1748,7 @@ create Node(value=2, next=null);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=null);
 $n3 = create Node(value=3, next=$n1);
@@ -1783,7 +1783,7 @@ update $n2 set next=$n3;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 """)
         result, _ = run_file(script, None, verbose=False)
         assert result == 0
@@ -1810,7 +1810,7 @@ create type Node {{ value: uint8, next: Node }}
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 $n = create Node(value=1, next=null);
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -1844,7 +1844,7 @@ class TestCycleAwareDump:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=$n1);
 update $n1 set next=$n2;
@@ -1877,7 +1877,7 @@ update $n1 set next=$n2;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 $n1 = create Node(value=1, next=null);
 $n2 = create Node(value=2, next=$n1);
 update $n1 set next=$n2;
@@ -1927,7 +1927,7 @@ update $n1 set next=$n2;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ name: string, child: Node }}
+type Node {{ name: string, child: Node }}
 $back = create Node(name="D", child=null);
 $top = create Node(name="A", child=Node(name="B", child=Node(name="C", child=$back)));
 update $back set child=$top;
@@ -1975,7 +1975,7 @@ update $back set child=$top;
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 """)
@@ -2008,7 +2008,7 @@ class TestTagBasedCreation:
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 scope {{
     create Node(tag(SELF), value=42, next=SELF);
 }};
@@ -2029,7 +2029,7 @@ from Node select *;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ name: string, child: Node }}
+type Node {{ name: string, child: Node }}
 scope {{
     create Node(tag(TOP), name="A", child=Node(name="B", child=TOP));
 }};
@@ -2061,7 +2061,7 @@ scope {{
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ name: string, child: Node }}
+type Node {{ name: string, child: Node }}
 scope {{
     create Node(tag(A), name="A", child=Node(name="B", child=Node(name="C", child=Node(name="D", child=A))));
 }};
@@ -2087,7 +2087,7 @@ scope {{
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 scope {{
     create Node(value=1, next=NONEXISTENT);
 }};
@@ -2103,7 +2103,7 @@ scope {{
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 scope {{
     create Node(tag(X), value=1, next=null);
 }};
@@ -2122,7 +2122,7 @@ scope {{
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Node {{ value: uint8, next: Node }}
+type Node {{ value: uint8, next: Node }}
 create Node(tag(X), value=1, next=null);
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -2145,7 +2145,7 @@ class TestDumpPretty:
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -2158,7 +2158,7 @@ create Person(name="Alice", age=30);
         dump_result = executor.execute(DumpQuery(pretty=True))
         assert isinstance(dump_result, DumpResult)
         # Type definition should be multi-line with 4-space indent
-        assert "create type Person {\n    name: string,\n    age: uint8\n}" in dump_result.script
+        assert "type Person {\n    name: string,\n    age: uint8\n}" in dump_result.script
         storage.close()
 
     def test_dump_pretty_instance_formatting(self, tmp_path: Path):
@@ -2173,7 +2173,7 @@ create Person(name="Alice", age=30);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -2201,8 +2201,8 @@ create Person(name="Alice", age=30);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Address {{ street: string, city: string }}
-create type Person {{ name: string, address: Address }}
+type Address {{ street: string, city: string }}
+type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -2230,7 +2230,7 @@ create Person(name="Alice", address=Address(street="123 Main", city="Springfield
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 """)
@@ -2286,7 +2286,7 @@ create Person(name="Bob", age=25);
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-create type Person {{ name: string, age: uint8 }}
+type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 """)
         result, _ = run_file(script, None, verbose=False)
@@ -2299,7 +2299,7 @@ create Person(name="Alice", age=30);
         dump_result = executor.execute(DumpQuery(pretty=False))
         assert isinstance(dump_result, DumpResult)
         # Compact type definition: all on one line
-        assert "create type Person { name: string, age: uint8 }" in dump_result.script
+        assert "type Person { name: string, age: uint8 }" in dump_result.script
         # Compact instance: all on one line
         assert 'create Person(name="Alice", age=30)' in dump_result.script
         storage.close()
@@ -2335,7 +2335,7 @@ class TestArrayMethods:
     def test_array_length_method(self, tmp_path):
         """Test length() on array fields in SELECT."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[25, 26, 24, 27])
 create Sensor(name="empty", readings=[])
 """)
@@ -2348,7 +2348,7 @@ create Sensor(name="empty", readings=[])
     def test_array_isEmpty_method(self, tmp_path):
         """Test isEmpty() for filtering in WHERE."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[25, 26, 24])
 create Sensor(name="empty", readings=[])
 """)
@@ -2359,7 +2359,7 @@ create Sensor(name="empty", readings=[])
     def test_array_method_where_comparison(self, tmp_path):
         """Test length() with comparison in WHERE."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="many", readings=[1, 2, 3, 4, 5])
 create Sensor(name="few", readings=[1, 2])
 create Sensor(name="none", readings=[])
@@ -2371,7 +2371,7 @@ create Sensor(name="none", readings=[])
     def test_string_length_method(self, tmp_path):
         """Test length() on string fields (strings are character arrays)."""
         db_path = self._setup_db(tmp_path, """
-create type Person { name: string }
+type Person { name: string }
 create Person(name="Alice")
 create Person(name="Bo")
 """)
@@ -2382,7 +2382,7 @@ create Person(name="Bo")
     def test_array_method_null_field(self, tmp_path):
         """Test method call on null array field."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="no_readings")
 """)
         result = self._query(db_path, "from Sensor select name, readings.length()")
@@ -2391,7 +2391,7 @@ create Sensor(name="no_readings")
     def test_array_isEmpty_on_null(self, tmp_path):
         """Test isEmpty() on null array field returns true."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="no_readings")
 """)
         result = self._query(db_path, "from Sensor select * where readings.isEmpty()")
@@ -2401,7 +2401,7 @@ create Sensor(name="no_readings")
     def test_array_length_in_select_and_where(self, tmp_path):
         """Test length() used in both SELECT and WHERE simultaneously."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="big", readings=[1, 2, 3, 4, 5])
 create Sensor(name="small", readings=[1])
 """)
@@ -2413,7 +2413,7 @@ create Sensor(name="small", readings=[1])
     def test_isEmpty_select_displays_boolean(self, tmp_path):
         """Test that isEmpty() in SELECT returns boolean values."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="has_data", readings=[1, 2])
 create Sensor(name="empty", readings=[])
 """)
@@ -2424,7 +2424,7 @@ create Sensor(name="empty", readings=[])
     def test_unknown_method_error(self, tmp_path):
         """Test that unknown method names produce an error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         import pytest
@@ -2434,7 +2434,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_contains_match(self, tmp_path):
         """Test contains() returns True when element is found."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         result = self._query(db_path, "from Sensor select name, readings.contains(3)")
@@ -2443,7 +2443,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_contains_no_match(self, tmp_path):
         """Test contains() returns False when element is not found."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         result = self._query(db_path, "from Sensor select name, readings.contains(99)")
@@ -2452,7 +2452,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_contains_on_null(self, tmp_path):
         """Test contains() on null array returns False."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty")
 """)
         result = self._query(db_path, "from Sensor select name, readings.contains(1)")
@@ -2461,7 +2461,7 @@ create Sensor(name="empty")
     def test_contains_on_empty(self, tmp_path):
         """Test contains() on empty array returns False."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty", readings=[])
 """)
         result = self._query(db_path, "from Sensor select name, readings.contains(1)")
@@ -2470,7 +2470,7 @@ create Sensor(name="empty", readings=[])
     def test_contains_in_where(self, tmp_path):
         """Test contains() as boolean filter in WHERE clause."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="has3", readings=[1, 2, 3])
 create Sensor(name="no3", readings=[4, 5, 6])
 create Sensor(name="also3", readings=[3, 7, 8])
@@ -2484,7 +2484,7 @@ create Sensor(name="also3", readings=[3, 7, 8])
     def test_contains_string(self, tmp_path):
         """Test contains() on string field checks substring."""
         db_path = self._setup_db(tmp_path, """
-create type Person { name: string }
+type Person { name: string }
 create Person(name="Alice")
 create Person(name="Bob")
 """)
@@ -2495,7 +2495,7 @@ create Person(name="Bob")
     def test_min_primitive_array(self, tmp_path):
         """Test min() on primitive array returns minimum value."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 2, 8, 1, 9])
 """)
         result = self._query(db_path, "from Sensor select readings.min()")
@@ -2504,7 +2504,7 @@ create Sensor(name="temp", readings=[5, 2, 8, 1, 9])
     def test_max_primitive_array(self, tmp_path):
         """Test max() on primitive array returns maximum value."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 2, 8, 1, 9])
 """)
         result = self._query(db_path, "from Sensor select readings.max()")
@@ -2513,7 +2513,7 @@ create Sensor(name="temp", readings=[5, 2, 8, 1, 9])
     def test_min_on_null(self, tmp_path):
         """Test min() on null array returns None."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty")
 """)
         result = self._query(db_path, "from Sensor select readings.min()")
@@ -2522,7 +2522,7 @@ create Sensor(name="empty")
     def test_max_on_empty(self, tmp_path):
         """Test max() on empty array returns None."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty", readings=[])
 """)
         result = self._query(db_path, "from Sensor select readings.max()")
@@ -2531,8 +2531,8 @@ create Sensor(name="empty", readings=[])
     def test_min_composite_key(self, tmp_path):
         """Test min(.salary) on composite array returns min value of field."""
         db_path = self._setup_db(tmp_path, """
-create type Employee { name: string, salary: uint32 }
-create type Team { name: string, members: Employee[] }
+type Employee { name: string, salary: uint32 }
+type Team { name: string, members: Employee[] }
 create Team(name="eng", members=[
     Employee(name="Alice", salary=90000),
     Employee(name="Bob", salary=70000),
@@ -2545,8 +2545,8 @@ create Team(name="eng", members=[
     def test_max_composite_key(self, tmp_path):
         """Test max(.salary) on composite array returns max value of field."""
         db_path = self._setup_db(tmp_path, """
-create type Employee { name: string, salary: uint32 }
-create type Team { name: string, members: Employee[] }
+type Employee { name: string, salary: uint32 }
+type Team { name: string, members: Employee[] }
 create Team(name="eng", members=[
     Employee(name="Alice", salary=90000),
     Employee(name="Bob", salary=70000),
@@ -2559,7 +2559,7 @@ create Team(name="eng", members=[
     def test_min_aggregate(self, tmp_path):
         """Test min(age) as row aggregate."""
         db_path = self._setup_db(tmp_path, """
-create type Person { name: string, age: uint8 }
+type Person { name: string, age: uint8 }
 create Person(name="Alice", age=30)
 create Person(name="Bob", age=25)
 create Person(name="Charlie", age=35)
@@ -2570,7 +2570,7 @@ create Person(name="Charlie", age=35)
     def test_max_aggregate(self, tmp_path):
         """Test max(age) as row aggregate."""
         db_path = self._setup_db(tmp_path, """
-create type Person { name: string, age: uint8 }
+type Person { name: string, age: uint8 }
 create Person(name="Alice", age=30)
 create Person(name="Bob", age=25)
 create Person(name="Charlie", age=35)
@@ -2609,7 +2609,7 @@ class TestArrayMutations:
     def test_reverse_primitive_array(self, tmp_path):
         """Test reverse() on a primitive array reverses elements."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         self._query(db_path, "update Sensor(0) set readings.reverse()")
@@ -2619,7 +2619,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_reverse_empty_array(self, tmp_path):
         """Test reverse() on empty array is a no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty", readings=[])
 """)
         self._query(db_path, "update Sensor(0) set readings.reverse()")
@@ -2629,7 +2629,7 @@ create Sensor(name="empty", readings=[])
     def test_reverse_null_array(self, tmp_path):
         """Test reverse() on null array is a no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_readings")
 """)
         self._query(db_path, "update Sensor(0) set readings.reverse()")
@@ -2639,7 +2639,7 @@ create Sensor(name="null_readings")
     def test_reverse_string_field(self, tmp_path):
         """Test reverse() on string field reverses characters."""
         db_path = self._setup_db(tmp_path, """
-create type Item { name: string }
+type Item { name: string }
 create Item(name="hello")
 """)
         self._query(db_path, "update Item(0) set name.reverse()")
@@ -2649,7 +2649,7 @@ create Item(name="hello")
     def test_swap_primitive_array(self, tmp_path):
         """Test swap(i, j) swaps two elements."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[10, 20, 30, 40, 50])
 """)
         self._query(db_path, "update Sensor(0) set readings.swap(0, 4)")
@@ -2659,7 +2659,7 @@ create Sensor(name="temp", readings=[10, 20, 30, 40, 50])
     def test_swap_out_of_bounds(self, tmp_path):
         """Test swap() with out of bounds index returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "update Sensor(0) set readings.swap(0, 5)")
@@ -2668,7 +2668,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_swap_wrong_arg_count(self, tmp_path):
         """Test swap() with wrong number of arguments returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "update Sensor(0) set readings.swap(0)")
@@ -2677,7 +2677,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_swap_null_array(self, tmp_path):
         """Test swap() on null array returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_readings")
 """)
         result = self._query(db_path, "update Sensor(0) set readings.swap(0, 1)")
@@ -2686,7 +2686,7 @@ create Sensor(name="null_readings")
     def test_mixed_mutation_and_assignment(self, tmp_path):
         """Test mixing mutation with field assignment in same SET."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, 'update Sensor(0) set name = "updated", readings.reverse()')
@@ -2697,7 +2697,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_bulk_update_mutation_with_where(self, tmp_path):
         """Test bulk update with WHERE and mutation."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 create Sensor(name="pressure", readings=[10, 20, 30])
 """)
@@ -2713,7 +2713,7 @@ create Sensor(name="pressure", readings=[10, 20, 30])
     def test_bulk_update_mutation_all_records(self, tmp_path):
         """Test bulk update mutation without WHERE affects all records."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="a", readings=[1, 2, 3])
 create Sensor(name="b", readings=[4, 5, 6])
 """)
@@ -2727,8 +2727,8 @@ create Sensor(name="b", readings=[4, 5, 6])
     def test_reverse_composite_array(self, tmp_path):
         """Test reverse() on composite array reverses element references."""
         db_path = self._setup_db(tmp_path, """
-create type Point { x: uint8, y: uint8 }
-create type Shape { name: string, points: Point[] }
+type Point { x: uint8, y: uint8 }
+type Shape { name: string, points: Point[] }
 create Shape(name="tri", points=[Point(x=1, y=1), Point(x=2, y=2), Point(x=3, y=3)])
 """)
         self._query(db_path, "update Shape(0) set points.reverse()")
@@ -2741,7 +2741,7 @@ create Shape(name="tri", points=[Point(x=1, y=1), Point(x=2, y=2), Point(x=3, y=
     def test_reverse_preserves_start_index_length(self, tmp_path):
         """Test that reverse() doesn't change (start_index, length) in composite record."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         # Get raw record before
@@ -2771,7 +2771,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_unknown_mutation_method(self, tmp_path):
         """Test that unknown mutation method returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "update Sensor(0) set readings.foobar()")
@@ -2780,7 +2780,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_mutation_on_non_array_field(self, tmp_path):
         """Test mutation on non-array field returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, value: uint8 }
+type Sensor { name: string, value: uint8 }
 create Sensor(name="temp", value=42)
 """)
         result = self._query(db_path, "update Sensor(0) set value.reverse()")
@@ -2791,7 +2791,7 @@ create Sensor(name="temp", value=42)
     def test_append_single_element(self, tmp_path):
         """Test append(5) on primitive array."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.append(5)")
@@ -2801,7 +2801,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_append_multiple_elements(self, tmp_path):
         """Test append(5, 6, 7) appends multiple elements."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.append(5, 6, 7)")
@@ -2811,7 +2811,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_append_array_literal(self, tmp_path):
         """Test append([1, 2, 3]) flattens and appends."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[10, 20])
 """)
         self._query(db_path, "update Sensor(0) set readings.append([1, 2, 3])")
@@ -2821,7 +2821,7 @@ create Sensor(name="temp", readings=[10, 20])
     def test_append_on_null_array(self, tmp_path):
         """Test append() on null array creates new array."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_readings")
 """)
         self._query(db_path, "update Sensor(0) set readings.append(1, 2, 3)")
@@ -2831,7 +2831,7 @@ create Sensor(name="null_readings")
     def test_append_on_empty_array(self, tmp_path):
         """Test append() on empty array."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty", readings=[])
 """)
         self._query(db_path, "update Sensor(0) set readings.append(42)")
@@ -2841,7 +2841,7 @@ create Sensor(name="empty", readings=[])
     def test_append_string_to_string_field(self, tmp_path):
         """Test append("x") on string field appends character."""
         db_path = self._setup_db(tmp_path, """
-create type Item { name: string }
+type Item { name: string }
 create Item(name="hello")
 """)
         self._query(db_path, 'update Item(0) set name.append("!")')
@@ -2851,8 +2851,8 @@ create Item(name="hello")
     def test_append_composite_element(self, tmp_path):
         """Test append(Point(x=4, y=4)) on composite array."""
         db_path = self._setup_db(tmp_path, """
-create type Point { x: uint8, y: uint8 }
-create type Shape { name: string, points: Point[] }
+type Point { x: uint8, y: uint8 }
+type Shape { name: string, points: Point[] }
 create Shape(name="tri", points=[Point(x=1, y=1), Point(x=2, y=2), Point(x=3, y=3)])
 """)
         self._query(db_path, "update Shape(0) set points.append(Point(x=4, y=4))")
@@ -2865,8 +2865,8 @@ create Shape(name="tri", points=[Point(x=1, y=1), Point(x=2, y=2), Point(x=3, y=
     def test_append_composite_ref_to_composite_array(self, tmp_path):
         """Test append(Point(0)) on composite array using composite reference."""
         db_path = self._setup_db(tmp_path, """
-create type Point { x: uint8, y: uint8 }
-create type Shape { name: string, points: Point[] }
+type Point { x: uint8, y: uint8 }
+type Shape { name: string, points: Point[] }
 create Point(x=10, y=20)
 create Shape(name="line", points=[Point(x=1, y=1)])
 """)
@@ -2880,7 +2880,7 @@ create Shape(name="line", points=[Point(x=1, y=1)])
     def test_append_no_args_error(self, tmp_path):
         """Test append() with no args returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "update Sensor(0) set readings.append()")
@@ -2889,7 +2889,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_append_tail_fast_path(self, tmp_path):
         """Test tail fast path: single record append keeps start_index."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         # Get raw record before
@@ -2918,7 +2918,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_append_copy_on_write(self, tmp_path):
         """Test copy-on-write: append to first of two records changes start_index."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="first", readings=[1, 2, 3])
 create Sensor(name="second", readings=[4, 5, 6])
 """)
@@ -2956,7 +2956,7 @@ create Sensor(name="second", readings=[4, 5, 6])
     def test_append_bulk_update_with_where(self, tmp_path):
         """Test bulk append with WHERE clause."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 create Sensor(name="pressure", readings=[10, 20, 30])
 """)
@@ -2970,7 +2970,7 @@ create Sensor(name="pressure", readings=[10, 20, 30])
     def test_append_mixed_with_assignment(self, tmp_path):
         """Test mixing append with field assignment in same SET."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, 'update Sensor(0) set name = "updated", readings.append(99)')
@@ -2983,7 +2983,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_prepend_single_element(self, tmp_path):
         """Test prepend(5) on primitive array."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.prepend(5)")
@@ -2993,7 +2993,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_prepend_multiple_elements(self, tmp_path):
         """Test prepend(5, 6, 7) prepends multiple elements."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.prepend(5, 6, 7)")
@@ -3003,7 +3003,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_prepend_array_literal(self, tmp_path):
         """Test prepend([1, 2, 3]) flattens and prepends."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[10, 20])
 """)
         self._query(db_path, "update Sensor(0) set readings.prepend([1, 2, 3])")
@@ -3013,7 +3013,7 @@ create Sensor(name="temp", readings=[10, 20])
     def test_prepend_on_null_array(self, tmp_path):
         """Test prepend() on null array creates new array."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_readings")
 """)
         self._query(db_path, "update Sensor(0) set readings.prepend(1, 2, 3)")
@@ -3023,8 +3023,8 @@ create Sensor(name="null_readings")
     def test_prepend_composite_element(self, tmp_path):
         """Test prepend(Point(...)) on composite array."""
         db_path = self._setup_db(tmp_path, """
-create type Point { x: uint8, y: uint8 }
-create type Shape { name: string, points: Point[] }
+type Point { x: uint8, y: uint8 }
+type Shape { name: string, points: Point[] }
 create Shape(name="line", points=[Point(x=2, y=2), Point(x=3, y=3)])
 """)
         self._query(db_path, "update Shape(0) set points.prepend(Point(x=1, y=1))")
@@ -3040,7 +3040,7 @@ create Shape(name="line", points=[Point(x=2, y=2), Point(x=3, y=3)])
     def test_insert_at_middle(self, tmp_path):
         """Test insert(2, 99) at middle position."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         self._query(db_path, "update Sensor(0) set readings.insert(2, 99)")
@@ -3050,7 +3050,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_insert_at_start(self, tmp_path):
         """Test insert(0, 99) at start (= prepend)."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.insert(0, 99)")
@@ -3060,7 +3060,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_insert_at_end(self, tmp_path):
         """Test insert(length, 99) at end (= append)."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.insert(3, 99)")
@@ -3070,7 +3070,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_insert_flattened_elements(self, tmp_path):
         """Test insert(0, [1, 2, 3]) flattens elements at index."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[10, 20])
 """)
         self._query(db_path, "update Sensor(0) set readings.insert(1, [5, 6, 7])")
@@ -3080,7 +3080,7 @@ create Sensor(name="temp", readings=[10, 20])
     def test_insert_out_of_bounds(self, tmp_path):
         """Test insert() with out of bounds index returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "update Sensor(0) set readings.insert(5, 99)")
@@ -3089,7 +3089,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_insert_on_null_at_zero(self, tmp_path):
         """Test insert(0, 1) on null array creates new array."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_readings")
 """)
         self._query(db_path, "update Sensor(0) set readings.insert(0, 1)")
@@ -3101,7 +3101,7 @@ create Sensor(name="null_readings")
     def test_delete_first_element(self, tmp_path):
         """Test delete(0) removes first element."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         self._query(db_path, "update Sensor(0) set readings.delete(0)")
@@ -3111,7 +3111,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_delete_middle_element(self, tmp_path):
         """Test delete(2) removes middle element."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         self._query(db_path, "update Sensor(0) set readings.delete(2)")
@@ -3121,7 +3121,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_delete_multiple_indices(self, tmp_path):
         """Test delete(0, 2, 4) removes elements at multiple indices."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         self._query(db_path, "update Sensor(0) set readings.delete(0, 2, 4)")
@@ -3131,7 +3131,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_delete_out_of_bounds(self, tmp_path):
         """Test delete() with out of bounds index returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "update Sensor(0) set readings.delete(10)")
@@ -3140,7 +3140,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_delete_on_null_array(self, tmp_path):
         """Test delete() on null array returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_readings")
 """)
         result = self._query(db_path, "update Sensor(0) set readings.delete(0)")
@@ -3149,7 +3149,7 @@ create Sensor(name="null_readings")
     def test_delete_all_elements(self, tmp_path):
         """Test deleting all elements results in empty array."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.delete(0, 1, 2)")
@@ -3161,7 +3161,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_remove_first_occurrence(self, tmp_path):
         """Test remove(5) removes first occurrence."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 5, 3, 5, 2])
 """)
         self._query(db_path, "update Sensor(0) set readings.remove(5)")
@@ -3171,7 +3171,7 @@ create Sensor(name="temp", readings=[1, 5, 3, 5, 2])
     def test_remove_not_found(self, tmp_path):
         """Test remove(99) when not found is a no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.remove(99)")
@@ -3181,7 +3181,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_remove_on_null_array(self, tmp_path):
         """Test remove() on null array is a no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_readings")
 """)
         self._query(db_path, "update Sensor(0) set readings.remove(5)")
@@ -3191,8 +3191,8 @@ create Sensor(name="null_readings")
     def test_remove_composite_element(self, tmp_path):
         """Test remove() on composite array with inline instance."""
         db_path = self._setup_db(tmp_path, """
-create type Point { x: uint8, y: uint8 }
-create type Shape { name: string, points: Point[] }
+type Point { x: uint8, y: uint8 }
+type Shape { name: string, points: Point[] }
 create Shape(name="tri", points=[Point(x=1, y=1), Point(x=2, y=2), Point(x=3, y=3)])
 """)
         self._query(db_path, "update Shape(0) set points.remove(Point(x=2, y=2))")
@@ -3205,7 +3205,7 @@ create Shape(name="tri", points=[Point(x=1, y=1), Point(x=2, y=2), Point(x=3, y=
     def test_remove_no_args_error(self, tmp_path):
         """Test remove() with no args returns error."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "update Sensor(0) set readings.remove()")
@@ -3216,7 +3216,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_removeAll_all_occurrences(self, tmp_path):
         """Test removeAll(5) removes all occurrences."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 1, 5, 2, 5, 3, 5])
 """)
         self._query(db_path, "update Sensor(0) set readings.removeAll(5)")
@@ -3226,7 +3226,7 @@ create Sensor(name="temp", readings=[5, 1, 5, 2, 5, 3, 5])
     def test_removeAll_not_found(self, tmp_path):
         """Test removeAll(99) when not found is a no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.removeAll(99)")
@@ -3236,7 +3236,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_removeAll_on_null_array(self, tmp_path):
         """Test removeAll() on null array is a no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_readings")
 """)
         self._query(db_path, "update Sensor(0) set readings.removeAll(5)")
@@ -3246,7 +3246,7 @@ create Sensor(name="null_readings")
     def test_removeAll_all_elements(self, tmp_path):
         """Test removeAll removes all elements when all match."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 5, 5])
 """)
         self._query(db_path, "update Sensor(0) set readings.removeAll(5)")
@@ -3258,7 +3258,7 @@ create Sensor(name="temp", readings=[5, 5, 5])
     def test_bulk_prepend_with_where(self, tmp_path):
         """Test bulk update with WHERE + prepend."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 create Sensor(name="pressure", readings=[10, 20, 30])
 """)
@@ -3272,7 +3272,7 @@ create Sensor(name="pressure", readings=[10, 20, 30])
     def test_mixed_assignment_and_delete(self, tmp_path):
         """Test mixing field assignment with delete mutation in same SET."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         self._query(db_path, 'update Sensor(0) set name = "updated", readings.delete(0)')
@@ -3285,7 +3285,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_sort_primitive_ascending(self, tmp_path):
         """Test sort() on primitive array sorts ascending."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
 """)
         self._query(db_path, "update Sensor(0) set readings.sort()")
@@ -3295,7 +3295,7 @@ create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
     def test_sort_primitive_descending(self, tmp_path):
         """Test sort(desc) on primitive array sorts descending."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
 """)
         self._query(db_path, "update Sensor(0) set readings.sort(desc)")
@@ -3305,7 +3305,7 @@ create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
     def test_sort_null_noop(self, tmp_path):
         """Test sort() on null array is a no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_readings")
 """)
         self._query(db_path, "update Sensor(0) set readings.sort()")
@@ -3315,7 +3315,7 @@ create Sensor(name="null_readings")
     def test_sort_empty_noop(self, tmp_path):
         """Test sort() on empty array is a no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty", readings=[])
 """)
         self._query(db_path, "update Sensor(0) set readings.sort()")
@@ -3325,8 +3325,8 @@ create Sensor(name="empty", readings=[])
     def test_sort_composite_single_field(self, tmp_path):
         """Test sort(.salary) on composite array."""
         db_path = self._setup_db(tmp_path, """
-create type Employee { name: string, salary: uint32 }
-create type Team { name: string, members: Employee[] }
+type Employee { name: string, salary: uint32 }
+type Team { name: string, members: Employee[] }
 create Team(name="eng", members=[
     Employee(name="Charlie", salary=80000),
     Employee(name="Alice", salary=50000),
@@ -3344,8 +3344,8 @@ create Team(name="eng", members=[
     def test_sort_composite_single_field_desc(self, tmp_path):
         """Test sort(.salary desc) on composite array."""
         db_path = self._setup_db(tmp_path, """
-create type Employee { name: string, salary: uint32 }
-create type Team { name: string, members: Employee[] }
+type Employee { name: string, salary: uint32 }
+type Team { name: string, members: Employee[] }
 create Team(name="eng", members=[
     Employee(name="Charlie", salary=80000),
     Employee(name="Alice", salary=50000),
@@ -3363,8 +3363,8 @@ create Team(name="eng", members=[
     def test_sort_composite_multi_key(self, tmp_path):
         """Test sort(.age, .salary) on composite array — multi-field sort."""
         db_path = self._setup_db(tmp_path, """
-create type Employee { age: uint8, salary: uint32 }
-create type Team { name: string, members: Employee[] }
+type Employee { age: uint8, salary: uint32 }
+type Team { name: string, members: Employee[] }
 create Team(name="eng", members=[
     Employee(age=30, salary=80000),
     Employee(age=25, salary=50000),
@@ -3385,8 +3385,8 @@ create Team(name="eng", members=[
     def test_sort_composite_mixed_directions(self, tmp_path):
         """Test sort(.age desc, .salary) on composite array — mixed directions."""
         db_path = self._setup_db(tmp_path, """
-create type Employee { age: uint8, salary: uint32 }
-create type Team { name: string, members: Employee[] }
+type Employee { age: uint8, salary: uint32 }
+type Team { name: string, members: Employee[] }
 create Team(name="eng", members=[
     Employee(age=25, salary=70000),
     Employee(age=30, salary=50000),
@@ -3410,8 +3410,8 @@ create Team(name="eng", members=[
     def test_sort_composite_string_field(self, tmp_path):
         """Test sort(.name) sorts alphabetically on string field."""
         db_path = self._setup_db(tmp_path, """
-create type Employee { name: string, age: uint8 }
-create type Team { name: string, members: Employee[] }
+type Employee { name: string, age: uint8 }
+type Team { name: string, members: Employee[] }
 create Team(name="eng", members=[
     Employee(name="Charlie", age=30),
     Employee(name="Alice", age=25),
@@ -3429,7 +3429,7 @@ create Team(name="eng", members=[
     def test_sort_bulk_with_where(self, tmp_path):
         """Test bulk sort with WHERE clause."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
 create Sensor(name="pressure", readings=[30, 10, 20])
 """)
@@ -3443,7 +3443,7 @@ create Sensor(name="pressure", readings=[30, 10, 20])
     def test_sort_single_element_noop(self, tmp_path):
         """Test sort() on single-element array is a no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="single", readings=[42])
 """)
         self._query(db_path, "update Sensor(0) set readings.sort()")
@@ -3453,7 +3453,7 @@ create Sensor(name="single", readings=[42])
     def test_replace_first_match(self, tmp_path):
         """Test replace(old, new) replaces first occurrence."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 2, 5])
 """)
         self._query(db_path, "update Sensor(0) set readings.replace(2, 10)")
@@ -3463,7 +3463,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 2, 5])
     def test_replace_not_found(self, tmp_path):
         """Test replace() when value is not found — no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.replace(99, 10)")
@@ -3473,7 +3473,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_replace_on_null(self, tmp_path):
         """Test replace() on null array — no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty")
 """)
         self._query(db_path, "update Sensor(0) set readings.replace(1, 2)")
@@ -3483,7 +3483,7 @@ create Sensor(name="empty")
     def test_replace_on_empty(self, tmp_path):
         """Test replace() on empty array — no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty", readings=[])
 """)
         self._query(db_path, "update Sensor(0) set readings.replace(1, 2)")
@@ -3493,7 +3493,7 @@ create Sensor(name="empty", readings=[])
     def test_replaceAll_all_matches(self, tmp_path):
         """Test replaceAll(old, new) replaces all occurrences."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 2, 5, 2])
 """)
         self._query(db_path, "update Sensor(0) set readings.replaceAll(2, 10)")
@@ -3503,7 +3503,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 2, 5, 2])
     def test_replaceAll_not_found(self, tmp_path):
         """Test replaceAll() when value is not found — no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         self._query(db_path, "update Sensor(0) set readings.replaceAll(99, 10)")
@@ -3513,7 +3513,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_replaceAll_on_null(self, tmp_path):
         """Test replaceAll() on null array — no-op."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="empty")
 """)
         self._query(db_path, "update Sensor(0) set readings.replaceAll(1, 2)")
@@ -3523,7 +3523,7 @@ create Sensor(name="empty")
     def test_replace_bulk_with_where(self, tmp_path):
         """Test bulk replace with WHERE clause."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 2])
 create Sensor(name="pressure", readings=[2, 4, 2])
 """)
@@ -3539,7 +3539,7 @@ create Sensor(name="pressure", readings=[2, 4, 2])
     def test_update_chain_sort_reverse(self, tmp_path):
         """Test mutation chain: sort().reverse() gives descending order."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
 """)
         self._query(db_path, "update Sensor(0) set readings.sort().reverse()")
@@ -3549,7 +3549,7 @@ create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
     def test_update_chain_append_sort(self, tmp_path):
         """Test mutation chain: append(6).sort() appends then sorts."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
 """)
         self._query(db_path, "update Sensor(0) set readings.append(6).sort()")
@@ -3559,7 +3559,7 @@ create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
     def test_update_chain_single_method_assign(self, tmp_path):
         """Test single method assignment form: readings = readings.reverse()."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
 """)
         self._query(db_path, "update Sensor(0) set readings = readings.reverse()")
@@ -3569,7 +3569,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4, 5])
     def test_update_chain_assignment_form(self, tmp_path):
         """Test assignment chain: readings = readings.append(6).sort()."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
 """)
         self._query(db_path, "update Sensor(0) set readings = readings.append(6).sort()")
@@ -3579,7 +3579,7 @@ create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
     def test_update_chain_with_where(self, tmp_path):
         """Test bulk chain mutation with WHERE clause."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 3, 1])
 create Sensor(name="pressure", readings=[9, 7, 8])
 """)
@@ -3593,7 +3593,7 @@ create Sensor(name="pressure", readings=[9, 7, 8])
     def test_update_chain_mixed(self, tmp_path):
         """Test chain alongside regular assignment: set name='x', readings.sort().reverse()."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
 """)
         self._query(db_path, 'update Sensor(0) set name = "updated", readings.sort().reverse()')
@@ -3604,7 +3604,7 @@ create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
     def test_update_chain_null_array(self, tmp_path):
         """Test chain on null array: sort on null stays null, append on null creates."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="null_test")
 """)
         # sort().reverse() on null → stays null
@@ -3620,8 +3620,8 @@ create Sensor(name="null_test")
     def test_update_chain_composite_array(self, tmp_path):
         """Test chain on composite array: sort by field."""
         db_path = self._setup_db(tmp_path, """
-create type Item { name: string, value: uint8 }
-create type Container { items: Item[] }
+type Item { name: string, value: uint8 }
+type Container { items: Item[] }
 create Container(items=[Item(name="c", value=3), Item(name="a", value=1), Item(name="b", value=2)])
 """)
         self._query(db_path, "update Container(0) set items.sort(.value)")
@@ -3633,7 +3633,7 @@ create Container(items=[Item(name="c", value=3), Item(name="a", value=1), Item(n
     def test_update_chain_cross_field(self, tmp_path):
         """Test cross-field assignment: set backup = readings.sort()."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[], backup: int8[] }
+type Sensor { name: string, readings: int8[], backup: int8[] }
 create Sensor(name="temp", readings=[5, 3, 1, 4, 2])
 """)
         self._query(db_path, "update Sensor(0) set backup = readings.sort()")
@@ -3674,7 +3674,7 @@ class TestArrayProjections:
     def test_sort_projection_returns_sorted_copy(self, tmp_path):
         """Test readings.sort() returns sorted copy, original unchanged."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
 """)
         result = self._query(db_path, "from Sensor select readings.sort()")
@@ -3686,7 +3686,7 @@ create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
     def test_sort_projection_descending(self, tmp_path):
         """Test readings.sort(desc) returns descending sorted copy."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
 """)
         result = self._query(db_path, "from Sensor select readings.sort(desc)")
@@ -3695,8 +3695,8 @@ create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
     def test_sort_projection_composite_key(self, tmp_path):
         """Test members.sort(.salary) on composite array."""
         db_path = self._setup_db(tmp_path, """
-create type Employee { name: string, salary: uint32 }
-create type Team { members: Employee[] }
+type Employee { name: string, salary: uint32 }
+type Team { members: Employee[] }
 create Team(members=[Employee(name="Bob", salary=60000), Employee(name="Alice", salary=50000), Employee(name="Carol", salary=70000)])
 """)
         result = self._query(db_path, "from Team select members.sort(.salary)")
@@ -3706,7 +3706,7 @@ create Team(members=[Employee(name="Bob", salary=60000), Employee(name="Alice", 
     def test_reverse_projection(self, tmp_path):
         """Test readings.reverse() returns reversed copy, original unchanged."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4])
 """)
         result = self._query(db_path, "from Sensor select readings.reverse()")
@@ -3718,7 +3718,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4])
     def test_append_projection(self, tmp_path):
         """Test readings.append(99) returns list with 99 appended, original unchanged."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "from Sensor select readings.append(99)")
@@ -3730,7 +3730,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_prepend_projection(self, tmp_path):
         """Test readings.prepend(0) returns list with 0 prepended."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "from Sensor select readings.prepend(0)")
@@ -3739,7 +3739,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_insert_projection(self, tmp_path):
         """Test readings.insert(1, 99) returns list with 99 at index 1."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "from Sensor select readings.insert(1, 99)")
@@ -3748,7 +3748,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_delete_projection(self, tmp_path):
         """Test readings.delete(0) returns list without first element."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "from Sensor select readings.delete(0)")
@@ -3757,7 +3757,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_remove_projection(self, tmp_path):
         """Test readings.remove(2) returns list without first occurrence of 2."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 2])
 """)
         result = self._query(db_path, "from Sensor select readings.remove(2)")
@@ -3766,7 +3766,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 2])
     def test_removeAll_projection(self, tmp_path):
         """Test readings.removeAll(1) returns list without any 1s."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 1, 3, 1])
 """)
         result = self._query(db_path, "from Sensor select readings.removeAll(1)")
@@ -3775,7 +3775,7 @@ create Sensor(name="temp", readings=[1, 2, 1, 3, 1])
     def test_replace_projection(self, tmp_path):
         """Test readings.replace(2, 99) replaces first 2 with 99."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 2])
 """)
         result = self._query(db_path, "from Sensor select readings.replace(2, 99)")
@@ -3784,7 +3784,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 2])
     def test_replaceAll_projection(self, tmp_path):
         """Test readings.replaceAll(1, 99) replaces all 1s with 99."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 1, 3])
 """)
         result = self._query(db_path, "from Sensor select readings.replaceAll(1, 99)")
@@ -3793,7 +3793,7 @@ create Sensor(name="temp", readings=[1, 2, 1, 3])
     def test_swap_projection(self, tmp_path):
         """Test readings.swap(0, 2) returns copy with elements swapped."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3])
 """)
         result = self._query(db_path, "from Sensor select readings.swap(0, 2)")
@@ -3802,7 +3802,7 @@ create Sensor(name="temp", readings=[1, 2, 3])
     def test_projection_on_null_returns_none(self, tmp_path):
         """Test projections on null return None (except append/prepend)."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp")
 """)
         result = self._query(db_path, "from Sensor select readings.sort()")
@@ -3813,7 +3813,7 @@ create Sensor(name="temp")
     def test_append_on_null_creates_list(self, tmp_path):
         """Test append on null creates a new list."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp")
 """)
         result = self._query(db_path, "from Sensor select readings.append(42)")
@@ -3824,7 +3824,7 @@ create Sensor(name="temp")
     def test_chain_sort_reverse(self, tmp_path):
         """Test readings.sort().reverse() = descending sort."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
 """)
         result = self._query(db_path, "from Sensor select readings.sort().reverse()")
@@ -3833,7 +3833,7 @@ create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
     def test_chain_sort_length(self, tmp_path):
         """Test readings.sort().length() = length of sorted (same as original length)."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
 """)
         result = self._query(db_path, "from Sensor select readings.sort().length()")
@@ -3842,7 +3842,7 @@ create Sensor(name="temp", readings=[3, 1, 4, 1, 5])
     def test_chain_append_sort(self, tmp_path):
         """Test readings.append(0).sort() = sorted with 0 included."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[3, 1, 4])
 """)
         result = self._query(db_path, "from Sensor select readings.append(0).sort()")
@@ -3851,7 +3851,7 @@ create Sensor(name="temp", readings=[3, 1, 4])
     def test_chain_reverse_reverse(self, tmp_path):
         """Test readings.reverse().reverse() = original."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[1, 2, 3, 4])
 """)
         result = self._query(db_path, "from Sensor select readings.reverse().reverse()")
@@ -3860,7 +3860,7 @@ create Sensor(name="temp", readings=[1, 2, 3, 4])
     def test_chain_in_where(self, tmp_path):
         """Test chain in WHERE clause: where readings.sort().length() > 3."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="short", readings=[1, 2])
 create Sensor(name="long", readings=[1, 2, 3, 4])
 """)
@@ -3871,7 +3871,7 @@ create Sensor(name="long", readings=[1, 2, 3, 4])
     def test_chain_in_where_boolean(self, tmp_path):
         """Test chain in WHERE clause as boolean: where readings.append(1).contains(1)."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="has_one", readings=[2, 3])
 create Sensor(name="no_one", readings=[2, 3])
 """)
@@ -3881,7 +3881,7 @@ create Sensor(name="no_one", readings=[2, 3])
     def test_chain_original_unchanged(self, tmp_path):
         """Test that chained projections don't modify the original."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[3, 1, 4])
 """)
         result = self._query(db_path, "from Sensor select readings.sort().reverse()")
@@ -3937,135 +3937,135 @@ class TestExpressions:
         return result
 
     def test_addition(self):
-        """select 5 + 3 → 8."""
-        result = self._eval("select 5 + 3")
+        """5 + 3 → 8."""
+        result = self._eval("5 + 3")
         assert result.rows[0]["5 + 3"] == 8
 
     def test_precedence(self):
-        """select 5 * 3 + 1 → 16."""
-        result = self._eval("select 5 * 3 + 1")
+        """5 * 3 + 1 → 16."""
+        result = self._eval("5 * 3 + 1")
         assert result.rows[0]["5 * 3 + 1"] == 16
 
     def test_parenthesized(self):
-        """select (2 + 3) * 4 → 20."""
-        result = self._eval("select (2 + 3) * 4")
+        """(2 + 3) * 4 → 20."""
+        result = self._eval("(2 + 3) * 4")
         row = list(result.rows[0].values())
         assert row[0] == 20
 
     def test_unary_minus_integer(self):
-        """select -5 → -5."""
-        result = self._eval("select -5")
+        """-5 → -5."""
+        result = self._eval("-5")
         row = list(result.rows[0].values())
         assert row[0] == -5
 
     def test_unary_minus_float(self):
-        """select -3.14 → -3.14."""
-        result = self._eval("select -3.14")
+        """-3.14 → -3.14."""
+        result = self._eval("-3.14")
         row = list(result.rows[0].values())
         assert row[0] == pytest.approx(-3.14)
 
     def test_string_concat(self):
-        """select "hello" ++ " world" → "hello world"."""
-        result = self._eval('select "hello" ++ " world"')
+        """"hello" ++ " world" → "hello world"."""
+        result = self._eval('"hello" ++ " world"')
         row = list(result.rows[0].values())
         assert row[0] == "hello world"
 
     def test_string_concat_auto_convert_int(self):
-        """select "id:" ++ 42 → "id:42"."""
-        result = self._eval('select "id:" ++ 42')
+        """"id:" ++ 42 → "id:42"."""
+        result = self._eval('"id:" ++ 42')
         row = list(result.rows[0].values())
         assert row[0] == "id:42"
 
     def test_string_concat_auto_convert_float(self):
-        """select "pi=" ++ 3.14 → "pi=3.14"."""
-        result = self._eval('select "pi=" ++ 3.14')
+        """"pi=" ++ 3.14 → "pi=3.14"."""
+        result = self._eval('"pi=" ++ 3.14')
         row = list(result.rows[0].values())
         assert row[0] == "pi=3.14"
 
     def test_modulo(self):
-        """select 10 % 3 → 1."""
-        result = self._eval("select 10 % 3")
+        """10 % 3 → 1."""
+        result = self._eval("10 % 3")
         row = list(result.rows[0].values())
         assert row[0] == 1
 
     def test_integer_division(self):
-        """select 7 // 2 → 3."""
-        result = self._eval("select 7 // 2")
+        """7 // 2 → 3."""
+        result = self._eval("7 // 2")
         row = list(result.rows[0].values())
         assert row[0] == 3
 
     def test_true_division(self):
-        """select 10 / 3 → 3.333..."""
-        result = self._eval("select 10 / 3")
+        """10 / 3 → 3.333..."""
+        result = self._eval("10 / 3")
         row = list(result.rows[0].values())
         assert row[0] == pytest.approx(10 / 3)
 
     def test_division_by_zero(self):
-        """select 10 / 0 → error."""
+        """10 / 0 → error."""
         with pytest.raises(RuntimeError, match="Division by zero"):
-            self._eval("select 10 / 0")
+            self._eval("10 / 0")
 
     def test_negation_of_parenthesized(self):
-        """select -(2 + 3) → -5."""
-        result = self._eval("select -(2 + 3)")
+        """-(2 + 3) → -5."""
+        result = self._eval("-(2 + 3)")
         row = list(result.rows[0].values())
         assert row[0] == -5
 
     def test_existing_uuid_still_works(self):
-        """select uuid() still works."""
-        result = self._eval("select uuid()")
+        """uuid() still works."""
+        result = self._eval("uuid()")
         row = list(result.rows[0].values())
         assert isinstance(row[0], str)  # hex-formatted UUID
 
     def test_existing_alias_still_works(self):
-        """select uuid() as "id", uuid() as "id2" still works."""
-        result = self._eval('select uuid() as "id", uuid() as "id2"')
+        """uuid() as "id", uuid() as "id2" still works."""
+        result = self._eval('uuid() as "id", uuid() as "id2"')
         assert "id" in result.columns
         assert "id2" in result.columns
 
     def test_negative_array_elements(self, tmp_path):
         """create Sensor(readings=[-5, -3]) works."""
         db_path = self._setup_db(tmp_path, """
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 create Sensor(name="temp", readings=[-5, -3])
 """)
         result = self._query(db_path, "from Sensor select readings")
         assert result.rows[0]["readings"] == [-5, -3]
 
     def test_subtraction(self):
-        """select 10 - 3 → 7."""
-        result = self._eval("select 10 - 3")
+        """10 - 3 → 7."""
+        result = self._eval("10 - 3")
         row = list(result.rows[0].values())
         assert row[0] == 7
 
     def test_multiplication(self):
-        """select 4 * 5 → 20."""
-        result = self._eval("select 4 * 5")
+        """4 * 5 → 20."""
+        result = self._eval("4 * 5")
         row = list(result.rows[0].values())
         assert row[0] == 20
 
     def test_float_arithmetic(self):
-        """select 1.5 + 2.5 → 4.0."""
-        result = self._eval("select 1.5 + 2.5")
+        """1.5 + 2.5 → 4.0."""
+        result = self._eval("1.5 + 2.5")
         row = list(result.rows[0].values())
         assert row[0] == 4.0
 
     def test_mixed_int_float(self):
-        """select 5 + 2.5 → 7.5."""
-        result = self._eval("select 5 + 2.5")
+        """5 + 2.5 → 7.5."""
+        result = self._eval("5 + 2.5")
         row = list(result.rows[0].values())
         assert row[0] == 7.5
 
     def test_complex_expression(self):
-        """select (10 + 5) * 2 - 3 → 27."""
-        result = self._eval("select (10 + 5) * 2 - 3")
+        """(10 + 5) * 2 - 3 → 27."""
+        result = self._eval("(10 + 5) * 2 - 3")
         row = list(result.rows[0].values())
         assert row[0] == 27
 
     def test_negative_instance_value(self, tmp_path):
         """Negative integers in instance creation."""
         db_path = self._setup_db(tmp_path, """
-create type Measurement { value: int8 }
+type Measurement { value: int8 }
 create Measurement(value=-10)
 """)
         result = self._query(db_path, "from Measurement select value")
@@ -4074,7 +4074,7 @@ create Measurement(value=-10)
     def test_where_negative_value(self, tmp_path):
         """WHERE clause with negative value."""
         db_path = self._setup_db(tmp_path, """
-create type Reading { value: int8 }
+type Reading { value: int8 }
 create Reading(value=-5)
 create Reading(value=10)
 """)
@@ -4085,277 +4085,277 @@ create Reading(value=10)
     # --- Array math tests ---
 
     def test_array_literal(self):
-        """select [1, 2, 3, 4] → [1, 2, 3, 4]."""
-        result = self._eval("select [1, 2, 3, 4]")
+        """[1, 2, 3, 4] → [1, 2, 3, 4]."""
+        result = self._eval("[1, 2, 3, 4]")
         row = list(result.rows[0].values())
         assert row[0] == [1, 2, 3, 4]
 
     def test_empty_array(self):
-        """select [] → []."""
-        result = self._eval("select []")
+        """[] → []."""
+        result = self._eval("[]")
         row = list(result.rows[0].values())
         assert row[0] == []
 
     def test_array_add(self):
-        """select [1, 2] + [3, 4] → [4, 6]."""
-        result = self._eval("select [1, 2] + [3, 4]")
+        """[1, 2] + [3, 4] → [4, 6]."""
+        result = self._eval("[1, 2] + [3, 4]")
         row = list(result.rows[0].values())
         assert row[0] == [4, 6]
 
     def test_array_subtract(self):
-        """select [10, 20] - [3, 4] → [7, 16]."""
-        result = self._eval("select [10, 20] - [3, 4]")
+        """[10, 20] - [3, 4] → [7, 16]."""
+        result = self._eval("[10, 20] - [3, 4]")
         row = list(result.rows[0].values())
         assert row[0] == [7, 16]
 
     def test_array_multiply(self):
-        """select [2, 3] * [4, 5] → [8, 15]."""
-        result = self._eval("select [2, 3] * [4, 5]")
+        """[2, 3] * [4, 5] → [8, 15]."""
+        result = self._eval("[2, 3] * [4, 5]")
         row = list(result.rows[0].values())
         assert row[0] == [8, 15]
 
     def test_array_divide(self):
-        """select [10, 20] / [4, 5] → [2.5, 4.0]."""
-        result = self._eval("select [10, 20] / [4, 5]")
+        """[10, 20] / [4, 5] → [2.5, 4.0]."""
+        result = self._eval("[10, 20] / [4, 5]")
         row = list(result.rows[0].values())
         assert row[0] == [2.5, 4.0]
 
     def test_array_modulo(self):
-        """select [10, 7] % [3, 2] → [1, 1]."""
-        result = self._eval("select [10, 7] % [3, 2]")
+        """[10, 7] % [3, 2] → [1, 1]."""
+        result = self._eval("[10, 7] % [3, 2]")
         row = list(result.rows[0].values())
         assert row[0] == [1, 1]
 
     def test_array_integer_division(self):
-        """select [7, 9] // [2, 4] → [3, 2]."""
-        result = self._eval("select [7, 9] // [2, 4]")
+        """[7, 9] // [2, 4] → [3, 2]."""
+        result = self._eval("[7, 9] // [2, 4]")
         row = list(result.rows[0].values())
         assert row[0] == [3, 2]
 
     def test_scalar_broadcast_left(self):
-        """select 5 * [1, 2, 3] → [5, 10, 15]."""
-        result = self._eval("select 5 * [1, 2, 3]")
+        """5 * [1, 2, 3] → [5, 10, 15]."""
+        result = self._eval("5 * [1, 2, 3]")
         row = list(result.rows[0].values())
         assert row[0] == [5, 10, 15]
 
     def test_scalar_broadcast_right(self):
-        """select [1, 2, 3] * 5 → [5, 10, 15]."""
-        result = self._eval("select [1, 2, 3] * 5")
+        """[1, 2, 3] * 5 → [5, 10, 15]."""
+        result = self._eval("[1, 2, 3] * 5")
         row = list(result.rows[0].values())
         assert row[0] == [5, 10, 15]
 
     def test_scalar_broadcast_add(self):
-        """select [10, 20] + 1 → [11, 21]."""
-        result = self._eval("select [10, 20] + 1")
+        """[10, 20] + 1 → [11, 21]."""
+        result = self._eval("[10, 20] + 1")
         row = list(result.rows[0].values())
         assert row[0] == [11, 21]
 
     def test_unary_negate_array(self):
-        """select -[1, 2, 3] → [-1, -2, -3]."""
-        result = self._eval("select -[1, 2, 3]")
+        """-[1, 2, 3] → [-1, -2, -3]."""
+        result = self._eval("-[1, 2, 3]")
         row = list(result.rows[0].values())
         assert row[0] == [-1, -2, -3]
 
     def test_array_length_mismatch(self):
-        """select [1, 2] + [3, 4, 5] → error."""
+        """[1, 2] + [3, 4, 5] → error."""
         with pytest.raises(RuntimeError, match="Array length mismatch"):
-            self._eval("select [1, 2] + [3, 4, 5]")
+            self._eval("[1, 2] + [3, 4, 5]")
 
     def test_array_string_concat(self):
-        """select ["a", "b"] ++ ["c", "d"] → ["ac", "bd"]."""
-        result = self._eval('select ["a", "b"] ++ ["c", "d"]')
+        """["a", "b"] ++ ["c", "d"] → ["ac", "bd"]."""
+        result = self._eval('["a", "b"] ++ ["c", "d"]')
         row = list(result.rows[0].values())
         assert row[0] == ["ac", "bd"]
 
     def test_scalar_broadcast_string_concat_left(self):
-        """select "x" ++ [1, 2] → ["x1", "x2"]."""
-        result = self._eval('select "x" ++ [1, 2]')
+        """"x" ++ [1, 2] → ["x1", "x2"]."""
+        result = self._eval('"x" ++ [1, 2]')
         row = list(result.rows[0].values())
         assert row[0] == ["x1", "x2"]
 
     def test_scalar_broadcast_string_concat_right(self):
-        """select [1, 2] ++ "!" → ["1!", "2!"]."""
-        result = self._eval('select [1, 2] ++ "!"')
+        """[1, 2] ++ "!" → ["1!", "2!"]."""
+        result = self._eval('[1, 2] ++ "!"')
         row = list(result.rows[0].values())
         assert row[0] == ["1!", "2!"]
 
     def test_expressions_inside_array(self):
-        """select [1+2, 3*4] → [3, 12]."""
-        result = self._eval("select [1+2, 3*4]")
+        """[1+2, 3*4] → [3, 12]."""
+        result = self._eval("[1+2, 3*4]")
         row = list(result.rows[0].values())
         assert row[0] == [3, 12]
 
     def test_sqrt_scalar(self):
-        """select sqrt(9) → 3.0."""
-        result = self._eval("select sqrt(9)")
+        """sqrt(9) → 3.0."""
+        result = self._eval("sqrt(9)")
         row = list(result.rows[0].values())
         assert row[0] == 3.0
 
     def test_sqrt_array(self):
-        """select sqrt([1, 4, 9, 16]) → [1.0, 2.0, 3.0, 4.0]."""
-        result = self._eval("select sqrt([1, 4, 9, 16])")
+        """sqrt([1, 4, 9, 16]) → [1.0, 2.0, 3.0, 4.0]."""
+        result = self._eval("sqrt([1, 4, 9, 16])")
         row = list(result.rows[0].values())
         assert row[0] == [1.0, 2.0, 3.0, 4.0]
 
     def test_pow_scalar(self):
-        """select pow(2, 3) → 8."""
-        result = self._eval("select pow(2, 3)")
+        """pow(2, 3) → 8."""
+        result = self._eval("pow(2, 3)")
         row = list(result.rows[0].values())
         assert row[0] == 8
 
     def test_pow_broadcast_base(self):
-        """select pow([2, 3], 2) → [4, 9]."""
-        result = self._eval("select pow([2, 3], 2)")
+        """pow([2, 3], 2) → [4, 9]."""
+        result = self._eval("pow([2, 3], 2)")
         row = list(result.rows[0].values())
         assert row[0] == [4, 9]
 
     def test_pow_broadcast_exp(self):
-        """select pow(2, [1, 2, 3]) → [2, 4, 8]."""
-        result = self._eval("select pow(2, [1, 2, 3])")
+        """pow(2, [1, 2, 3]) → [2, 4, 8]."""
+        result = self._eval("pow(2, [1, 2, 3])")
         row = list(result.rows[0].values())
         assert row[0] == [2, 4, 8]
 
     def test_abs_scalar(self):
-        """select abs(-5) → 5."""
-        result = self._eval("select abs(-5)")
+        """abs(-5) → 5."""
+        result = self._eval("abs(-5)")
         row = list(result.rows[0].values())
         assert row[0] == 5
 
     def test_abs_array(self):
-        """select abs([-3, 4, -5]) → [3, 4, 5]."""
-        result = self._eval("select abs([-3, 4, -5])")
+        """abs([-3, 4, -5]) → [3, 4, 5]."""
+        result = self._eval("abs([-3, 4, -5])")
         row = list(result.rows[0].values())
         assert row[0] == [3, 4, 5]
 
     def test_ceil(self):
-        """select ceil(1.2) → 2."""
-        result = self._eval("select ceil(1.2)")
+        """ceil(1.2) → 2."""
+        result = self._eval("ceil(1.2)")
         row = list(result.rows[0].values())
         assert row[0] == 2
 
     def test_floor(self):
-        """select floor(1.8) → 1."""
-        result = self._eval("select floor(1.8)")
+        """floor(1.8) → 1."""
+        result = self._eval("floor(1.8)")
         row = list(result.rows[0].values())
         assert row[0] == 1
 
     def test_round(self):
-        """select round(3.7) → 4."""
-        result = self._eval("select round(3.7)")
+        """round(3.7) → 4."""
+        result = self._eval("round(3.7)")
         row = list(result.rows[0].values())
         assert row[0] == 4
 
     def test_sin(self):
-        """select sin(0) → 0.0."""
-        result = self._eval("select sin(0)")
+        """sin(0) → 0.0."""
+        result = self._eval("sin(0)")
         row = list(result.rows[0].values())
         assert row[0] == pytest.approx(0.0)
 
     def test_cos(self):
-        """select cos(0) → 1.0."""
-        result = self._eval("select cos(0)")
+        """cos(0) → 1.0."""
+        result = self._eval("cos(0)")
         row = list(result.rows[0].values())
         assert row[0] == pytest.approx(1.0)
 
     def test_log(self):
-        """select log(1) → 0.0."""
-        result = self._eval("select log(1)")
+        """log(1) → 0.0."""
+        result = self._eval("log(1)")
         row = list(result.rows[0].values())
         assert row[0] == pytest.approx(0.0)
 
     def test_log2(self):
-        """select log2(8) → 3.0."""
-        result = self._eval("select log2(8)")
+        """log2(8) → 3.0."""
+        result = self._eval("log2(8)")
         row = list(result.rows[0].values())
         assert row[0] == pytest.approx(3.0)
 
     def test_log10(self):
-        """select log10(100) → 2.0."""
-        result = self._eval("select log10(100)")
+        """log10(100) → 2.0."""
+        result = self._eval("log10(100)")
         row = list(result.rows[0].values())
         assert row[0] == pytest.approx(2.0)
 
     def test_tan(self):
-        """select tan(0) → 0.0."""
-        result = self._eval("select tan(0)")
+        """tan(0) → 0.0."""
+        result = self._eval("tan(0)")
         row = list(result.rows[0].values())
         assert row[0] == pytest.approx(0.0)
 
     def test_unknown_function(self):
-        """select unknown(5) → error."""
+        """unknown(5) → error."""
         with pytest.raises(RuntimeError, match="Unknown function"):
-            self._eval("select unknown(5)")
+            self._eval("unknown(5)")
 
     def test_sum_array(self):
-        """select sum([1, 2, 3]) → 6."""
-        result = self._eval("select sum([1, 2, 3])")
+        """sum([1, 2, 3]) → 6."""
+        result = self._eval("sum([1, 2, 3])")
         row = list(result.rows[0].values())
         assert row[0] == 6
 
     def test_sum_float_array(self):
-        """select sum([1.5, 2.5]) → 4.0."""
-        result = self._eval("select sum([1.5, 2.5])")
+        """sum([1.5, 2.5]) → 4.0."""
+        result = self._eval("sum([1.5, 2.5])")
         row = list(result.rows[0].values())
         assert row[0] == 4.0
 
     def test_average_array(self):
-        """select average([10, 20, 30]) → 20.0."""
-        result = self._eval("select average([10, 20, 30])")
+        """average([10, 20, 30]) → 20.0."""
+        result = self._eval("average([10, 20, 30])")
         row = list(result.rows[0].values())
         assert row[0] == 20.0
 
     def test_product_array(self):
-        """select product([2, 3, 4]) → 24."""
-        result = self._eval("select product([2, 3, 4])")
+        """product([2, 3, 4]) → 24."""
+        result = self._eval("product([2, 3, 4])")
         row = list(result.rows[0].values())
         assert row[0] == 24
 
     def test_count_array(self):
-        """select count([1, 2, 3, 4, 5]) → 5."""
-        result = self._eval("select count([1, 2, 3, 4, 5])")
+        """count([1, 2, 3, 4, 5]) → 5."""
+        result = self._eval("count([1, 2, 3, 4, 5])")
         row = list(result.rows[0].values())
         assert row[0] == 5
 
     def test_min_array(self):
-        """select min([5, 3, 7]) → 3."""
-        result = self._eval("select min([5, 3, 7])")
+        """min([5, 3, 7]) → 3."""
+        result = self._eval("min([5, 3, 7])")
         row = list(result.rows[0].values())
         assert row[0] == 3
 
     def test_max_array(self):
-        """select max([5, 3, 7]) → 7."""
-        result = self._eval("select max([5, 3, 7])")
+        """max([5, 3, 7]) → 7."""
+        result = self._eval("max([5, 3, 7])")
         row = list(result.rows[0].values())
         assert row[0] == 7
 
     def test_min_multi_arg(self):
-        """select min(5, 3) → 3."""
-        result = self._eval("select min(5, 3)")
+        """min(5, 3) → 3."""
+        result = self._eval("min(5, 3)")
         row = list(result.rows[0].values())
         assert row[0] == 3
 
     def test_max_multi_arg(self):
-        """select max(5, 3) → 5."""
-        result = self._eval("select max(5, 3)")
+        """max(5, 3) → 5."""
+        result = self._eval("max(5, 3)")
         row = list(result.rows[0].values())
         assert row[0] == 5
 
     def test_min_empty_array(self):
-        """select min([]) → None."""
-        result = self._eval("select min([])")
+        """min([]) → None."""
+        result = self._eval("min([])")
         row = list(result.rows[0].values())
         assert row[0] is None
 
     def test_sum_empty_array(self):
-        """select sum([]) → 0."""
-        result = self._eval("select sum([])")
+        """sum([]) → 0."""
+        result = self._eval("sum([])")
         row = list(result.rows[0].values())
         assert row[0] == 0
 
     def test_aggregate_field_names(self, tmp_path):
         """Aggregate names (count, sum) can now be used as field names."""
         db_path = self._setup_db(tmp_path, """
-            create type Stats { count: uint32, sum: float64 }
+            type Stats { count: uint32, sum: float64 }
             create Stats(count=10, sum=3.14)
         """)
         result = self._query(db_path, "from Stats select *")
@@ -4366,7 +4366,7 @@ create Reading(value=10)
     def test_from_select_sum_aggregate(self, tmp_path):
         """from X select sum(age) still works with aggregate names as identifiers."""
         db_path = self._setup_db(tmp_path, """
-            create type Person { name: string, age: uint8 }
+            type Person { name: string, age: uint8 }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=40)
         """)
@@ -4424,78 +4424,78 @@ class TestArrayGenerators:
     # --- repeat() in eval_expr context ---
 
     def test_repeat_integers(self):
-        result = self._eval("select repeat(0, 5)")
+        result = self._eval("repeat(0, 5)")
         assert result.rows[0]["repeat(0, 5)"] == [0, 0, 0, 0, 0]
 
     def test_repeat_string(self):
-        result = self._eval('select repeat("hello", 3)')
+        result = self._eval('repeat("hello", 3)')
         assert result.rows[0]['repeat("hello", 3)'] == ["hello", "hello", "hello"]
 
     def test_repeat_zero_count(self):
-        result = self._eval("select repeat(0, 0)")
+        result = self._eval("repeat(0, 0)")
         assert result.rows[0]["repeat(0, 0)"] == []
 
     def test_repeat_float(self):
-        result = self._eval("select repeat(3.14, 2)")
+        result = self._eval("repeat(3.14, 2)")
         assert result.rows[0]["repeat(3.14, 2)"] == [3.14, 3.14]
 
     def test_repeat_negative_count_error(self):
         with pytest.raises(RuntimeError, match="non-negative"):
-            self._eval("select repeat(1, -1)")
+            self._eval("repeat(1, -1)")
 
     def test_repeat_too_many_args_error(self):
         with pytest.raises(RuntimeError, match="exactly 2 arguments"):
-            self._eval("select repeat(1, 2, 3)")
+            self._eval("repeat(1, 2, 3)")
 
     # --- range() in eval_expr context ---
 
     def test_range_single_arg(self):
-        result = self._eval("select range(5)")
+        result = self._eval("range(5)")
         assert result.rows[0]["range(5)"] == [0, 1, 2, 3, 4]
 
     def test_range_two_args(self):
-        result = self._eval("select range(1, 6)")
+        result = self._eval("range(1, 6)")
         assert result.rows[0]["range(1, 6)"] == [1, 2, 3, 4, 5]
 
     def test_range_three_args(self):
-        result = self._eval("select range(0, 10, 2)")
+        result = self._eval("range(0, 10, 2)")
         assert result.rows[0]["range(0, 10, 2)"] == [0, 2, 4, 6, 8]
 
     def test_range_negative_step(self):
-        result = self._eval("select range(5, 0, -1)")
+        result = self._eval("range(5, 0, -1)")
         assert result.rows[0]["range(5, 0, -1)"] == [5, 4, 3, 2, 1]
 
     def test_range_zero(self):
-        result = self._eval("select range(0)")
+        result = self._eval("range(0)")
         assert result.rows[0]["range(0)"] == []
 
     def test_range_empty(self):
-        result = self._eval("select range(5, 5)")
+        result = self._eval("range(5, 5)")
         assert result.rows[0]["range(5, 5)"] == []
 
     def test_range_too_many_args_error(self):
         with pytest.raises(RuntimeError, match="1-3 arguments"):
-            self._eval("select range(1, 2, 3, 4)")
+            self._eval("range(1, 2, 3, 4)")
 
     def test_range_string_arg_error(self):
         with pytest.raises(RuntimeError, match="numeric"):
-            self._eval('select range("a")')
+            self._eval('range("a")')
 
     # --- Composition with array math ---
 
     def test_repeat_plus_range(self):
-        result = self._eval("select repeat(1, 5) + range(5)")
+        result = self._eval("repeat(1, 5) + range(5)")
         assert result.rows[0]["repeat(1, 5) + range(5)"] == [1, 2, 3, 4, 5]
 
     def test_range_times_scalar(self):
-        result = self._eval("select range(5) * 2")
+        result = self._eval("range(5) * 2")
         assert result.rows[0]["range(5) * 2"] == [0, 2, 4, 6, 8]
 
     # --- repeat() and range() in instance_value context (create/update) ---
 
     def test_create_with_repeat(self, tmp_path):
         db_path = self._setup_db(tmp_path, """
-            create type Sensor { name: string, readings: int8[] }
+            type Sensor { name: string, readings: int8[] }
             create Sensor(name="test", readings=repeat(0, 5))
         """)
         result = self._query(db_path, "from Sensor select *")
@@ -4503,7 +4503,7 @@ class TestArrayGenerators:
 
     def test_create_with_range_two_args(self, tmp_path):
         db_path = self._setup_db(tmp_path, """
-            create type Sensor { name: string, readings: int8[] }
+            type Sensor { name: string, readings: int8[] }
             create Sensor(name="test", readings=range(1, 6))
         """)
         result = self._query(db_path, "from Sensor select *")
@@ -4511,7 +4511,7 @@ class TestArrayGenerators:
 
     def test_create_with_range_single_arg(self, tmp_path):
         db_path = self._setup_db(tmp_path, """
-            create type Sensor { name: string, readings: int8[] }
+            type Sensor { name: string, readings: int8[] }
             create Sensor(name="test", readings=range(5))
         """)
         result = self._query(db_path, "from Sensor select *")
@@ -4519,7 +4519,7 @@ class TestArrayGenerators:
 
     def test_update_with_repeat(self, tmp_path):
         db_path = self._setup_db(tmp_path, """
-            create type Sensor { name: string, readings: int8[] }
+            type Sensor { name: string, readings: int8[] }
             $s = create Sensor(name="test", readings=[1, 2, 3])
             update $s set readings=repeat(1, 3)
         """)
@@ -4528,7 +4528,7 @@ class TestArrayGenerators:
 
     def test_update_with_range(self, tmp_path):
         db_path = self._setup_db(tmp_path, """
-            create type Sensor { name: string, readings: int8[] }
+            type Sensor { name: string, readings: int8[] }
             $s = create Sensor(name="test", readings=[1, 2, 3])
             update $s set readings=range(0, 10, 2)
         """)

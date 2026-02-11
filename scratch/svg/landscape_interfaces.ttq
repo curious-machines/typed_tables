@@ -5,7 +5,7 @@
 use ttq_svg_landscape_iface
 
 -- Color: named SVG colors and hex values
-create enum Color {
+enum Color {
     none,
     red,
     orange,
@@ -21,15 +21,15 @@ create enum Color {
 }
 
 -- Stroke line cap and line join
-create enum LineCap { butt, round, square }
-create enum LineJoin { miter, round, bevel }
+enum LineCap { butt, round, square }
+enum LineJoin { miter, round, bevel }
 
 ------------------------------------------------------------------------
 -- Interfaces
 ------------------------------------------------------------------------
 
 -- Every visible SVG element can be styled
-create interface Styled {
+interface Styled {
     fill: Color,
     fill_opacity: float32,
     stroke: Color,
@@ -40,13 +40,13 @@ create interface Styled {
 }
 
 -- Elements positioned by a single (x, y) anchor
-create interface Positioned {
+interface Positioned {
     x: float32,
     y: float32
 }
 
 -- Elements with explicit width and height
-create interface Sized {
+interface Sized {
     width: float32,
     height: float32
 }
@@ -55,40 +55,40 @@ create interface Sized {
 -- Concrete shape types (implement interfaces)
 ------------------------------------------------------------------------
 
-create type Point { x: float32, y: float32 }
+type Point { x: float32, y: float32 }
 
-create type Rect from Styled, Positioned, Sized {
+type Rect from Styled, Positioned, Sized {
     rx: float32,
     ry: float32
 }
 
-create type Circle from Styled {
+type Circle from Styled {
     cx: float32, cy: float32, r: float32
 }
 
-create type Ellipse from Styled {
+type Ellipse from Styled {
     cx: float32, cy: float32,
     rx: float32, ry: float32
 }
 
-create type Line from Styled {
+type Line from Styled {
     x1: float32, y1: float32,
     x2: float32, y2: float32
 }
 
-create type Polyline from Styled {
+type Polyline from Styled {
     points: Point[]
 }
 
-create type Polygon from Styled {
+type Polygon from Styled {
     points: Point[]
 }
 
-create type Path from Styled {
+type Path from Styled {
     d: string
 }
 
-create type Text from Styled, Positioned {
+type Text from Styled, Positioned {
     content: string,
     font_family: string,
     font_size: float32,

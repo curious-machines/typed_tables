@@ -51,8 +51,8 @@ KEYWORDS: dict[str, str] = {
     "types": "List all defined types",
     "describe": "Show fields and layout of a type",
     "use": "Select or create a database",
-    "create": "Create a type, alias, enum, or instance",
-    "type": "Used with 'create type'",
+    "create": "Create an instance of a type",
+    "type": "Define a composite type",
     "delete": "Remove records matching a condition",
     "as": "Rename a column or define an alias",
     "alias": "Define a type alias",
@@ -103,9 +103,8 @@ _POSITION_RE = re.compile(r"(?:at position|\(position) (\d+)")
 
 # Regex to find user-defined type names in source
 _USER_TYPE_RE = re.compile(
-    r"(?:create\s+(?:type|enum|interface)\s+|"
-    r"define\s+|"
-    r"create\s+alias\s+)"
+    r"(?:(?:type|enum|interface)\s+|"
+    r"alias\s+)"
     r"(\w+)",
     re.IGNORECASE,
 )

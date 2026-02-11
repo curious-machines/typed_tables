@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from typed_tables.instance import InstanceRef
-from typed_tables.parsing import TypeParser
+from typed_tables.parsing.query_parser import (
+    CreateAliasQuery,
+    CreateEnumQuery,
+    CreateInterfaceQuery,
+    CreateTypeQuery,
+    ForwardTypeQuery,
+    QueryParser,
+)
 from typed_tables.storage import StorageManager
 from typed_tables.types import (
     ArrayTypeDefinition,
@@ -34,19 +41,41 @@ class Schema:
         """Parse type definitions and create a schema.
 
         Args:
-            type_definitions: DSL string defining types.
+            type_definitions: TTQ string defining types (type, alias, enum, etc.).
             data_dir: Directory for storing table files.
 
         Returns:
             A new Schema instance.
         """
-        parser = TypeParser()
-        registry = parser.parse(type_definitions)
+        from typed_tables.query_executor import QueryExecutor
+
+        parser = QueryParser()
+        parser.build(debug=False, write_tables=False)
+        statements = parser.parse_program(type_definitions)
+
+        # Validate that only type-definition statements are present
+        allowed_types = (CreateTypeQuery, CreateAliasQuery, CreateEnumQuery, CreateInterfaceQuery, ForwardTypeQuery)
+        for stmt in statements:
+            if not isinstance(stmt, allowed_types):
+                raise ValueError(f"Schema.parse() only accepts type definitions, got {type(stmt).__name__}")
 
         if isinstance(data_dir, str):
             data_dir = Path(data_dir)
 
-        return cls(registry, data_dir)
+        # Use a QueryExecutor to process the type definitions
+        registry = TypeRegistry()
+        storage = StorageManager(data_dir, registry)
+        executor = QueryExecutor(storage, registry)
+
+        for stmt in statements:
+            result = executor.execute(stmt)
+            if result.message and not result.rows:
+                raise ValueError(result.message)
+
+        schema = cls.__new__(cls)
+        schema.registry = registry
+        schema.storage = storage
+        return schema
 
     def get_type(self, name: str) -> TypeDefinition:
         """Get a type definition by name.

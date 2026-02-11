@@ -419,6 +419,15 @@ class ScopeBlock:
 
 
 @dataclass
+class MethodCallExpr:
+    """A method call on an expression: expr.method(args)."""
+
+    target: Any
+    method_name: str
+    method_args: list[Any] | None = None
+
+
+@dataclass
 class BinaryExpr:
     """A binary expression: left op right."""
 
@@ -586,26 +595,30 @@ class QueryParser:
         p[0] = UseQuery(path=p[2], temporary=True)
 
     def p_query_create_alias(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE ALIAS IDENTIFIER AS IDENTIFIER"""
-        p[0] = CreateAliasQuery(name=p[3], base_type=p[5])
+        """query : ALIAS IDENTIFIER AS IDENTIFIER
+                 | ALIAS IDENTIFIER AS IDENTIFIER LBRACKET RBRACKET"""
+        if len(p) == 7:
+            p[0] = CreateAliasQuery(name=p[2], base_type=p[4] + "[]")
+        else:
+            p[0] = CreateAliasQuery(name=p[2], base_type=p[4])
 
     def p_query_create_type(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER type_field_list"""
-        p[0] = CreateTypeQuery(name=p[3], fields=p[4])
+        """query : TYPE IDENTIFIER type_field_list"""
+        p[0] = CreateTypeQuery(name=p[2], fields=p[3])
 
     def p_query_forward_type(self, p: yacc.YaccProduction) -> None:
-        """query : FORWARD TYPE IDENTIFIER"""
-        p[0] = ForwardTypeQuery(name=p[3])
+        """query : FORWARD IDENTIFIER"""
+        p[0] = ForwardTypeQuery(name=p[2])
 
     def p_query_create_type_inherit(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER FROM parent_list type_field_list"""
-        parents = p[5]
-        p[0] = CreateTypeQuery(name=p[3], fields=p[6], parents=parents)
+        """query : TYPE IDENTIFIER FROM parent_list type_field_list"""
+        parents = p[4]
+        p[0] = CreateTypeQuery(name=p[2], fields=p[5], parents=parents)
 
     def p_query_create_type_inherit_empty(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE TYPE IDENTIFIER FROM parent_list"""
-        parents = p[5]
-        p[0] = CreateTypeQuery(name=p[3], fields=[], parents=parents)
+        """query : TYPE IDENTIFIER FROM parent_list"""
+        parents = p[4]
+        p[0] = CreateTypeQuery(name=p[2], fields=[], parents=parents)
 
     def p_parent_list_single(self, p: yacc.YaccProduction) -> None:
         """parent_list : IDENTIFIER"""
@@ -616,17 +629,17 @@ class QueryParser:
         p[0] = p[1] + [p[3]]
 
     def p_query_create_interface(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE INTERFACE IDENTIFIER type_field_list"""
-        p[0] = CreateInterfaceQuery(name=p[3], fields=p[4])
+        """query : INTERFACE IDENTIFIER type_field_list"""
+        p[0] = CreateInterfaceQuery(name=p[2], fields=p[3])
 
     def p_query_create_interface_empty(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE INTERFACE IDENTIFIER"""
-        p[0] = CreateInterfaceQuery(name=p[3], fields=[])
+        """query : INTERFACE IDENTIFIER"""
+        p[0] = CreateInterfaceQuery(name=p[2], fields=[])
 
     def p_query_create_enum(self, p: yacc.YaccProduction) -> None:
-        """query : CREATE ENUM IDENTIFIER LBRACE enum_variant_list RBRACE
-                 | CREATE ENUM IDENTIFIER LBRACE enum_variant_list COMMA RBRACE"""
-        p[0] = CreateEnumQuery(name=p[3], variants=p[5])
+        """query : ENUM IDENTIFIER LBRACE enum_variant_list RBRACE
+                 | ENUM IDENTIFIER LBRACE enum_variant_list COMMA RBRACE"""
+        p[0] = CreateEnumQuery(name=p[2], variants=p[4])
 
     def p_enum_variant_list_single(self, p: yacc.YaccProduction) -> None:
         """enum_variant_list : enum_variant"""
@@ -1164,8 +1177,8 @@ class QueryParser:
         p[0] = VariableReference(var_name=p[1])
 
     def p_query_eval(self, p: yacc.YaccProduction) -> None:
-        """query : SELECT eval_expr_list"""
-        p[0] = EvalQuery(expressions=p[2])
+        """query : eval_expr_list"""
+        p[0] = EvalQuery(expressions=p[1])
 
     def p_eval_expr_list_single(self, p: yacc.YaccProduction) -> None:
         """eval_expr_list : eval_expr_with_alias"""
@@ -1235,6 +1248,14 @@ class QueryParser:
     def p_eval_expr_unary_plus(self, p: yacc.YaccProduction) -> None:
         """eval_expr : PLUS eval_expr %prec UPLUS"""
         p[0] = UnaryExpr(op="+", operand=p[2])
+
+    def p_eval_expr_method_call(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : eval_expr DOT method_name LPAREN RPAREN"""
+        p[0] = MethodCallExpr(target=p[1], method_name=p[3])
+
+    def p_eval_expr_method_call_with_args(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : eval_expr DOT method_name LPAREN eval_arg_list RPAREN"""
+        p[0] = MethodCallExpr(target=p[1], method_name=p[3], method_args=p[5])
 
     def p_eval_expr_paren(self, p: yacc.YaccProduction) -> None:
         """eval_expr : LPAREN eval_expr RPAREN"""

@@ -1,5 +1,5 @@
 -- TTQ dump
-create type Node { name: string, child: Node }
+type Node { name: string, child: Node }
 
 scope {
     $Node_5 = create Node(

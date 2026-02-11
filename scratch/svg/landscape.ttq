@@ -3,7 +3,7 @@
 use ttq_svg_landscape
 
 -- Color: named SVG colors and hex values
-create enum Color {
+enum Color {
     none,
     red,
     orange,
@@ -19,11 +19,11 @@ create enum Color {
 }
 
 -- Stroke line cap and line join
-create enum LineCap { butt, round, square }
-create enum LineJoin { miter, round, bevel }
+enum LineCap { butt, round, square }
+enum LineJoin { miter, round, bevel }
 
 -- Presentation attributes shared by all SVG elements
-create type Style {
+type Style {
     fill: Color,
     fill_opacity: float32,
     stroke: Color,
@@ -34,49 +34,49 @@ create type Style {
 }
 
 -- Coordinate pair for polyline/polygon points
-create type Point { x: float32, y: float32 }
+type Point { x: float32, y: float32 }
 
 -- SVG shape types
-create type Rect {
+type Rect {
     x: float32, y: float32,
     width: float32, height: float32,
     rx: float32, ry: float32,
     style: Style
 }
 
-create type Circle {
+type Circle {
     cx: float32, cy: float32, r: float32,
     style: Style
 }
 
-create type Ellipse {
+type Ellipse {
     cx: float32, cy: float32,
     rx: float32, ry: float32,
     style: Style
 }
 
-create type Line {
+type Line {
     x1: float32, y1: float32,
     x2: float32, y2: float32,
     style: Style
 }
 
-create type Polyline {
+type Polyline {
     points: Point[],
     style: Style
 }
 
-create type Polygon {
+type Polygon {
     points: Point[],
     style: Style
 }
 
-create type Path {
+type Path {
     d: string,
     style: Style
 }
 
-create type Text {
+type Text {
     x: float32, y: float32,
     content: string,
     font_family: string,

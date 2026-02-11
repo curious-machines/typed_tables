@@ -1,7 +1,7 @@
 -- TTQ dump
-forward type A
-create type B { name: string, link: A }
-create type A { name: string, link: B }
+forward A
+type B { name: string, link: A }
+type A { name: string, link: B }
 
 scope {
     create B(

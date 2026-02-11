@@ -137,7 +137,7 @@ class TestInterfaceParser:
     """Tests for parsing interface-related queries."""
 
     def test_parse_create_interface(self, parser):
-        queries = parser.parse_program('create interface Styled { fill: string, stroke: string }')
+        queries = parser.parse_program('interface Styled { fill: string, stroke: string }')
         assert len(queries) == 1
         q = queries[0]
         assert isinstance(q, CreateInterfaceQuery)
@@ -147,7 +147,7 @@ class TestInterfaceParser:
         assert q.fields[0].type_name == "string"
 
     def test_parse_create_interface_empty(self, parser):
-        queries = parser.parse_program('create interface Marker')
+        queries = parser.parse_program('interface Marker')
         assert len(queries) == 1
         q = queries[0]
         assert isinstance(q, CreateInterfaceQuery)
@@ -155,21 +155,21 @@ class TestInterfaceParser:
         assert q.fields == []
 
     def test_parse_create_type_from_single_parent(self, parser):
-        queries = parser.parse_program('create type Rect from Styled { width: float32 }')
+        queries = parser.parse_program('type Rect from Styled { width: float32 }')
         assert len(queries) == 1
         q = queries[0]
         assert isinstance(q, CreateTypeQuery)
         assert q.parents == ["Styled"]
 
     def test_parse_create_type_from_multiple_parents(self, parser):
-        queries = parser.parse_program('create type Rect from Styled, Positioned { width: float32 }')
+        queries = parser.parse_program('type Rect from Styled, Positioned { width: float32 }')
         assert len(queries) == 1
         q = queries[0]
         assert isinstance(q, CreateTypeQuery)
         assert q.parents == ["Styled", "Positioned"]
 
     def test_parse_create_type_from_multiple_no_fields(self, parser):
-        queries = parser.parse_program('create type Rect from Styled, Positioned')
+        queries = parser.parse_program('type Rect from Styled, Positioned')
         assert len(queries) == 1
         q = queries[0]
         assert isinstance(q, CreateTypeQuery)
@@ -178,7 +178,7 @@ class TestInterfaceParser:
 
     def test_interface_keyword_reserved(self, parser):
         """The word 'interface' should be a reserved keyword."""
-        queries = parser.parse_program('create interface Foo { x: uint8 }')
+        queries = parser.parse_program('interface Foo { x: uint8 }')
         assert isinstance(queries[0], CreateInterfaceQuery)
 
 
@@ -430,8 +430,8 @@ class TestInterfaceDump:
         ))
 
         result = executor.execute(DumpQuery())
-        assert "create interface Styled" in result.script
-        assert "create type Rect from Styled" in result.script
+        assert "interface Styled" in result.script
+        assert "type Rect from Styled" in result.script
 
     def test_dump_roundtrip(self, executor, parser, tmp_data_dir):
         """Dump then re-execute should produce same data."""

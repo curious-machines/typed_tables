@@ -6,9 +6,9 @@ A Python library that provides a typed, file-based database for structured data.
 
 Typed Tables is a live persistence layer. Types are defined in a DSL. Their format is similar to how a structure is defined in other languages. Only values can be defined, no methods.
 
-In order to improve queries and to keep type table files small, built-in types may be used to define a new type. The representation remains the same, but the name changes. Each type will have its own table, so the new name creates a new table. For example, there is a uint128 type. All uint128 values will be stored in the uint128 table. UUIDs are 128 bits, so we could define `define UUID as uint128`. When we create a UUID, it will be stored in a UUID table where each entry follows the same format as a uint128.
+In order to improve queries and to keep type table files small, built-in types may be used to define a new type. The representation remains the same, but the name changes. Each type will have its own table, so the new name creates a new table. For example, there is a uint128 type. All uint128 values will be stored in the uint128 table. UUIDs are 128 bits, so we could define `alias UUID as uint128`. When we create a UUID, it will be stored in a UUID table where each entry follows the same format as a uint128.
 
-Eventually, the type DSL will be extended to a language, but for now, this is merely for declaring data structures to be stored on disk.
+TTQ is both the query language and the type definition language.
 
 ## Key Features
 
@@ -26,21 +26,20 @@ There is also a built-in `string` type. It is stored as `character[]` but always
 
 All types have array variants which is indicated by the type name followed by square brackets. For example, `character[]`
 
-A custom DSL is used to describe the schema. Types are by a capitalized name with a body surrounded by curly braces. The body contains a list of name:type pairs. An example follows:
+TTQ syntax is used to describe the schema. Types are defined with the `type` keyword followed by a name and a body surrounded by curly braces. The body contains a list of name:type pairs. An example follows:
 
-```
-define uuid as uint128
-define name as character[]
+```ttq
+alias uuid as uint128
 
-Person {
+type Person {
   id: uuid,
-  name
+  name: string
 }
 ```
 
-In this example, we create new types from primitive types. We have a uuid type which is stored as a uint128. We have a name type, which is stored as an array of unicode characters.
+In this example, we use `alias` to create a new type name from a primitive type. We have a uuid type which is stored as a uint128.
 
-We next create a new composite type named Person. It consists of two fields: id and name. `id` is of type uuid and `name` is of type `name`. Notice that if the field name and type name match, we do not need to specify the type.
+We next create a new composite type named Person using the `type` keyword. It consists of two fields: id and name. `id` is of type uuid and `name` is of type `string`.
 
 Composite types may be nested.
 
@@ -90,7 +89,7 @@ drop example_data
 Type definitions use `{ }` with comma-separated fields:
 
 ```ttq
-create type Address {
+type Address {
     number: string,
     street: string,
     city: string,
@@ -100,7 +99,7 @@ create type Address {
 ```
 
 ```ttq
-create type Person {
+type Person {
     id: uuid,
     name: string,
     age: uint8,
@@ -109,7 +108,7 @@ create type Person {
 ```
 
 ```ttq
-create Employee from Person {
+type Employee from Person {
     department: string,
     title: string
 }
@@ -117,19 +116,19 @@ create Employee from Person {
 
 Types with array fields:
 ```ttq
-create type Sensor { name: string, readings: int8[] }
+type Sensor { name: string, readings: int8[] }
 ```
 
 Trailing commas are allowed:
 ```ttq
-create type Point { x: float32, y: float32, }
+type Point { x: float32, y: float32, }
 ```
 
 ### Default Values
 
 Fields can have default values that are used when the field is omitted during instance creation:
 ```ttq
-create type Person {
+type Person {
     name: string,
     age: uint8 = 0,
     status: string = "active"
@@ -140,15 +139,15 @@ create Person(name="Alice")  -- age defaults to 0, status to "active"
 
 Default values are supported for primitive types, strings, arrays, and enums (both C-style and Swift-style). Enum defaults use dot notation:
 ```ttq
-create enum Color { red, green, blue }
-create type Pixel { x: uint16 = 0, y: uint16 = 0, color: Color = .red }
+enum Color { red, green, blue }
+type Pixel { x: uint16 = 0, y: uint16 = 0, color: Color = .red }
 create Pixel()  -- all fields use defaults
 ```
 
 Interface fields can also have defaults, which are inherited by implementing types:
 ```ttq
-create interface Positioned { x: float32 = 0.0, y: float32 = 0.0 }
-create type Point from Positioned { label: string }
+interface Positioned { x: float32 = 0.0, y: float32 = 0.0 }
+type Point from Positioned { label: string }
 create Point(label="origin")  -- x and y default to 0.0
 ```
 
@@ -158,13 +157,13 @@ Default values must be static (no function calls like `uuid()`, no inline instan
 
 Types can reference themselves, useful for tree and graph structures:
 ```ttq
-create type Node { value: uint8, children: Node[] }
+type Node { value: uint8, children: Node[] }
 create Node(value=0, children=[Node(value=1, children=[]), Node(value=2, children=[])])
 ```
 
 Direct self-reference (linked list):
 ```ttq
-create type LinkedNode { value: uint8, next: LinkedNode }
+type LinkedNode { value: uint8, next: LinkedNode }
 create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)))
 ```
 
@@ -172,48 +171,48 @@ create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)))
 
 For mutually referential types, use forward declarations:
 ```ttq
-forward type B
-create type A { value: uint8, b: B }
-create type B { value: uint8, a: A }
+forward B
+type A { value: uint8, b: B }
+type B { value: uint8, a: A }
 ```
 
-The `forward type B` registers an empty stub. The third statement populates it with fields. This allows A and B to reference each other.
+The `forward B` registers an empty stub. The third statement populates it with fields. This allows A and B to reference each other.
 
 ### NULL Values
 
 Composite fields can be set to `null` to indicate the absence of a value. Null is tracked via a null bitmap at the start of each composite record. Fields omitted during creation default to null.
 
 ```ttq
-create type Node { value: uint8, next: Node }
+type Node { value: uint8, next: Node }
 create Node(value=1, next=null)
 create Node(value=2)              -- next defaults to null
 ```
 
 NULL values display as `NULL` in select results and as `null` in dump output.
 
-### Create Aliases
+### Aliases
 
 ```ttq
-create alias uuid as uint128
+alias uuid as uint128
 ```
 
-### Create Enumerations
+### Enumerations
 
 Enumerations use a unified syntax that covers both C-style (bare variants) and Swift-style (variants with associated values).
 
 C-style enums with auto-assigned discriminants:
 ```ttq
-create enum Color { red, green, blue }
+enum Color { red, green, blue }
 ```
 
 C-style enums with explicit backing values:
 ```ttq
-create enum HttpStatus { ok = 200, not_found = 404, internal_error = 500 }
+enum HttpStatus { ok = 200, not_found = 404, internal_error = 500 }
 ```
 
 Swift-style enums with associated values:
 ```ttq
-create enum Shape {
+enum Shape {
     none,
     line(x1: float32, y1: float32, x2: float32, y2: float32),
     circle(cx: float32, cy: float32, r: float32)
@@ -224,10 +223,10 @@ create enum Shape {
 
 Enum values are used in instance creation with dot notation:
 ```ttq
-create type Pixel { x: uint16, y: uint16, color: Color }
+type Pixel { x: uint16, y: uint16, color: Color }
 create Pixel(x=0, y=0, color=Color.red)
 
-create type Canvas { name: string, bg: Shape }
+type Canvas { name: string, bg: Shape }
 create Canvas(name="test", bg=Shape.circle(cx=50, cy=50, r=25))
 ```
 
@@ -341,13 +340,13 @@ Cycles in composite references (e.g., linked lists, graphs) are supported using 
 
 Self-referencing (node points to itself):
 ```ttq
-create type Node { value: uint8, next: Node }
+type Node { value: uint8, next: Node }
 scope { create Node(tag(SELF), value=42, next=SELF) }
 ```
 
 Two-node cycle (A→B→A):
 ```ttq
-create type Node { name: string, child: Node }
+type Node { name: string, child: Node }
 scope { create Node(tag(A), name="A", child=Node(name="B", child=A)) }
 ```
 
@@ -388,7 +387,7 @@ from $seniors select average(age)
 ### Naming Fields
 
 ```ttq
-select uuid() as "One", uuid() as "Two"
+uuid() as "One", uuid() as "Two"
 ```
 
 ### Limiting Selection
@@ -491,15 +490,15 @@ from Person select name, age sort by age, name
 
 Aggregate functions (`count`, `average`, `sum`, `product`, `min`, `max`) are not reserved keywords — they can also be used as field names:
 ```ttq
-create type Stats { count: uint32, sum: float64 }
+type Stats { count: uint32, sum: float64 }
 ```
 
-In eval expressions (SELECT without FROM), aggregates operate on arrays:
+In eval expressions (bare expressions without FROM), aggregates operate on arrays:
 ```ttq
-select sum([1, 2, 3])       -- 6
-select average([10, 20])     -- 15.0
-select min(5, 3)             -- 3 (multi-arg)
-select max([5, 3, 7])        -- 7
+sum([1, 2, 3])       -- 6
+average([10, 20])     -- 15.0
+min(5, 3)             -- 3 (multi-arg)
+max([5, 3, 7])        -- 7
 ```
 
 ### Special Queries
@@ -730,7 +729,7 @@ To be determined, but here is a list of features that will be expected to be sup
 
 ## Parsing
 
-The languages for type definition and for querying are defined using PLY.
+The TTQ language is defined using PLY (Python Lex-Yacc).
 
 ## Project Structure
 
@@ -750,10 +749,8 @@ typed_tables/
 │       ├── repl.py            # Interactive TTQ REPL
 │       └── parsing/
 │           ├── __init__.py
-│           ├── type_lexer.py  # PLY lexer for type DSL
-│           ├── type_parser.py # PLY parser for type DSL
-│           ├── query_lexer.py # PLY lexer for TTQ
-│           └── query_parser.py # PLY parser for TTQ
+│           ├── query_lexer.py # PLY lexer for TTQ (types + queries)
+│           └── query_parser.py # PLY parser for TTQ (types + queries)
 ├── tests/
 │   ├── test_types.py
 │   ├── test_parser.py
@@ -768,16 +765,14 @@ typed_tables/
 ```python
 from typed_tables import Schema
 
-# Define a data structure of types
+# Define types using TTQ syntax
 types = '''
-define uuid as uint128
-define name as character[]
-define age as uint8
+alias uuid as uint128
 
-Person {
+type Person {
   id: uuid,
-  name,
-  age
+  name: string,
+  age: uint8
 }
 '''
 
@@ -791,12 +786,6 @@ with Schema.parse(types, "./data") as schema:
             "name": ["B", "i", "l", "l"],
         },
     )
-
-    # At this point, tables have been created:
-    # - uuid.bin: stores the uuid value
-    # - name.bin: stores array headers (start_index, length)
-    # - name.bin: stores the actual characters
-    # - Person.bin: stores Person records with references to uuid and name
 
     # Load the instance back
     data = person.load()

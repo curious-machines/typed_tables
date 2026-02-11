@@ -3,22 +3,22 @@
 
 use /tmp/ttq_enum_shorthand
 
-create enum Color { red, green, blue, black, white }
+enum Color { red, green, blue, black, white }
 
-create enum Shape {
+enum Shape {
     none,
     point(x: float32, y: float32),
     circle(cx: float32, cy: float32, r: float32),
     rect(x: float32, y: float32, w: float32, h: float32)
 }
 
-create type Pixel {
+type Pixel {
     x: uint16,
     y: uint16,
     color: Color
 }
 
-create type Drawing {
+type Drawing {
     name: string,
     shape: Shape,
     color: Color

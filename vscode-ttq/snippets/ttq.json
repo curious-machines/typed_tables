@@ -2,59 +2,59 @@
   "Create Type": {
     "prefix": "type",
     "body": [
-      "create type ${1:Name} {",
+      "type ${1:Name} {",
       "\t${2:field}: ${3:type}",
       "}"
     ],
-    "description": "Create a composite type"
+    "description": "Define a composite type"
   },
   "Create Type from Parent": {
     "prefix": "typefrom",
     "body": [
-      "create type ${1:Name} from ${2:Parent} {",
+      "type ${1:Name} from ${2:Parent} {",
       "\t${3:field}: ${4:type}",
       "}"
     ],
-    "description": "Create a composite type with inheritance"
+    "description": "Define a composite type with inheritance"
   },
   "Create Enum": {
     "prefix": "enum",
     "body": [
-      "create enum ${1:Name} {",
+      "enum ${1:Name} {",
       "\t${2:a},",
       "\t${3:b},",
       "\t${4:c}",
       "}"
     ],
-    "description": "Create a C-style enum"
+    "description": "Define a C-style enum"
   },
   "Create Swift-style Enum": {
     "prefix": "enumsw",
     "body": [
-      "create enum ${1:Name} {",
+      "enum ${1:Name} {",
       "\t${2:bare},",
       "\t${3:variant}(${4:field}: ${5:type})",
       "}"
     ],
-    "description": "Create a Swift-style enum with associated values"
+    "description": "Define a Swift-style enum with associated values"
   },
   "Create Interface": {
     "prefix": "interface",
     "body": [
-      "create interface ${1:Name} {",
+      "interface ${1:Name} {",
       "\t${2:field}: ${3:type}",
       "}"
     ],
-    "description": "Create an interface"
+    "description": "Define an interface"
   },
   "Create Alias": {
     "prefix": "alias",
-    "body": "create alias ${1:name} as ${2:base_type}",
-    "description": "Create a type alias"
+    "body": "alias ${1:name} as ${2:base_type}",
+    "description": "Define a type alias"
   },
   "Forward Declaration": {
     "prefix": "forward",
-    "body": "forward type ${1:Name}",
+    "body": "forward ${1:Name}",
     "description": "Forward-declare a type for mutual references"
   },
   "Create Instance": {

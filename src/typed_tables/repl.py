@@ -11,16 +11,17 @@ from pathlib import Path
 from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
-from typed_tables.parsing.query_parser import DropDatabaseQuery, ExecuteQuery, ImportQuery, QueryParser, RestoreQuery, UseQuery
+from typed_tables.parsing.query_parser import DropDatabaseQuery, EvalQuery, ExecuteQuery, ImportQuery, QueryParser, RestoreQuery, UseQuery
 from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, ExecuteResult, ImportResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
 from typed_tables.storage import StorageManager
 from typed_tables.types import EnumValue, TypeRegistry
 
 
-def _balance_counts(text: str) -> tuple[int, int]:
-    """Return (paren_balance, brace_balance) for text, ignoring strings."""
+def _balance_counts(text: str) -> tuple[int, int, int]:
+    """Return (paren_balance, brace_balance, bracket_balance) for text, ignoring strings."""
     paren = 0
     brace = 0
+    bracket = 0
     in_string = False
     escape_next = False
     for ch in text:
@@ -43,7 +44,11 @@ def _balance_counts(text: str) -> tuple[int, int]:
             brace += 1
         elif ch == '}':
             brace -= 1
-    return paren, brace
+        elif ch == '[':
+            bracket += 1
+        elif ch == ']':
+            bracket -= 1
+    return paren, brace, bracket
 
 
 def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
@@ -223,14 +228,14 @@ def run_repl(data_dir: Path | None) -> int:
         if not stripped:
             return False
 
-        paren, brace = _balance_counts(stripped)
+        paren, brace, bracket = _balance_counts(stripped)
 
         # Explicit semicolon terminator — always complete if balanced
         if stripped.endswith(";"):
-            return paren != 0 or brace != 0
+            return paren != 0 or brace != 0 or bracket != 0
 
-        # Unbalanced parens or braces — definitely need more
-        if paren != 0 or brace != 0:
+        # Unbalanced parens, braces, or brackets — definitely need more
+        if paren != 0 or brace != 0 or bracket != 0:
             return True
 
         # Balanced and ends with ) — complete (instance creation, update, etc.)
@@ -241,12 +246,16 @@ def run_repl(data_dir: Path | None) -> int:
         if stripped.endswith("}"):
             return False
 
-        # Simple statements that are complete without ; or ) or }
+        # Balanced and ends with ] — complete (array literal)
+        if stripped.endswith("]"):
+            return False
+
+        # Simple statements that are complete without ; or ) or } or ]
         lower = stripped.lower()
         simple_prefixes = (
             "show ", "describe ", "use ", "use", "drop", "drop!", "drop ",
             "drop! ", "dump", "delete ", "delete!", "delete! ", "from ",
-            "select ", "forward ",
+            "forward ", "alias ",
             "compact ", "archive ", "restore ", "execute ", "import ",
         )
         for prefix in simple_prefixes:
@@ -255,6 +264,11 @@ def run_repl(data_dir: Path | None) -> int:
 
         # Collect query: $var = collect ...
         if stripped.startswith("$") and "collect" in lower:
+            return False
+
+        # Eval expressions: starts with number, string literal, or minus sign
+        # These are complete single-line expressions like "5 + 3", "\"hello\"", "-42"
+        if stripped[0].isdigit() or stripped[0] == '"' or stripped[0] == '-' or stripped[0] == '+':
             return False
 
         # Default: need more input
@@ -304,15 +318,14 @@ def run_repl(data_dir: Path | None) -> int:
                         except EOFError:
                             break
 
+                query = parser.parse(line)
+
                 # Check if we need a database for this query
-                lower = line.lower().strip()
-                needs_db = not (lower.startswith("use") or lower.startswith("drop") or lower.startswith("select ") or lower.startswith("restore") or lower.startswith("execute "))
+                needs_db = not isinstance(query, (UseQuery, DropDatabaseQuery, EvalQuery, RestoreQuery, ExecuteQuery))
                 if needs_db and executor is None:
                     print("No database selected. Use 'use <path>' to select a database first.")
                     print()
                     continue
-
-                query = parser.parse(line)
 
                 # Handle USE query specially - switch databases
                 if isinstance(query, UseQuery):
@@ -539,13 +552,17 @@ DATABASE:
   show types               List all types
   describe <type>          Show type structure (use quotes for special names)
 
+DEFINITIONS:
+  type <Name> { field: type, ... }
+                           Define a new composite type
+  type <Name> from <Parent> { field: type, ... }
+                           Define a type inheriting from another type
+  alias <name> as <type>   Define a type alias
+  enum <Name> { a, b, c }  Define an enumeration
+  interface <Name> { ... }  Define an interface
+  forward <Name>           Forward-declare a type (for mutual references)
+
 CREATE:
-  create type <Name> { field: type, ... }
-                           Create a new composite type
-  create type <Name> from <Parent> { field: type, ... }
-                           Create a type inheriting from another type
-  create alias <name> as <type>
-                           Create a type alias
   create <Type>(...)       Create an instance of a type
     field=value, ...         - Field values separated by commas
     field=uuid()             - Use uuid() to generate a UUID
@@ -602,13 +619,16 @@ AGGREGATES (in FROM ... SELECT):
   min(field)               Minimum field value
   max(field)               Maximum field value
 
-EXPRESSIONS (SELECT without FROM):
-  select uuid()            Generate a random UUID
-  select 1, 2, 3           Evaluate literal values
-  select uuid(), uuid()    Multiple expressions
-  select uuid() as "id"    Name the result column
-  select sum([1, 2, 3])    Aggregate functions on arrays
-  select min(5, 3)         Multi-argument min/max
+EXPRESSIONS:
+  uuid()                   Generate a random UUID
+  1, 2, 3                  Evaluate literal values
+  uuid(), uuid()           Multiple expressions
+  uuid() as "id"           Name the result column
+  5 + 3                    Arithmetic expressions
+  [1, 2, 3]                Array literals
+  [1, 9, 5].sort()         Method calls on expressions
+  sum([1, 2, 3])           Aggregate functions on arrays
+  min(5, 3)                Multi-argument min/max
 
 TYPES:
   string                   Built-in string type (stored as character[], displayed as string)
@@ -620,7 +640,7 @@ TYPES:
 EXAMPLES:
   use ./my_database
 
-  create type Person { name: string, age: uint8 }
+  type Person { name: string, age: uint8 }
 
   create Person(name="Alice", age=30)
 

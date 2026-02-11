@@ -2,11 +2,11 @@
 
 use /tmp/ttq_enum_basic
 
-create enum Color { red, green, blue }
+enum Color { red, green, blue }
 
-create enum Direction { north, south, east, west }
+enum Direction { north, south, east, west }
 
-create type Pixel {
+type Pixel {
     x: uint16,
     y: uint16,
     color: Color

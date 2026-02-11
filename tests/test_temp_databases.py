@@ -110,7 +110,7 @@ class TestTempDatabaseCleanup:
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{temp_db}" as temp
-create type Foo {{ x: uint8 }}
+type Foo {{ x: uint8 }}
 create Foo(x=42)
 """)
         exit_code, _ = run_file(script, None, verbose=False)
@@ -126,9 +126,9 @@ create Foo(x=42)
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{temp_db}"
-create type Foo {{ x: uint8 }}
+type Foo {{ x: uint8 }}
 use "{other_db}"
-create type Bar {{ y: uint8 }}
+type Bar {{ y: uint8 }}
 """)
         exit_code, _ = run_file(script, None, verbose=False)
         assert exit_code == 0
@@ -140,7 +140,7 @@ create type Bar {{ y: uint8 }}
         """Multiple statements including 'use ... as temp' parse correctly."""
         parser = QueryParser()
         stmts = parser.parse_program(
-            'use test_db as temp; create type Foo { x: uint8 }'
+            'use test_db as temp; type Foo { x: uint8 }'
         )
         assert len(stmts) == 2
         assert isinstance(stmts[0], UseQuery)

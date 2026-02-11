@@ -115,7 +115,7 @@ class TestSchema:
 
     def test_parse_and_create_primitive(self, tmp_path):
         """Test creating a primitive instance."""
-        with Schema.parse("define counter as uint32", tmp_path) as schema:
+        with Schema.parse("alias counter as uint32", tmp_path) as schema:
             instance = schema.create_instance("counter", 42)
 
             assert instance.type_name == "counter"
@@ -123,7 +123,7 @@ class TestSchema:
 
     def test_parse_and_create_array(self, tmp_path):
         """Test creating an array instance."""
-        with Schema.parse("define numbers as uint32[]", tmp_path) as schema:
+        with Schema.parse("alias numbers as uint32[]", tmp_path) as schema:
             instance = schema.create_instance("numbers", [1, 2, 3, 4, 5])
 
             assert instance.type_name == "numbers"
@@ -131,7 +131,7 @@ class TestSchema:
 
     def test_parse_and_create_string_like(self, tmp_path):
         """Test creating a string-like array of characters."""
-        with Schema.parse("define name as character[]", tmp_path) as schema:
+        with Schema.parse("alias name as character[]", tmp_path) as schema:
             chars = ["H", "e", "l", "l", "o"]
             instance = schema.create_instance("name", chars)
 
@@ -140,12 +140,11 @@ class TestSchema:
     def test_example_from_readme(self, tmp_path):
         """Test the example from CLAUDE.md."""
         types = """
-        define uuid as uint128
-        define name as character[]
+        alias uuid as uint128
 
-        Person {
+        type Person {
             id: uuid,
-            name
+            name: string
         }
         """
 
@@ -166,8 +165,8 @@ class TestSchema:
     def test_list_types(self, tmp_path):
         """Test listing types in schema."""
         types = """
-        define uuid as uint128
-        Point { x: float64, y: float64 }
+        alias uuid as uint128
+        type Point { x: float64, y: float64 }
         """
 
         with Schema.parse(types, tmp_path) as schema:
@@ -180,7 +179,7 @@ class TestSchema:
 
     def test_get_type(self, tmp_path):
         """Test getting a type definition."""
-        with Schema.parse("define counter as uint32", tmp_path) as schema:
+        with Schema.parse("alias counter as uint32", tmp_path) as schema:
             type_def = schema.get_type("counter")
             assert type_def.name == "counter"
 
@@ -190,12 +189,11 @@ class TestSchema:
     def test_persistence_full_workflow(self, tmp_path):
         """Test full workflow with persistence."""
         types = """
-        define uuid as uint128
-        define name as character[]
+        alias uuid as uint128
 
-        Person {
+        type Person {
             id: uuid,
-            name
+            name: string
         }
         """
 
@@ -220,7 +218,7 @@ class TestSchema:
     def test_tuple_values_for_composite(self, tmp_path):
         """Test creating composite with tuple values."""
         types = """
-        Point {
+        type Point {
             x: float64,
             y: float64
         }
@@ -239,7 +237,7 @@ class TestInstanceRef:
 
     def test_equality(self, tmp_path):
         """Test InstanceRef equality."""
-        with Schema.parse("define num as uint32", tmp_path) as schema:
+        with Schema.parse("alias num as uint32", tmp_path) as schema:
             instance1 = schema.create_instance("num", 42)
             instance2 = schema.get_instance("num", 0)
 
@@ -247,7 +245,7 @@ class TestInstanceRef:
 
     def test_hash(self, tmp_path):
         """Test InstanceRef hashing."""
-        with Schema.parse("define num as uint32", tmp_path) as schema:
+        with Schema.parse("alias num as uint32", tmp_path) as schema:
             instance1 = schema.create_instance("num", 42)
             instance2 = schema.get_instance("num", 0)
 
@@ -257,7 +255,7 @@ class TestInstanceRef:
 
     def test_repr(self, tmp_path):
         """Test InstanceRef string representation."""
-        with Schema.parse("define num as uint32", tmp_path) as schema:
+        with Schema.parse("alias num as uint32", tmp_path) as schema:
             instance = schema.create_instance("num", 42)
 
             repr_str = repr(instance)

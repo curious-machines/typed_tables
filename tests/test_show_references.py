@@ -92,11 +92,11 @@ class TestParseShowReferences:
 class TestShowReferences:
     def _setup_schema(self, executor, parser):
         """Set up a schema with aliases, enums, interfaces, and composites."""
-        _run(executor, parser, 'create alias myid as uint128')
-        _run(executor, parser, 'create enum Color { red, green, blue }')
-        _run(executor, parser, 'create enum Shape { none, circle(r: float32), rect(w: float32, h: float32) }')
-        _run(executor, parser, 'create interface Named { name: string }')
-        _run(executor, parser, 'create type Person from Named { id: myid, age: uint8, color: Color, shape: Shape }')
+        _run(executor, parser, 'alias myid as uint128')
+        _run(executor, parser, 'enum Color { red, green, blue }')
+        _run(executor, parser, 'enum Shape { none, circle(r: float32), rect(w: float32, h: float32) }')
+        _run(executor, parser, 'interface Named { name: string }')
+        _run(executor, parser, 'type Person from Named { id: myid, age: uint8, color: Color, shape: Shape }')
 
     def test_show_references_all(self, executor, parser):
         self._setup_schema(executor, parser)
@@ -146,7 +146,7 @@ class TestShowReferences:
         assert ("Person", "Composite", "shape", "Shape") in edges
 
     def test_show_references_array_edges(self, executor, parser):
-        _run(executor, parser, 'create type Sensor { name: string, readings: int8[] }')
+        _run(executor, parser, 'type Sensor { name: string, readings: int8[] }')
         result = _run(executor, parser, 'show references')
         edges = _edges(result)
         # Sensor → string (name field)
@@ -158,9 +158,9 @@ class TestShowReferences:
 
     def test_show_references_array_type_filter_includes_referrers(self, executor, parser):
         """Filtering by element type also shows who references the array type."""
-        _run(executor, parser, 'create type Point { x: float32, y: float32 }')
-        _run(executor, parser, 'create type Polyline { points: Point[] }')
-        _run(executor, parser, 'create type Polygon { points: Point[] }')
+        _run(executor, parser, 'type Point { x: float32, y: float32 }')
+        _run(executor, parser, 'type Polyline { points: Point[] }')
+        _run(executor, parser, 'type Polygon { points: Point[] }')
         result = _run(executor, parser, 'show references Point')
         edges = _edges(result)
         # Direct edges from Point
@@ -173,7 +173,7 @@ class TestShowReferences:
         assert ("Polygon", "Composite", "points", "Point[]") in edges
 
     def test_show_references_primitives_as_targets(self, executor, parser):
-        _run(executor, parser, 'create type Point { x: float32, y: float32 }')
+        _run(executor, parser, 'type Point { x: float32, y: float32 }')
         result = _run(executor, parser, 'show references')
         edges = _edges(result)
         assert ("Point", "Composite", "x", "float32") in edges
@@ -195,29 +195,29 @@ class TestShowReferences:
 
     def test_show_references_default_sort(self, executor, parser):
         """Default sort is by target, then source."""
-        _run(executor, parser, 'create type A { x: uint8 }')
-        _run(executor, parser, 'create type B { x: uint16 }')
+        _run(executor, parser, 'type A { x: uint8 }')
+        _run(executor, parser, 'type B { x: uint16 }')
         result = _run(executor, parser, 'show references')
         targets = [e["target"] for e in result.rows if e["source"] in ("A", "B")]
         assert targets == sorted(targets)
 
     def test_show_references_sort_by_source(self, executor, parser):
         """Explicit sort by source."""
-        _run(executor, parser, 'create type Zz { x: uint8 }')
-        _run(executor, parser, 'create type Aa { x: uint8 }')
+        _run(executor, parser, 'type Zz { x: uint8 }')
+        _run(executor, parser, 'type Aa { x: uint8 }')
         result = _run(executor, parser, 'show references sort by source')
         sources = [e["source"] for e in result.rows if e["source"] in ("Aa", "Zz")]
         assert sources == ["Aa", "Zz"]
 
     def test_show_types_sort_by_kind(self, executor, parser):
-        _run(executor, parser, 'create enum Color { red, green }')
-        _run(executor, parser, 'create type Point { x: float32 }')
+        _run(executor, parser, 'enum Color { red, green }')
+        _run(executor, parser, 'type Point { x: float32 }')
         result = _run(executor, parser, 'show types sort by kind')
         kinds = [r["kind"] for r in result.rows]
         assert kinds == sorted(kinds)
 
     def test_describe_sort_by_type(self, executor, parser):
-        _run(executor, parser, 'create type Thing { name: string, age: uint8, score: float32 }')
+        _run(executor, parser, 'type Thing { name: string, age: uint8, score: float32 }')
         result = _run(executor, parser, 'describe Thing sort by type')
         # Field rows sorted by type name
         field_rows = [r for r in result.rows if not r["property"].startswith("(")]
@@ -230,16 +230,16 @@ class TestShowReferences:
 
 class TestDumpGraph:
     def _setup_schema(self, executor, parser):
-        _run(executor, parser, 'create alias myid as uint128')
-        _run(executor, parser, 'create type Person { id: myid, name: string, age: uint8 }')
+        _run(executor, parser, 'alias myid as uint128')
+        _run(executor, parser, 'type Person { id: myid, name: string, age: uint8 }')
 
     def test_dump_graph_ttq(self, executor, parser):
         self._setup_schema(executor, parser)
         result = _run(executor, parser, 'dump graph')
         assert isinstance(result, DumpResult)
         script = result.script
-        assert "create type TypeNode" in script
-        assert "create type Edge" in script
+        assert "type TypeNode" in script
+        assert "type Edge" in script
         assert 'kind="Composite"' in script
         assert 'kind="Alias"' in script
         assert 'kind="Primitive"' in script
@@ -271,7 +271,7 @@ class TestDumpGraph:
         result = executor.execute(DumpGraphQuery(output_file=out_path))
         assert isinstance(result, DumpResult)
         assert result.output_file == out_path
-        assert "create type TypeNode" in result.script
+        assert "type TypeNode" in result.script
 
     def test_dump_graph_no_extension(self, executor, parser, tmp_data_dir):
         self._setup_schema(executor, parser)
@@ -280,12 +280,12 @@ class TestDumpGraph:
         assert isinstance(result, DumpResult)
         # Should have appended .ttq
         assert result.output_file == out_path + ".ttq"
-        assert "create type TypeNode" in result.script
+        assert "type TypeNode" in result.script
 
     def test_dump_graph_dot_node_styles(self, executor, parser):
-        _run(executor, parser, 'create enum Color { red, green, blue }')
-        _run(executor, parser, 'create alias name as string')
-        _run(executor, parser, 'create type Person { name: name, color: Color }')
+        _run(executor, parser, 'enum Color { red, green, blue }')
+        _run(executor, parser, 'alias name as string')
+        _run(executor, parser, 'type Person { name: name, color: Color }')
         result = executor.execute(DumpGraphQuery(output_file="/dev/null/types.dot"))
         script = result.script
         # Check different node styles
@@ -296,5 +296,5 @@ class TestDumpGraph:
         """Empty schema produces minimal TTQ output."""
         result = _run(executor, parser, 'dump graph')
         assert isinstance(result, DumpResult)
-        assert "create type TypeNode" in result.script
-        assert "create type Edge" in result.script
+        assert "type TypeNode" in result.script
+        assert "type Edge" in result.script

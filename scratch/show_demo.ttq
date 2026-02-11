@@ -2,29 +2,29 @@
 use show_demo
 
 -- Aliases
-create alias identifier as uint128
-create alias age as uint8
+alias identifier as uint128
+alias age as uint8
 
 -- Enums
-create enum Color { red, green, blue }
-create enum Shape {
+enum Color { red, green, blue }
+enum Shape {
     none,
     circle(cx: float32, cy: float32, r: float32),
     rect(x: float32, y: float32, w: float32, h: float32)
 }
 
 -- Interfaces
-create interface Positioned { x: float32, y: float32 }
-create interface Named { name: string }
+interface Positioned { x: float32, y: float32 }
+interface Named { name: string }
 
 -- Composites
-create type Person {
+type Person {
     id: identifier,
     name: string,
     age: age
 }
 
-create type Marker from Positioned, Named {
+type Marker from Positioned, Named {
     color: Color
 }
 

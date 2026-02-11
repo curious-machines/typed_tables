@@ -2,7 +2,7 @@
 
 use /tmp/ttq_enum_explicit
 
-create enum HttpStatus {
+enum HttpStatus {
     ok = 200,
     created = 201,
     bad_request = 400,
@@ -11,7 +11,7 @@ create enum HttpStatus {
     internal_error = 500
 }
 
-create enum LogLevel {
+enum LogLevel {
     trace = 0,
     debug = 10,
     info = 20,
@@ -20,12 +20,12 @@ create enum LogLevel {
     fatal = 50
 }
 
-create type ApiResponse {
+type ApiResponse {
     endpoint: string,
     status: HttpStatus
 }
 
-create type LogEntry {
+type LogEntry {
     message: string,
     level: LogLevel
 }

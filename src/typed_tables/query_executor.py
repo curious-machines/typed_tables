@@ -45,6 +45,7 @@ from typed_tables.parsing.query_parser import (
     FunctionCall,
     InlineInstance,
     MethodCall,
+    MethodCallExpr,
     MethodChainValue,
     NullValue,
     Query,
@@ -675,8 +676,8 @@ class QueryExecutor:
         """Format type graph as a TTQ script."""
         lines: list[str] = []
         lines.append("-- Type reference graph")
-        lines.append("create type TypeNode { name: string, kind: string }")
-        lines.append("create type Edge { source: TypeNode, target: TypeNode, field_name: string }")
+        lines.append("type TypeNode { name: string, kind: string }")
+        lines.append("type Edge { source: TypeNode, target: TypeNode, field_name: string }")
         lines.append("")
 
         # Assign indices to nodes
@@ -892,7 +893,11 @@ class QueryExecutor:
             )
 
         # Get the base type
-        base_type = self.registry.get(query.base_type)
+        if query.base_type.endswith("[]"):
+            elem_name = query.base_type[:-2]
+            base_type = self.registry.get_array_type(elem_name)
+        else:
+            base_type = self.registry.get(query.base_type)
         if base_type is None:
             return CreateResult(
                 columns=[],
@@ -2696,6 +2701,11 @@ class QueryExecutor:
         # Leaf: list literal (array of expressions)
         if isinstance(expr, list):
             return [self._evaluate_expr(item) for item in expr]
+        # MethodCallExpr: expr.method(args) — e.g. [1,9,5,7,3].sort()
+        if isinstance(expr, MethodCallExpr):
+            target = self._evaluate_expr(expr.target)
+            args = [self._evaluate_expr(a) for a in expr.method_args] if expr.method_args else None
+            return self._apply_projection_method(target, expr.method_name, args)
         # Leaf: FunctionCall — with args → math function, no args → existing path
         if isinstance(expr, FunctionCall):
             if expr.args:
@@ -2871,6 +2881,12 @@ class QueryExecutor:
 
     def _format_expr(self, expr: Any) -> str:
         """Format an expression tree as a human-readable column name."""
+        if isinstance(expr, MethodCallExpr):
+            target = self._format_expr(expr.target)
+            if expr.method_args:
+                args_str = ", ".join(self._format_expr(a) for a in expr.method_args)
+                return f"{target}.{expr.method_name}({args_str})"
+            return f"{target}.{expr.method_name}()"
         if isinstance(expr, BinaryExpr):
             left = self._format_expr(expr.left)
             right = self._format_expr(expr.right)
@@ -4364,7 +4380,7 @@ class QueryExecutor:
         # Emit aliases
         for name, alias_def in aliases:
             base_name = alias_def.base_type.name
-            lines.append(f"create alias {name} as {base_name}")
+            lines.append(f"alias {name} as {base_name}")
 
         # Emit enum type definitions
         for name, enum_def in enums:
@@ -4378,14 +4394,14 @@ class QueryExecutor:
                 else:
                     variant_strs.append(v.name)
             if pretty:
-                lines.append(f"create enum {name} {{")
+                lines.append(f"enum {name} {{")
                 for i, vs in enumerate(variant_strs):
                     comma = "," if i < len(variant_strs) - 1 else ""
                     lines.append(f"    {vs}{comma}")
                 lines.append("}")
                 lines.append("")
             else:
-                lines.append(f"create enum {name} {{ {', '.join(variant_strs)} }}")
+                lines.append(f"enum {name} {{ {', '.join(variant_strs)} }}")
 
         # Emit interface definitions
         for name, iface_def in interfaces:
@@ -4400,7 +4416,7 @@ class QueryExecutor:
                     fs += f" = {self._format_default_for_dump(f.default_value, f.type_def)}"
                 field_strs.append(fs)
             if pretty:
-                lines.append(f"create interface {name} {{")
+                lines.append(f"interface {name} {{")
                 for i, fs in enumerate(field_strs):
                     comma = "," if i < len(field_strs) - 1 else ""
                     lines.append(f"    {fs}{comma}")
@@ -4408,7 +4424,7 @@ class QueryExecutor:
                 lines.append("")
             else:
                 fields_part = ", ".join(field_strs)
-                lines.append(f"create interface {name} {{ {fields_part} }}")
+                lines.append(f"interface {name} {{ {fields_part} }}")
 
         # Determine which cycle types need forward declarations
         # Only types referenced before they're defined need forwarding
@@ -4434,7 +4450,7 @@ class QueryExecutor:
 
         # Emit only the necessary forward declarations
         for name in sorted(needs_forward):
-            lines.append(f"forward type {name}")
+            lines.append(f"forward {name}")
 
         # Helper to emit a type definition
         def emit_type_def(name: str, comp_def: CompositeTypeDefinition) -> None:
@@ -4468,20 +4484,20 @@ class QueryExecutor:
 
             if pretty:
                 if field_strs:
-                    lines.append(f"create type {name}{from_clause} {{")
+                    lines.append(f"type {name}{from_clause} {{")
                     for i, fs in enumerate(field_strs):
                         comma = "," if i < len(field_strs) - 1 else ""
                         lines.append(f"    {fs}{comma}")
                     lines.append("}")
                 else:
-                    lines.append(f"create type {name}{from_clause}")
+                    lines.append(f"type {name}{from_clause}")
                 lines.append("")  # blank line between type blocks
             else:
                 if field_strs:
                     fields_part = ", ".join(field_strs)
-                    lines.append(f"create type {name}{from_clause} {{ {fields_part} }}")
+                    lines.append(f"type {name}{from_clause} {{ {fields_part} }}")
                 else:
-                    lines.append(f"create type {name}{from_clause}")
+                    lines.append(f"type {name}{from_clause}")
 
         # Emit non-cycle composite type definitions
         for name, comp_def in sorted_composites:

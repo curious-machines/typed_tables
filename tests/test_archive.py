@@ -90,7 +90,7 @@ class TestArchiveExecution:
     def test_archive_simple_types(self, executor, db_dir):
         """Archive DB with primitive/string fields, restore, verify."""
         _run(executor, """
-            create type Person { name: string, age: uint8 }
+            type Person { name: string, age: uint8 }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
         """)
@@ -115,8 +115,8 @@ class TestArchiveExecution:
     def test_archive_composite_refs(self, executor, db_dir):
         """Composite refs survive round-trip."""
         _run(executor, """
-            create type Person { name: string }
-            create type Team { lead: Person, name: string }
+            type Person { name: string }
+            type Team { lead: Person, name: string }
             create Person(name="Alice")
             create Person(name="Bob")
             create Team(lead=Person(1), name="Alpha")
@@ -139,7 +139,7 @@ class TestArchiveExecution:
     def test_archive_arrays(self, executor, db_dir):
         """Array fields survive round-trip."""
         _run(executor, """
-            create type Sensor { name: string, readings: uint8[] }
+            type Sensor { name: string, readings: uint8[] }
             create Sensor(name="temp", readings=[10, 20, 30])
             create Sensor(name="humidity", readings=[50, 60])
         """)
@@ -163,8 +163,8 @@ class TestArchiveExecution:
     def test_archive_enums_c_style(self, executor, db_dir):
         """C-style enum values survive round-trip."""
         _run(executor, """
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, color: Color }
             create Pixel(x=0, color=.red)
             create Pixel(x=1, color=.blue)
         """)
@@ -188,8 +188,8 @@ class TestArchiveExecution:
     def test_archive_enums_swift_style(self, executor, db_dir):
         """Swift-style enums (variant tables) survive round-trip."""
         _run(executor, """
-            create enum Shape { none, circle(r: float32) }
-            create type Canvas { name: string, bg: Shape }
+            enum Shape { none, circle(r: float32) }
+            type Canvas { name: string, bg: Shape }
             create Canvas(name="A", bg=.circle(r=10.0))
             create Canvas(name="B", bg=.none)
         """)
@@ -218,7 +218,7 @@ class TestArchiveExecution:
     def test_archive_compacts_first(self, executor, db_dir):
         """Archive after deleting records produces clean archive."""
         _run(executor, """
-            create type Person { name: string, age: uint8 }
+            type Person { name: string, age: uint8 }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
             create Person(name="Charlie", age=35)
@@ -243,9 +243,9 @@ class TestArchiveExecution:
     def test_archive_interfaces(self, executor, db_dir):
         """Interface refs survive round-trip."""
         _run(executor, """
-            create interface Animal { name: string }
-            create type Dog from Animal { breed: string }
-            create type Shelter { resident: Animal }
+            interface Animal { name: string }
+            type Dog from Animal { breed: string }
+            type Shelter { resident: Animal }
             create Dog(name="Rex", breed="Lab")
             create Shelter(resident=Dog(0))
         """)
@@ -267,7 +267,7 @@ class TestArchiveExecution:
     def test_archive_null_fields(self, executor, db_dir):
         """Null fields preserved through round-trip."""
         _run(executor, """
-            create type Node { value: uint8, next: Node }
+            type Node { value: uint8, next: Node }
             create Node(value=1, next=null)
             create Node(value=2)
         """)
@@ -290,7 +290,7 @@ class TestArchiveExecution:
     def test_archive_default_values(self, executor, db_dir):
         """Type defaults survive metadata round-trip."""
         _run(executor, """
-            create type Config { name: string, level: uint8 = 5 }
+            type Config { name: string, level: uint8 = 5 }
             create Config(name="test")
         """)
         ttar = db_dir / "backup.ttar"
@@ -311,7 +311,7 @@ class TestArchiveExecution:
     def test_archive_appends_ttar_extension(self, executor, db_dir):
         """Extension auto-appended when missing."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=1)
         """)
         ttar_name = str(db_dir / "backup")
@@ -323,7 +323,7 @@ class TestArchiveExecution:
     def test_archive_preserves_ttar_extension(self, executor, db_dir):
         """Extension not doubled when already present."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=1)
         """)
         ttar_name = str(db_dir / "backup.ttar")
@@ -350,7 +350,7 @@ class TestArchiveExecution:
     def test_restore_error_output_exists(self, executor, db_dir):
         """Error when output path already exists."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=1)
         """)
         ttar = db_dir / "backup.ttar"
@@ -377,8 +377,8 @@ class TestArchiveExecution:
     def test_restore_queryable(self, executor, db_dir):
         """Full round-trip: create -> archive -> restore -> query."""
         _run(executor, """
-            create type Person { name: string, age: uint8 }
-            create type Team { lead: Person, name: string }
+            type Person { name: string, age: uint8 }
+            type Team { lead: Person, name: string }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
             create Team(lead=Person(0), name="Alpha")
@@ -421,7 +421,7 @@ class TestArchiveExecution:
     def test_restore_without_database(self, executor, db_dir):
         """Restore works without a loaded database (via module-level function)."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=42)
         """)
         ttar = db_dir / "backup.ttar"
@@ -449,7 +449,7 @@ class TestArchiveExecution:
     def test_restore_derives_path_from_ttar(self, executor, db_dir):
         """restore 'backup.ttar' creates 'backup' directory."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=1)
         """)
         ttar = db_dir / "mydb.ttar"
@@ -472,7 +472,7 @@ class TestArchiveExecution:
     def test_restore_derives_path_from_ttar_gz(self, executor, db_dir):
         """restore 'backup.ttar.gz' creates 'backup' directory."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=1)
         """)
         ttar_gz = db_dir / "mydb.ttar.gz"
@@ -487,7 +487,7 @@ class TestArchiveExecution:
     def test_restore_derived_path_error_if_exists(self, executor, db_dir):
         """Error when derived output path already exists."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=1)
         """)
         ttar = db_dir / "mydb.ttar"
@@ -503,7 +503,7 @@ class TestArchiveExecution:
     def test_archive_binary_format(self, executor, db_dir):
         """Verify the binary format of the archive header."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=1)
         """)
         ttar = db_dir / "format_check.ttar"
@@ -529,7 +529,7 @@ class TestGzipSupport:
     def test_archive_gzip_roundtrip(self, executor, db_dir):
         """Archive to .gz and restore produces valid database."""
         _run(executor, """
-            create type Person { name: string, age: uint8 }
+            type Person { name: string, age: uint8 }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
         """)
@@ -559,7 +559,7 @@ class TestGzipSupport:
     def test_archive_gzip_smaller(self, executor, db_dir):
         """Gzipped archive is smaller than uncompressed."""
         _run(executor, """
-            create type Person { name: string, age: uint8 }
+            type Person { name: string, age: uint8 }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
             create Person(name="Charlie", age=35)
@@ -575,7 +575,7 @@ class TestGzipSupport:
     def test_dump_gzip_roundtrip(self, executor, db_dir):
         """Dump to .gz creates gzipped file that can be decompressed."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=42)
         """)
         from typed_tables.repl import print_result
@@ -592,14 +592,14 @@ class TestGzipSupport:
         # Verify content decompresses to valid TTQ
         with gzip.open(gz_path, "rt") as f:
             content = f.read()
-        assert "create Item" in content or "create type Item" in content
+        assert "create Item" in content or "type Item" in content
 
     def test_execute_gzip_file(self, executor, db_dir):
         """Dump to .ttq.gz then execute it into a fresh database."""
         from typed_tables.repl import print_result, run_file
 
         _run(executor, """
-            create type Person { name: string, age: uint8 }
+            type Person { name: string, age: uint8 }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
         """)

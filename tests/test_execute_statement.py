@@ -60,7 +60,7 @@ class TestExecuteParsing:
         """Execute can appear in a multi-statement program."""
         parser = QueryParser()
         stmts = parser.parse_program(
-            'create type Foo { x: uint8 }\n'
+            'type Foo { x: uint8 }\n'
             'execute "other.ttq"\n'
         )
         assert len(stmts) == 2
@@ -72,7 +72,7 @@ class TestExecuteExecution:
     def test_basic_execute(self, executor, db_dir):
         """Execute a simple script that creates a type."""
         script = db_dir / "types.ttq"
-        script.write_text('create type Point { x: float32, y: float32 }')
+        script.write_text('type Point { x: float32, y: float32 }')
 
         result = _run(executor, f'execute "{script}"')
         assert isinstance(result, ExecuteResult)
@@ -86,7 +86,7 @@ class TestExecuteExecution:
         """Execute a script with multiple statements."""
         script = db_dir / "setup.ttq"
         script.write_text(
-            'create type Person { name: string, age: uint8 }\n'
+            'type Person { name: string, age: uint8 }\n'
             'create Person(name="Alice", age=30)\n'
             'create Person(name="Bob", age=25)\n'
         )
@@ -101,7 +101,7 @@ class TestExecuteExecution:
     def test_execute_auto_extension(self, executor, db_dir):
         """Execute auto-appends .ttq extension when file not found."""
         script = db_dir / "defs.ttq"
-        script.write_text('create type Color { r: uint8, g: uint8, b: uint8 }')
+        script.write_text('type Color { r: uint8, g: uint8, b: uint8 }')
 
         # Reference without extension
         result = _run(executor, f'execute "{db_dir / "defs"}"')
@@ -112,7 +112,7 @@ class TestExecuteExecution:
         """Execute auto-appends .ttq.gz extension when file not found."""
         script = db_dir / "defs.ttq.gz"
         with gzip.open(script, "wt", encoding="utf-8") as f:
-            f.write('create type Pixel { x: uint16, y: uint16 }')
+            f.write('type Pixel { x: uint16, y: uint16 }')
 
         result = _run(executor, f'execute "{db_dir / "defs"}"')
         assert isinstance(result, ExecuteResult)
@@ -122,7 +122,7 @@ class TestExecuteExecution:
         """Execute a gzip-compressed script."""
         script = db_dir / "types.ttq.gz"
         with gzip.open(script, "wt", encoding="utf-8") as f:
-            f.write('create type Vec2 { x: float64, y: float64 }')
+            f.write('type Vec2 { x: float64, y: float64 }')
 
         result = _run(executor, f'execute "{script}"')
         assert isinstance(result, ExecuteResult)
@@ -138,7 +138,7 @@ class TestExecuteExecution:
 
         # Inner script in subdir
         inner = subdir / "types.ttq"
-        inner.write_text('create type Widget { name: string }')
+        inner.write_text('type Widget { name: string }')
 
         # Outer script references inner with relative path
         outer = db_dir / "main.ttq"
@@ -162,7 +162,7 @@ class TestExecuteExecution:
 
         # Leaf script in sub/
         leaf = sub_dir / "leaf.ttq"
-        leaf.write_text('create type Leaf { value: uint8 }')
+        leaf.write_text('type Leaf { value: uint8 }')
 
         # Mid script in lib/ references sub/leaf.ttq
         mid = lib_dir / "mid.ttq"
@@ -202,7 +202,7 @@ class TestExecuteExecution:
     def test_execute_same_script_twice_is_error(self, executor, db_dir):
         """Executing the same script twice in sequence is an error."""
         script = db_dir / "types.ttq"
-        script.write_text('create type Foo { x: uint8 }')
+        script.write_text('type Foo { x: uint8 }')
 
         _run(executor, f'execute "{script}"')
 
@@ -242,7 +242,7 @@ class TestExecuteExecution:
         """Execute result has a descriptive message."""
         script = db_dir / "hello.ttq"
         script.write_text(
-            'create type Greeting { msg: string }\n'
+            'type Greeting { msg: string }\n'
             'create Greeting(msg="hello")\n'
         )
 
@@ -262,12 +262,12 @@ class TestExecuteExecution:
     def test_execute_with_existing_types(self, executor, db_dir):
         """Execute a script that uses types already defined."""
         # Create a type first
-        _run(executor, 'create type Address { city: string }')
+        _run(executor, 'type Address { city: string }')
 
         # Script uses the existing type
         script = db_dir / "person.ttq"
         script.write_text(
-            'create type Person { name: string, address: Address }\n'
+            'type Person { name: string, address: Address }\n'
         )
 
         result = _run(executor, f'execute "{script}"')
@@ -288,7 +288,7 @@ class TestExecuteInRunFile:
 
         # Create inner script
         inner = db_dir / "inner.ttq"
-        inner.write_text('create type Inner { val: uint8 }')
+        inner.write_text('type Inner { val: uint8 }')
 
         # Create outer script
         outer = db_dir / "outer.ttq"
@@ -311,7 +311,7 @@ class TestExecuteInRunFile:
 
         # Inner script
         inner = lib / "types.ttq"
-        inner.write_text('create type LibType { x: uint8 }')
+        inner.write_text('type LibType { x: uint8 }')
 
         # Main script uses relative path
         main = db_dir / "main.ttq"

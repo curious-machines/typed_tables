@@ -128,22 +128,22 @@ class TestWordAtPosition:
 
 class TestFindUserTypes:
     def test_create_type(self):
-        assert _find_user_types("create type Person { name: string }") == ["Person"]
+        assert _find_user_types("type Person { name: string }") == ["Person"]
 
     def test_create_enum(self):
-        assert _find_user_types("create enum Color { red, green }") == ["Color"]
+        assert _find_user_types("enum Color { red, green }") == ["Color"]
 
     def test_create_interface(self):
-        assert _find_user_types("create interface Drawable { x: float32 }") == ["Drawable"]
+        assert _find_user_types("interface Drawable { x: float32 }") == ["Drawable"]
 
     def test_create_alias(self):
-        assert _find_user_types("create alias uuid as uint128") == ["uuid"]
+        assert _find_user_types("alias uuid as uint128") == ["uuid"]
 
-    def test_define_as(self):
-        assert _find_user_types("define name as character[]") == ["name"]
+    def test_alias(self):
+        assert _find_user_types("alias name as character[]") == ["name"]
 
     def test_multiple(self):
-        source = "create type A { x: uint8 }\ncreate type B { y: uint8 }\ncreate enum C { a, b }"
+        source = "type A { x: uint8 }\ntype B { y: uint8 }\nenum C { a, b }"
         assert _find_user_types(source) == ["A", "B", "C"]
 
     def test_empty(self):

@@ -29,8 +29,11 @@ query           ::= select_query
                   | show_tables_query
                   | describe_query
                   | use_query
-                  | forward_type_query
-                  | create_type_query
+                  | forward_query
+                  | type_query
+                  | enum_query
+                  | interface_query
+                  | alias_query
                   | create_instance_query
                   | variable_assignment_query
                   | collect_query
@@ -169,17 +172,18 @@ value           ::= INTEGER
                   | STRING
 
 
-(* ========== Eval Query (SELECT without FROM) ========== *)
+(* ========== Eval Query (Bare Expressions) ========== *)
 (*
  * Evaluate expressions without querying a table.
  *
  * Examples:
- *   select uuid()
- *   select uuid() as "id", 42 as "answer"
- *   select 1, 2, 3
+ *   uuid()
+ *   uuid() as "id", 42 as "answer"
+ *   1, 2, 3
+ *   [1,9,5,7,3].sort()
  *)
 
-eval_query      ::= "select" eval_expr_list
+eval_query      ::= eval_expr_list
 
 eval_expr_list  ::= eval_expr_with_alias
                   | eval_expr_list "," eval_expr_with_alias
@@ -198,6 +202,8 @@ eval_expr       ::= STRING
                   | "-" eval_expr                           (* unary minus *)
                   | "+" eval_expr                           (* unary plus *)
                   | "(" eval_expr ")"                       (* grouping *)
+                  | eval_expr "." method_name "(" ")"              (* method call: [1,2,3].sort() *)
+                  | eval_expr "." method_name "(" eval_arg_list ")" (* method with args: [1,2,3].contains(2) *)
 
 eval_arg_list   ::= eval_expr
                   | eval_arg_list "," eval_expr
@@ -237,28 +243,30 @@ describe_query  ::= "describe" IDENTIFIER
  *
  * Examples:
  *   use example_data              -- switch to database
- *   use ./data/production         -- switch to path
- *   use /absolute/path/to/data    -- absolute path
  *   use "path with spaces"        -- quoted path
  *   use                           -- exit current database (no database selected)
+ *   use example_data as temp      -- temporary database (deleted on REPL exit)
  *)
 
 use_query       ::= "use"
-                  | "use" PATH
                   | "use" IDENTIFIER
                   | "use" STRING
+                  | "use" IDENTIFIER "as" "temp"
+                  | "use" STRING "as" "temp"
 
 
-(* ========== CREATE ALIAS Query ========== *)
+(* ========== ALIAS Query ========== *)
 (*
  * Create a type alias. The new type is stored in its own table
  * but uses the same format as the base type.
  *
- * Example:
- *   create alias uuid as uint128
+ * Examples:
+ *   alias uuid as uint128
+ *   alias readings as int8[]
  *)
 
-create_alias_query ::= "create" "alias" IDENTIFIER "as" IDENTIFIER
+alias_query     ::= "alias" IDENTIFIER "as" IDENTIFIER
+                  | "alias" IDENTIFIER "as" IDENTIFIER "[" "]"
 
 
 (* ========== DROP DATABASE Query ========== *)
@@ -270,62 +278,120 @@ create_alias_query ::= "create" "alias" IDENTIFIER "as" IDENTIFIER
  *)
 
 drop_database_query ::= "drop" IDENTIFIER
-                      | "drop" PATH
                       | "drop" STRING
 
 
-(* ========== FORWARD TYPE Query ========== *)
+(* ========== FORWARD Query ========== *)
 (*
  * Forward-declare a type name for mutual references.
  *
  * Example:
- *   forward type B
+ *   forward B
  *
  * Mutual reference pattern:
- *   forward type B;
- *   create type A value:uint8 b:B;
- *   create type B value:uint8 a:A;
+ *   forward B;
+ *   type A { value: uint8, b: B };
+ *   type B { value: uint8, a: A };
  *)
 
-forward_type_query ::= "forward" "type" IDENTIFIER
+forward_query   ::= "forward" IDENTIFIER
 
 
-(* ========== CREATE TYPE Query ========== *)
+(* ========== TYPE DEFINITION ========== *)
 (*
- * Create a new composite type. Fields can be on one line or multiple lines.
+ * Create a new composite type. Fields are enclosed in braces with commas.
  *
  * Single-line example:
- *   create type Point x:float32 y:float32
+ *   type Point { x: float32, y: float32 }
  *
  * Multi-line example:
- *   create type Address
- *   street: string
- *   city: string
- *   zipcode: string
+ *   type Address {
+ *     street: string,
+ *     city: string,
+ *     zipcode: string
+ *   }
  *
  * With inheritance:
- *   create type Employee from Person department:string title:string
+ *   type Employee from Person { department: string, title: string }
  *
  * Populating a forward-declared stub:
- *   create type B a:A
+ *   type B { a: A }
  *
  * Self-referential type:
- *   create type Node value:uint8 children:Node[]
+ *   type Node { value: uint8, children: Node[] }
  *
  * Note: "string" is an alias for "character[]"
  *)
 
-create_type_query ::= "create" "type" IDENTIFIER type_field_list
-                    | "create" "type" IDENTIFIER "from" IDENTIFIER type_field_list
-                    | "create" "type" IDENTIFIER "from" IDENTIFIER
+type_query      ::= "type" IDENTIFIER type_field_list
+                  | "type" IDENTIFIER "from" parent_list type_field_list
+                  | "type" IDENTIFIER "from" parent_list
 
-type_field_list ::= type_field_def
-                  | type_field_list type_field_def
+parent_list     ::= IDENTIFIER
+                  | parent_list "," IDENTIFIER
+
+type_field_list ::= "{" type_field_items "}"
+                  | "{" type_field_items "," "}"        (* trailing comma allowed *)
+                  | "{" "}"                              (* empty body *)
+
+type_field_items ::= type_field_def
+                   | type_field_items "," type_field_def
 
 type_field_def  ::= IDENTIFIER ":" type_ref
+                  | IDENTIFIER ":" type_ref "=" instance_value   (* default value *)
 
 type_ref        ::= IDENTIFIER
                   | IDENTIFIER "[" "]"        (* array type, e.g., int8[] *)
+
+
+(* ========== ENUM DEFINITION ========== *)
+(*
+ * Create an enumeration type. Supports C-style (bare/explicit discriminants)
+ * and Swift-style (variants with associated values).
+ *
+ * C-style examples:
+ *   enum Color { red, green, blue }
+ *   enum HttpStatus { ok = 200, not_found = 404, internal_error = 500 }
+ *
+ * Swift-style example:
+ *   enum Shape {
+ *     none,
+ *     line(x1: float32, y1: float32, x2: float32, y2: float32),
+ *     circle(cx: float32, cy: float32, r: float32)
+ *   }
+ *
+ * Trailing commas are allowed.
+ *)
+
+enum_query      ::= "enum" IDENTIFIER "{" enum_variant_list "}"
+                  | "enum" IDENTIFIER "{" enum_variant_list "," "}"
+
+enum_variant_list ::= enum_variant
+                    | enum_variant_list "," enum_variant
+
+enum_variant    ::= IDENTIFIER                                     (* bare variant *)
+                  | IDENTIFIER "=" INTEGER                          (* explicit discriminant *)
+                  | IDENTIFIER "(" enum_field_list ")"              (* associated values *)
+
+enum_field_list ::= enum_field
+                  | enum_field_list "," enum_field
+
+enum_field      ::= IDENTIFIER ":" type_ref
+
+
+(* ========== INTERFACE DEFINITION ========== *)
+(*
+ * Create an interface type. Interfaces define a set of fields that
+ * composites can inherit via "from". An interface with no fields
+ * acts as a marker interface.
+ *
+ * Examples:
+ *   interface Positioned { x: float32, y: float32 }
+ *   interface Taggable
+ *)
+
+interface_query ::= "interface" IDENTIFIER type_field_list
+                  | "interface" IDENTIFIER
 
 
 (* ========== CREATE Instance Query ========== *)
@@ -677,8 +743,6 @@ STRING          ::= "\"" ([^"\\] | \\.)* "\""
 
 REGEX           ::= "/" ([^/\\] | \\.)* "/"
 
-PATH            ::= \.?\.?/[a-zA-Z0-9_./\-]+
-
 (* Newlines are treated as whitespace and ignored by the lexer.
  * Semicolons terminate queries in the REPL and separate queries in scripts. *)
 SEMICOLON       ::= ";"
@@ -744,30 +808,34 @@ SEMICOLON       ::= ";"
  *
  * from Person select age, count() group by age
  *
- * select uuid() as "id1", uuid() as "id2"
+ * uuid() as "id1", uuid() as "id2"
+ *
+ * [1,9,5,7,3].sort()
  *
  * delete Product where quantity = 0
  *
- * -- Create type (fields can be on following lines — newlines are whitespace):
+ * -- Type definition (fields enclosed in braces):
  *
- * create type Product
- *   name: string
- *   price: float64
+ * type Product {
+ *   name: string,
+ *   price: float64,
  *   quantity: uint32
+ * }
  *
  * -- Multiple queries in a script (semicolons separate them):
  *
  * use example_data;
- * create type Product
- *   name: string
- *   price: float64
- *   quantity: uint32;
+ * type Product {
+ *   name: string,
+ *   price: float64,
+ *   quantity: uint32
+ * };
  * create Product(name="Widget", price=9.99, quantity=100);
  * from Product select *
  *
  * -- Cyclic data structures using scope blocks and tags:
  *
- * create type Node value:uint8 next:Node;
+ * type Node { value: uint8, next: Node };
  *
  * -- Self-referencing (node points to itself):
  * scope { create Node(tag(SELF), value=42, next=SELF); };

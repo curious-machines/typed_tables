@@ -1,6 +1,6 @@
-forward type B
-create type A { name: string, link: B }
-create type B { name: string, link: A }
+forward B
+type A { name: string, link: B }
+type B { name: string, link: A }
 
 scope {
     create A(

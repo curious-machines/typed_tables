@@ -63,7 +63,7 @@ class TestCompactExecution:
     def test_compact_no_deletions(self, executor, db_dir):
         """All records preserved unchanged when nothing deleted."""
         _run(executor, """
-            create type Person { name: string, age: uint8 }
+            type Person { name: string, age: uint8 }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
         """)
@@ -88,7 +88,7 @@ class TestCompactExecution:
     def test_compact_removes_tombstones(self, executor, db_dir):
         """Deleted records absent, live records present with correct data."""
         _run(executor, """
-            create type Person { name: string, age: uint8 }
+            type Person { name: string, age: uint8 }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
             create Person(name="Charlie", age=35)
@@ -114,8 +114,8 @@ class TestCompactExecution:
     def test_compact_remaps_composite_refs(self, executor, db_dir):
         """Composite ref indices updated after earlier record deleted."""
         _run(executor, """
-            create type Person { name: string, age: uint8 }
-            create type Team { lead: Person, name: string }
+            type Person { name: string, age: uint8 }
+            type Team { lead: Person, name: string }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
             create Person(name="Charlie", age=35)
@@ -146,9 +146,9 @@ class TestCompactExecution:
     def test_compact_remaps_interface_refs(self, executor, db_dir):
         """Interface (type_id, index) remapped correctly."""
         _run(executor, """
-            create interface Animal { name: string }
-            create type Dog from Animal { breed: string }
-            create type Shelter { resident: Animal }
+            interface Animal { name: string }
+            type Dog from Animal { breed: string }
+            type Shelter { resident: Animal }
             create Dog(name="Rex", breed="Lab")
             create Dog(name="Spot", breed="Dalmatian")
             create Dog(name="Buddy", breed="Golden")
@@ -178,7 +178,7 @@ class TestCompactExecution:
     def test_compact_compacts_arrays(self, executor, db_dir):
         """Orphaned array elements removed, data preserved for live records."""
         _run(executor, """
-            create type Sensor { name: string, readings: uint8[] }
+            type Sensor { name: string, readings: uint8[] }
             create Sensor(name="A", readings=[1, 2, 3])
             create Sensor(name="B", readings=[4, 5, 6, 7])
             create Sensor(name="C", readings=[8, 9])
@@ -207,8 +207,8 @@ class TestCompactExecution:
     def test_compact_compacts_variants(self, executor, db_dir):
         """Orphaned variant records removed, enum values preserved."""
         _run(executor, """
-            create enum Shape { none, circle(r: float32) }
-            create type Canvas { name: string, bg: Shape }
+            enum Shape { none, circle(r: float32) }
+            type Canvas { name: string, bg: Shape }
             create Canvas(name="A", bg=.circle(r=10.0))
             create Canvas(name="B", bg=.circle(r=20.0))
             create Canvas(name="C", bg=.none)
@@ -237,8 +237,8 @@ class TestCompactExecution:
     def test_compact_preserves_c_style_enums(self, executor, db_dir):
         """C-style enum values unchanged."""
         _run(executor, """
-            create enum Color { red, green, blue }
-            create type Pixel { x: uint16, color: Color }
+            enum Color { red, green, blue }
+            type Pixel { x: uint16, color: Color }
             create Pixel(x=0, color=.red)
             create Pixel(x=1, color=.blue)
         """)
@@ -260,7 +260,7 @@ class TestCompactExecution:
     def test_compact_dangling_ref_becomes_null(self, executor, db_dir):
         """Ref to deleted record becomes null."""
         _run(executor, """
-            create type Node { value: uint8, next: Node }
+            type Node { value: uint8, next: Node }
             create Node(value=1, next=null)
             create Node(value=2, next=Node(0))
             delete Node where value=1
@@ -290,7 +290,7 @@ class TestCompactExecution:
     def test_compact_stats(self, executor, db_dir):
         """CompactResult reports correct before/after counts."""
         _run(executor, """
-            create type Item { value: uint8 }
+            type Item { value: uint8 }
             create Item(value=1)
             create Item(value=2)
             create Item(value=3)
@@ -309,8 +309,8 @@ class TestCompactExecution:
     def test_compact_queryable(self, executor, db_dir):
         """Compacted DB can be loaded and queried end-to-end."""
         _run(executor, """
-            create type Person { name: string, age: uint8 }
-            create type Team { lead: Person, name: string }
+            type Person { name: string, age: uint8 }
+            type Team { lead: Person, name: string }
             create Person(name="Alice", age=30)
             create Person(name="Bob", age=25)
             create Person(name="Charlie", age=35)
@@ -351,7 +351,7 @@ class TestCompactExecution:
     def test_compact_empty_arrays(self, executor, db_dir):
         """Empty arrays are preserved correctly."""
         _run(executor, """
-            create type List { items: uint8[] }
+            type List { items: uint8[] }
             create List(items=[])
             create List(items=[1, 2])
         """)

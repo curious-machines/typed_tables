@@ -55,7 +55,7 @@ class TestImportParsing:
         """Multi-statement with import parses correctly."""
         parser = QueryParser()
         stmts = parser.parse_program(
-            'create type Foo { x: uint8 }\n'
+            'type Foo { x: uint8 }\n'
             'import "other.ttq"\n'
         )
         assert len(stmts) == 2
@@ -77,7 +77,7 @@ class TestImportExecution:
     def test_import_creates_import_record_type(self, executor, db_dir):
         """After first import, _ImportRecord type exists in registry."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Point { x: float32, y: float32 }')
+        script.write_text('type Point { x: float32, y: float32 }')
 
         _run(executor, f'import "{script}"')
         assert executor.registry.get("_ImportRecord") is not None
@@ -86,7 +86,7 @@ class TestImportExecution:
         """Import runs the script contents (types created, instances inserted)."""
         script = db_dir / "setup.ttq"
         script.write_text(
-            'create type Point { x: float32, y: float32 }\n'
+            'type Point { x: float32, y: float32 }\n'
             'create Point(x=1.0, y=2.0)'
         )
 
@@ -101,7 +101,7 @@ class TestImportExecution:
     def test_import_skips_second_run(self, executor, db_dir):
         """Second import of same file returns skipped=True."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Point { x: float32, y: float32 }')
+        script.write_text('type Point { x: float32, y: float32 }')
 
         result1 = _run(executor, f'import "{script}"')
         assert isinstance(result1, ImportResult)
@@ -115,10 +115,10 @@ class TestImportExecution:
     def test_import_different_files(self, executor, db_dir):
         """Importing two different files both execute."""
         script1 = db_dir / "types1.ttq"
-        script1.write_text('create type A { x: uint8 }')
+        script1.write_text('type A { x: uint8 }')
 
         script2 = db_dir / "types2.ttq"
-        script2.write_text('create type B { y: uint16 }')
+        script2.write_text('type B { y: uint16 }')
 
         result1 = _run(executor, f'import "{script1}"')
         assert isinstance(result1, ImportResult)
@@ -142,7 +142,7 @@ class TestImportExecution:
     def test_import_auto_extension(self, executor, db_dir):
         """Import auto-appends .ttq extension if file not found."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Foo { x: uint8 }')
+        script.write_text('type Foo { x: uint8 }')
 
         # Import without extension
         result = _run(executor, f'import "{db_dir / "setup"}"')
@@ -155,39 +155,39 @@ class TestImportExecution:
 
 class TestSystemTypes:
     def test_create_type_rejects_underscore_prefix(self, executor):
-        """create type _Foo { x: uint8 } -> error message."""
-        result = _run(executor, 'create type _Foo { x: uint8 }')
+        """type _Foo { x: uint8 } -> error message."""
+        result = _run(executor, 'type _Foo { x: uint8 }')
         assert isinstance(result, CreateResult)
         assert "reserved for system use" in result.message
 
     def test_create_enum_rejects_underscore_prefix(self, executor):
-        """create enum _Color { ... } -> error."""
-        result = _run(executor, 'create enum _Color { red, green }')
+        """enum _Color { ... } -> error."""
+        result = _run(executor, 'enum _Color { red, green }')
         assert isinstance(result, CreateResult)
         assert "reserved for system use" in result.message
 
     def test_create_interface_rejects_underscore_prefix(self, executor):
-        """create interface _I { ... } -> error."""
-        result = _run(executor, 'create interface _I { x: uint8 }')
+        """interface _I { ... } -> error."""
+        result = _run(executor, 'interface _I { x: uint8 }')
         assert isinstance(result, CreateResult)
         assert "reserved for system use" in result.message
 
     def test_create_alias_rejects_underscore_prefix(self, executor):
-        """create alias _x as uint8 -> error."""
-        result = _run(executor, 'create alias _x as uint8')
+        """alias _x as uint8 -> error."""
+        result = _run(executor, 'alias _x as uint8')
         assert isinstance(result, CreateResult)
         assert "reserved for system use" in result.message
 
     def test_forward_type_rejects_underscore_prefix(self, executor):
-        """forward type _Foo -> error."""
-        result = _run(executor, 'forward type _Foo')
+        """forward _Foo -> error."""
+        result = _run(executor, 'forward _Foo')
         assert isinstance(result, CreateResult)
         assert "reserved for system use" in result.message
 
     def test_show_types_hides_system_types(self, executor, db_dir):
         """_ImportRecord not in show types results."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Visible { x: uint8 }')
+        script.write_text('type Visible { x: uint8 }')
 
         _run(executor, f'import "{script}"')
         _run(executor, 'create Visible(x=1)')
@@ -200,7 +200,7 @@ class TestSystemTypes:
     def test_show_system_types(self, executor, db_dir):
         """show system types returns only _-prefixed types."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Visible { x: uint8 }')
+        script.write_text('type Visible { x: uint8 }')
 
         _run(executor, f'import "{script}"')
         _run(executor, 'create Visible(x=1)')
@@ -214,7 +214,7 @@ class TestSystemTypes:
     def test_dump_excludes_system_types(self, executor, db_dir):
         """dump output does not contain _ImportRecord."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Visible { x: uint8 }')
+        script.write_text('type Visible { x: uint8 }')
 
         _run(executor, f'import "{script}"')
         _run(executor, 'create Visible(x=1)')
@@ -226,7 +226,7 @@ class TestSystemTypes:
     def test_delete_system_type_blocked(self, executor, db_dir):
         """delete _ImportRecord → error (without force)."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Foo { x: uint8 }')
+        script.write_text('type Foo { x: uint8 }')
         _run(executor, f'import "{script}"')
 
         from typed_tables.query_executor import DeleteResult
@@ -238,7 +238,7 @@ class TestSystemTypes:
     def test_delete_force_system_type_allowed(self, executor, db_dir):
         """delete! _ImportRecord → allowed (force)."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Foo { x: uint8 }')
+        script.write_text('type Foo { x: uint8 }')
         _run(executor, f'import "{script}"')
 
         from typed_tables.query_executor import DeleteResult
@@ -274,7 +274,7 @@ class TestSystemTypes:
 
     def test_show_references_includes_path_when_used(self, executor):
         """path alias should appear in show references when a user type uses it."""
-        _run(executor, 'create type Config { file: path }')
+        _run(executor, 'type Config { file: path }')
         result = _run(executor, 'show references')
         sources = {row["source"] for row in result.rows}
         assert "path" in sources
@@ -282,7 +282,7 @@ class TestSystemTypes:
     def test_show_references_excludes_system_types(self, executor, db_dir):
         """_ImportRecord should not appear in show references."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Foo { x: uint8 }')
+        script.write_text('type Foo { x: uint8 }')
         _run(executor, f'import "{script}"')
 
         result = _run(executor, 'show references')
@@ -318,7 +318,7 @@ class TestImportPathNormalization:
     def test_dotslash_and_bare_are_same(self, executor, db_dir):
         """./setup.ttq and setup.ttq are treated as the same import."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Foo { x: uint8 }')
+        script.write_text('type Foo { x: uint8 }')
 
         result1 = _run(executor, f'import "{script}"')
         assert result1.skipped is False
@@ -332,7 +332,7 @@ class TestImportPathNormalization:
         """Relative import path stays relative in the import key."""
         # Create the target script and a parent that imports it relatively
         script = db_dir / "setup.ttq"
-        script.write_text('create type Foo { x: uint8 }')
+        script.write_text('type Foo { x: uint8 }')
 
         parent = db_dir / "main.ttq"
         parent.write_text('import "setup.ttq"')
@@ -348,7 +348,7 @@ class TestImportPathNormalization:
     def test_absolute_path_stored_as_absolute(self, executor, db_dir):
         """Absolute import path stays absolute in the import key."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Foo { x: uint8 }')
+        script.write_text('type Foo { x: uint8 }')
 
         result = _run(executor, f'import "{script}"')
         assert result.skipped is False
@@ -357,7 +357,7 @@ class TestImportPathNormalization:
     def test_auto_extension_included_in_key(self, executor, db_dir):
         """Auto-appended .ttq extension is included in the normalized key."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Foo { x: uint8 }')
+        script.write_text('type Foo { x: uint8 }')
 
         result = _run(executor, f'import "{db_dir / "setup"}"')
         assert result.skipped is False
@@ -398,7 +398,7 @@ class TestDumpArchive:
     def test_dump_archive_includes_system_types(self, executor, db_dir):
         """dump archive includes _ImportRecord in output."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Visible { x: uint8 }')
+        script.write_text('type Visible { x: uint8 }')
 
         _run(executor, f'import "{script}"')
         _run(executor, 'create Visible(x=1)')
@@ -410,7 +410,7 @@ class TestDumpArchive:
     def test_dump_without_archive_excludes_system_types(self, executor, db_dir):
         """Regular dump still excludes _ImportRecord."""
         script = db_dir / "setup.ttq"
-        script.write_text('create type Visible { x: uint8 }')
+        script.write_text('type Visible { x: uint8 }')
 
         _run(executor, f'import "{script}"')
         _run(executor, 'create Visible(x=1)')
@@ -432,7 +432,7 @@ class TestImportIntegration:
         executor1 = QueryExecutor(storage1, registry1)
 
         script = db_dir / "setup.ttq"
-        script.write_text('create type Point { x: float32, y: float32 }')
+        script.write_text('type Point { x: float32, y: float32 }')
 
         result1 = _run(executor1, f'import "{script}"')
         assert isinstance(result1, ImportResult)

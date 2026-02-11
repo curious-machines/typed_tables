@@ -1,4 +1,4 @@
-create type Node {
+type Node {
     name: string,
     child: Node
 }

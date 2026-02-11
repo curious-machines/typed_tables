@@ -1,31 +1,20 @@
 # TODO
 
-- phase 8, lambdas and map
+## Status Updates
 
-Now that we support expressions and functions, our query language is starting to look like a programming language. That's OK with me because that was my intention from the start. I would like to make a few changes to syntax.
+I would like to expand the "status" command to report the following. If you think this should be a different command, I am open to suggestions, but I think it fits under status information, which is only the current db at this point.
 
-1. remove "create" when creating types, instances and aliases (do we have any other create queries?). To create a type, use "type Person { name: string }", to create an instance, use "Person(name='me'), to create an alias, use "alias length as uint32".
-
-2. I would like to remove "select" for eval expressions. So, instead of "select [1,2,3}]", I would say "[1, 2, 3]".
-
-Please investigate if these changes are possible. If there are any issues with these, please tell me what those issues are.
-
-3. I should be able to use array methods on array literals. For example, "[1, 9, 5, 7, 3].sort"
-
-Please update all examples and documentation to use the new syntax.
-
-- remove "create" from syntax for creating types, instances, and aliases
-- remove select from eval queries
-- remove type dsl
-- update all examples and docs
-
-- I should be able to call array methods on array literals
+- Total used disk space for entire database
+- Show break down by table, using total file size of each
+- Per table breakdown show: used disk space, used disk space for live instances only, unused space at table end, total hole space, total unused space (end space + hole space), ratio of used space to hole space, total space saved if compacted
 
 ---
 
 # Questions
 
 - how do we know types when using numbers
+- does "alias <alias> as <baseType>" seem backwards? Maybe reverse the positions of <alias> and <baseType>, but I prefer to have the alias name first in the statement. Maybe a different word than "as" should be used here? Or maybe just use "alias <alias>=<baseType>"?
+- simplify array indexing to use only indexes or slice, not a comma-delimited list of both
 
 ---
 
@@ -45,13 +34,11 @@ This would require turning a query into a sequence of instructions; a mini-compi
 
 ## Add a Dictionary Type
 
-## Status Updates
-
-- Total used disk space for database
-- Show break down by table, using file size of each
-- Per table breakdown: used disk space, unused space in table (space after last record to eof), total hole space, total unused (end space + hole space), ratio of used space to hole space, total space saved if compacted
-
 ---
+
+# Deferred
+
+- phase 8, lambdas and map
 
 # Completed
 
@@ -77,7 +64,7 @@ This is a big change, so we should discuss pros and cons and possible alternate 
 
 ## Show References
 
-We need to be able to write a query that will tell us everywhere a type is used. This applies to any type. For example, if I define a composite as "create type Person { name: string, age: float32 }", then a query for where float32 is used should include "Person, age" in the result.
+We need to be able to write a query that will tell us everywhere a type is used. This applies to any type. For example, if I define a composite as "type Person { name: string, age: float32 }", then a query for where float32 is used should include "Person, age" in the result.
 
 I'd also like to be able to see a graph of every single reference, from a type perspective, in the database. The graph would contain nodes for each and every type. An arrow will connect a type and point to the type that references it. The edge itself could be labeled with the name of the property that is of that type, but that may get too cluttered. This graph should be output as an SVG document or as a graphviz file.
 
@@ -146,6 +133,10 @@ Swap: swap two items by index in the array
 All functions are performed element-by-element. Example: [1, 2, 3, 4] + [5, 6, 7, 8]
 
 We can have a single scalar and then apply the math function to all elements in the array. Examples: 5 * [1, 2, 3, 4], [1, 2, 3, 4] * 5
+
+## Language Syntax Simplification
+
+Removed `create` keyword from type/alias/enum/interface definitions (kept for instance creation only). Removed `select` from eval expressions (bare expressions like `[1,2,3]` or `uuid()`). Added method calls on eval expression array literals (e.g., `[1,9,5,7,3].sort()`). Changed `forward type X` to `forward X`. Removed the Type DSL entirely (`type_parser.py`/`type_lexer.py` deleted); `Schema.parse()` now uses TTQ syntax via QueryParser.
 
 ---
 

@@ -69,7 +69,7 @@ class TestQueryLexer:
         lexer = QueryLexer()
         lexer.build()
 
-        tokens = lexer.tokenize("create type Sensor { readings: int8[] }")
+        tokens = lexer.tokenize("type Sensor { readings: int8[] }")
         token_types = [t.type for t in tokens]
 
         assert "LBRACKET" in token_types
@@ -210,18 +210,18 @@ class TestQueryParser:
         assert query.path == "mydb"
 
     def test_parse_create_alias(self):
-        """Test parsing create alias query."""
+        """Test parsing alias query."""
         parser = QueryParser()
-        query = parser.parse("create alias uuid as uint128")
+        query = parser.parse("alias uuid as uint128")
 
         assert isinstance(query, CreateAliasQuery)
         assert query.name == "uuid"
         assert query.base_type == "uint128"
 
     def test_parse_create_type_multiline(self):
-        """Test parsing create type with braces and comma-separated fields."""
+        """Test parsing type with braces and comma-separated fields."""
         parser = QueryParser()
-        query = parser.parse("create type Person { name: string, age: uint8 }")
+        query = parser.parse("type Person { name: string, age: uint8 }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Person"
@@ -232,9 +232,9 @@ class TestQueryParser:
         assert query.fields[1].type_name == "uint8"
 
     def test_parse_create_type_single_line(self):
-        """Test parsing create type on a single line."""
+        """Test parsing type on a single line."""
         parser = QueryParser()
-        query = parser.parse("create type Point { x: float32, y: float32 }")
+        query = parser.parse("type Point { x: float32, y: float32 }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Point"
@@ -243,9 +243,9 @@ class TestQueryParser:
         assert query.fields[1].name == "y"
 
     def test_parse_create_type_with_array_field(self):
-        """Test parsing create type with array field."""
+        """Test parsing type with array field."""
         parser = QueryParser()
-        query = parser.parse("create type Sensor { readings: int8[] }")
+        query = parser.parse("type Sensor { readings: int8[] }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Sensor"
@@ -254,9 +254,9 @@ class TestQueryParser:
         assert query.fields[0].type_name == "int8[]"
 
     def test_parse_create_type_with_inheritance(self):
-        """Test parsing create type with inheritance."""
+        """Test parsing type with inheritance."""
         parser = QueryParser()
-        query = parser.parse("create type Employee from Person { department: string }")
+        query = parser.parse("type Employee from Person { department: string }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Employee"
@@ -363,7 +363,7 @@ class TestQueryParser:
     def test_parse_eval_uuid(self):
         """Test parsing eval query with uuid()."""
         parser = QueryParser()
-        query = parser.parse("select uuid()")
+        query = parser.parse("uuid()")
 
         assert isinstance(query, EvalQuery)
         assert len(query.expressions) == 1
@@ -374,7 +374,7 @@ class TestQueryParser:
     def test_parse_eval_with_alias(self):
         """Test parsing eval query with alias."""
         parser = QueryParser()
-        query = parser.parse('select uuid() as "id"')
+        query = parser.parse('uuid() as "id"')
 
         assert isinstance(query, EvalQuery)
         expr, alias = query.expressions[0]
@@ -528,9 +528,9 @@ class TestQueryParser:
         assert query.where is not None
 
     def test_parse_create_type_freeform(self):
-        """Test that create type works with free-form whitespace."""
+        """Test that type works with free-form whitespace."""
         parser = QueryParser()
-        query = parser.parse("create type Person {\n  name: string,\n  age: uint8\n}")
+        query = parser.parse("type Person {\n  name: string,\n  age: uint8\n}")
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Person"
         assert len(query.fields) == 2
@@ -1210,9 +1210,9 @@ class TestQueryParser:
         assert isinstance(queries[1], ShowTypesQuery)
 
     def test_parse_create_type_trailing_comma(self):
-        """Test that trailing comma is allowed in create type field list."""
+        """Test that trailing comma is allowed in type field list."""
         parser = QueryParser()
-        query = parser.parse("create type Point { x: float32, y: float32, }")
+        query = parser.parse("type Point { x: float32, y: float32, }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Point"
@@ -1223,9 +1223,9 @@ class TestQueryParser:
         assert query.fields[1].type_name == "float32"
 
     def test_parse_create_type_empty_braces(self):
-        """Test that create type with empty braces works."""
+        """Test that type with empty braces works."""
         parser = QueryParser()
-        query = parser.parse("create type Empty { }")
+        query = parser.parse("type Empty { }")
 
         assert isinstance(query, CreateTypeQuery)
         assert query.name == "Empty"
@@ -1668,9 +1668,9 @@ class TestExpressionParsing:
     """Tests for arithmetic expression parsing in eval queries."""
 
     def test_parse_addition(self):
-        """select 5 + 3 → BinaryExpr(5, '+', 3)."""
+        """5 + 3 → BinaryExpr(5, '+', 3)."""
         parser = QueryParser()
-        query = parser.parse("select 5 + 3")
+        query = parser.parse("5 + 3")
         assert isinstance(query, EvalQuery)
         expr, alias = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
@@ -1679,9 +1679,9 @@ class TestExpressionParsing:
         assert expr.right == 3
 
     def test_parse_precedence_mul_add(self):
-        """select 5 * 3 + 1 → BinaryExpr(BinaryExpr(5, '*', 3), '+', 1)."""
+        """5 * 3 + 1 → BinaryExpr(BinaryExpr(5, '*', 3), '+', 1)."""
         parser = QueryParser()
-        query = parser.parse("select 5 * 3 + 1")
+        query = parser.parse("5 * 3 + 1")
         expr, _ = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
         assert expr.op == "+"
@@ -1692,9 +1692,9 @@ class TestExpressionParsing:
         assert expr.right == 1
 
     def test_parse_parenthesized(self):
-        """select (2 + 3) * 4 → BinaryExpr(BinaryExpr(2, '+', 3), '*', 4)."""
+        """(2 + 3) * 4 → BinaryExpr(BinaryExpr(2, '+', 3), '*', 4)."""
         parser = QueryParser()
-        query = parser.parse("select (2 + 3) * 4")
+        query = parser.parse("(2 + 3) * 4")
         expr, _ = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
         assert expr.op == "*"
@@ -1705,18 +1705,18 @@ class TestExpressionParsing:
         assert expr.right == 4
 
     def test_parse_unary_minus(self):
-        """select -5 → UnaryExpr('-', 5)."""
+        """-5 → UnaryExpr('-', 5)."""
         parser = QueryParser()
-        query = parser.parse("select -5")
+        query = parser.parse("-5")
         expr, _ = query.expressions[0]
         assert isinstance(expr, UnaryExpr)
         assert expr.op == "-"
         assert expr.operand == 5
 
     def test_parse_string_concat(self):
-        """select "hello" ++ " world" → BinaryExpr."""
+        """"hello" ++ " world" → BinaryExpr."""
         parser = QueryParser()
-        query = parser.parse('select "hello" ++ " world"')
+        query = parser.parse('"hello" ++ " world"')
         expr, _ = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
         assert expr.op == "++"
@@ -1724,9 +1724,9 @@ class TestExpressionParsing:
         assert expr.right == " world"
 
     def test_parse_modulo(self):
-        """select 10 % 3 → BinaryExpr(10, '%', 3)."""
+        """10 % 3 → BinaryExpr(10, '%', 3)."""
         parser = QueryParser()
-        query = parser.parse("select 10 % 3")
+        query = parser.parse("10 % 3")
         expr, _ = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
         assert expr.op == "%"
@@ -1734,9 +1734,9 @@ class TestExpressionParsing:
         assert expr.right == 3
 
     def test_parse_integer_division(self):
-        """select 7 // 2 → BinaryExpr(7, '//', 2)."""
+        """7 // 2 → BinaryExpr(7, '//', 2)."""
         parser = QueryParser()
-        query = parser.parse("select 7 // 2")
+        query = parser.parse("7 // 2")
         expr, _ = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
         assert expr.op == "//"
@@ -1744,9 +1744,9 @@ class TestExpressionParsing:
         assert expr.right == 2
 
     def test_parse_true_division(self):
-        """select 10 / 3 → BinaryExpr(10, '/', 3) — SLASH not eaten by REGEX."""
+        """10 / 3 → BinaryExpr(10, '/', 3) — SLASH not eaten by REGEX."""
         parser = QueryParser()
-        query = parser.parse("select 10 / 3")
+        query = parser.parse("10 / 3")
         expr, _ = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
         assert expr.op == "/"
@@ -1769,9 +1769,9 @@ class TestExpressionParsing:
         assert query.where.value == "^K"
 
     def test_parse_concat_lower_precedence_than_arithmetic(self):
-        """select "id:" ++ 5 + 3 → BinaryExpr("id:", "++", BinaryExpr(5, "+", 3))."""
+        """"id:" ++ 5 + 3 → BinaryExpr("id:", "++", BinaryExpr(5, "+", 3))."""
         parser = QueryParser()
-        query = parser.parse('select "id:" ++ 5 + 3')
+        query = parser.parse('"id:" ++ 5 + 3')
         expr, _ = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
         assert expr.op == "++"
@@ -1782,9 +1782,9 @@ class TestExpressionParsing:
         assert expr.right.right == 3
 
     def test_parse_array_literal(self):
-        """select [1, 2, 3] → EvalQuery with list."""
+        """[1, 2, 3] → EvalQuery with list."""
         parser = QueryParser()
-        query = parser.parse("select [1, 2, 3]")
+        query = parser.parse("[1, 2, 3]")
         assert isinstance(query, EvalQuery)
         expr, alias = query.expressions[0]
         assert isinstance(expr, list)
@@ -1792,17 +1792,17 @@ class TestExpressionParsing:
         assert alias is None
 
     def test_parse_empty_array(self):
-        """select [] → EvalQuery with empty list."""
+        """[] → EvalQuery with empty list."""
         parser = QueryParser()
-        query = parser.parse("select []")
+        query = parser.parse("[]")
         assert isinstance(query, EvalQuery)
         expr, _ = query.expressions[0]
         assert expr == []
 
     def test_parse_array_with_expressions(self):
-        """select [1+2, 3*4] → list of BinaryExpr nodes."""
+        """[1+2, 3*4] → list of BinaryExpr nodes."""
         parser = QueryParser()
-        query = parser.parse("select [1+2, 3*4]")
+        query = parser.parse("[1+2, 3*4]")
         expr, _ = query.expressions[0]
         assert isinstance(expr, list)
         assert len(expr) == 2
@@ -1812,27 +1812,27 @@ class TestExpressionParsing:
         assert expr[1].op == "*"
 
     def test_parse_func_with_args(self):
-        """select sqrt(9) → FunctionCall with args."""
+        """sqrt(9) → FunctionCall with args."""
         parser = QueryParser()
-        query = parser.parse("select sqrt(9)")
+        query = parser.parse("sqrt(9)")
         expr, _ = query.expressions[0]
         assert isinstance(expr, FunctionCall)
         assert expr.name == "sqrt"
         assert expr.args == [9]
 
     def test_parse_func_with_two_args(self):
-        """select pow(2, 3) → FunctionCall with two args."""
+        """pow(2, 3) → FunctionCall with two args."""
         parser = QueryParser()
-        query = parser.parse("select pow(2, 3)")
+        query = parser.parse("pow(2, 3)")
         expr, _ = query.expressions[0]
         assert isinstance(expr, FunctionCall)
         assert expr.name == "pow"
         assert expr.args == [2, 3]
 
     def test_parse_func_with_array_arg(self):
-        """select sqrt([1, 4, 9]) → FunctionCall with list arg."""
+        """sqrt([1, 4, 9]) → FunctionCall with list arg."""
         parser = QueryParser()
-        query = parser.parse("select sqrt([1, 4, 9])")
+        query = parser.parse("sqrt([1, 4, 9])")
         expr, _ = query.expressions[0]
         assert isinstance(expr, FunctionCall)
         assert expr.name == "sqrt"
@@ -1841,9 +1841,9 @@ class TestExpressionParsing:
         assert expr.args[0] == [1, 4, 9]
 
     def test_parse_array_binary_op(self):
-        """select [1, 2] + [3, 4] → BinaryExpr with list operands."""
+        """[1, 2] + [3, 4] → BinaryExpr with list operands."""
         parser = QueryParser()
-        query = parser.parse("select [1, 2] + [3, 4]")
+        query = parser.parse("[1, 2] + [3, 4]")
         expr, _ = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
         assert expr.op == "+"
@@ -1851,9 +1851,9 @@ class TestExpressionParsing:
         assert isinstance(expr.right, list)
 
     def test_parse_scalar_broadcast(self):
-        """select 5 * [1, 2, 3] → BinaryExpr(5, '*', list)."""
+        """5 * [1, 2, 3] → BinaryExpr(5, '*', list)."""
         parser = QueryParser()
-        query = parser.parse("select 5 * [1, 2, 3]")
+        query = parser.parse("5 * [1, 2, 3]")
         expr, _ = query.expressions[0]
         assert isinstance(expr, BinaryExpr)
         assert expr.op == "*"
@@ -1861,9 +1861,9 @@ class TestExpressionParsing:
         assert isinstance(expr.right, list)
 
     def test_parse_sum_eval(self):
-        """select sum([1, 2, 3]) → EvalQuery with FunctionCall(name='sum')."""
+        """sum([1, 2, 3]) → EvalQuery with FunctionCall(name='sum')."""
         parser = QueryParser()
-        query = parser.parse("select sum([1, 2, 3])")
+        query = parser.parse("sum([1, 2, 3])")
         assert isinstance(query, EvalQuery)
         expr, alias = query.expressions[0]
         assert isinstance(expr, FunctionCall)
@@ -1872,9 +1872,9 @@ class TestExpressionParsing:
         assert isinstance(expr.args[0], list)
 
     def test_parse_min_multi_arg_eval(self):
-        """select min(5, 3) → EvalQuery with FunctionCall(name='min', args=[5, 3])."""
+        """min(5, 3) → EvalQuery with FunctionCall(name='min', args=[5, 3])."""
         parser = QueryParser()
-        query = parser.parse("select min(5, 3)")
+        query = parser.parse("min(5, 3)")
         assert isinstance(query, EvalQuery)
         expr, _ = query.expressions[0]
         assert isinstance(expr, FunctionCall)
@@ -1882,9 +1882,9 @@ class TestExpressionParsing:
         assert expr.args == [5, 3]
 
     def test_parse_count_eval(self):
-        """select count([1, 2, 3]) → EvalQuery with FunctionCall(name='count')."""
+        """count([1, 2, 3]) → EvalQuery with FunctionCall(name='count')."""
         parser = QueryParser()
-        query = parser.parse("select count([1, 2, 3])")
+        query = parser.parse("count([1, 2, 3])")
         assert isinstance(query, EvalQuery)
         expr, _ = query.expressions[0]
         assert isinstance(expr, FunctionCall)
