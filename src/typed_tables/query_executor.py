@@ -2648,7 +2648,7 @@ class QueryExecutor:
         for i, expr_tuple in enumerate(query.expressions):
             # Expressions are now (expr, alias) tuples
             expr, alias = expr_tuple
-            if isinstance(expr, (BinaryExpr, UnaryExpr, list)) or (
+            if isinstance(expr, (BinaryExpr, UnaryExpr, MethodCallExpr, list)) or (
                 isinstance(expr, FunctionCall) and expr.args
             ):
                 value = self._evaluate_expr(expr)
@@ -2658,7 +2658,7 @@ class QueryExecutor:
             # Use alias if provided, otherwise generate column name
             if alias:
                 base_name = alias
-            elif isinstance(expr, (BinaryExpr, UnaryExpr, FunctionCall, list)):
+            elif isinstance(expr, (BinaryExpr, UnaryExpr, FunctionCall, MethodCallExpr, list)):
                 base_name = self._format_expr(expr)
             else:
                 base_name = f"expr_{i}"
