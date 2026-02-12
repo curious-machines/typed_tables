@@ -4,7 +4,11 @@
 
 # Questions
 
-Are you letting Ply store its generated parser tables? This speeds up parser creation.
+Are you letting Ply store its generated parser tables? This speeds up parser creation. We had an issue where creating a new parser for each test was slowing the tests down substantially. I'm wondering if we need this optimization in general
+
+I'm confused why compact shrinks files below the 4096 initial size. I thought that was a requirement. When the compacted table needs to expand, will it simply double or will it first jump to 4096 bytes?
+
+string.replaceAll, .sort, and .swap don't appear to work. Check all array-like methods to confirm that they work. these should be covered by tests
 
 ---
 
@@ -26,11 +30,11 @@ what methods do we support?
 add methods for uppercase, lowercase, capitalize, etc.
 should we add others?
 can we remove "starts with" from language and rely on string methods instead?
-Maybe the same thing for "matches /regex/"?
+same question for "matches /regex/", like a .matches(regex) method instead?
 
 ## Add Help Docs
 
-REPL help should include sections for arrays, sets, dictionaries, strings, listing all available functions and methods
+REPL help should include dedicated sections for arrays, sets, dictionaries, strings, listing all available functions and methods
 
 ## Disable LSP
 
@@ -48,12 +52,20 @@ Would be great if we could import binary data (some file format) and be able to 
 
 - phase 8, lambdas and map
 - phase 7, bitwise operators
+- phase 4, indexing
+- Indexing
 
 # Completed
 
 ## Add a Set Type
 
+Phase 1: Type system (`SetTypeDefinition`, `{int32}` syntax, metadata kind `"set"`, `is_set_type()`).
+Phase 2: Literals (`{1, 2, 3}`, `{,}` empty), instance creation with uniqueness enforcement, storage as array with dedup, SELECT resolution via `SetValue` wrapper, REPL display as `{...}`, dump format, UPDATE support.
+
 ## Add a Dictionary Type
+
+Phase 1: Type system (`DictionaryTypeDefinition`, `{string: int32}` syntax, synthetic entry composites `Dict_string_int32`, metadata kind `"dictionary"`, `is_dict_type()`).
+Phase 2: Literals (`{"key": val}`, `{:}` empty), instance creation with key uniqueness enforcement, storage as array of uint32 entry indices, SELECT resolution to Python `dict`, REPL display as `{k: v, ...}`, dump format (entry composites filtered), UPDATE support.
 
 ## Help Doc Alignment Bug
 

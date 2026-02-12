@@ -1707,7 +1707,7 @@ class QueryExecutor:
             # Detect EnumValueExpr that's actually a method chain assignment
             # (for IDENTIFIER methods with no args: readings = readings.reverse())
             if (isinstance(fv.value, EnumValueExpr) and fv.value.enum_name is not None
-                    and isinstance(field_base, ArrayTypeDefinition)):
+                    and isinstance(field_base, (ArrayTypeDefinition, DictionaryTypeDefinition))):
                 enum_type = self.registry.get(fv.value.enum_name)
                 if enum_type is None or not isinstance(enum_type.resolve_base_type(), EnumTypeDefinition):
                     # Not an actual enum — reinterpret as method chain
@@ -1838,10 +1838,10 @@ class QueryExecutor:
         field_def = base.get_field(fv.name)
         field_base = field_def.type_def.resolve_base_type()
 
-        if not isinstance(field_base, ArrayTypeDefinition):
+        if not isinstance(field_base, (ArrayTypeDefinition, DictionaryTypeDefinition)):
             return UpdateResult(
                 columns=[], rows=[],
-                message=f"Method chaining can only be applied to array fields",
+                message=f"Method chaining can only be applied to array or collection fields",
             )
 
         # Read current array value
@@ -1866,10 +1866,10 @@ class QueryExecutor:
         field_def = base.get_field(fv.name)
         field_base = field_def.type_def.resolve_base_type()
 
-        if not isinstance(field_base, ArrayTypeDefinition):
+        if not isinstance(field_base, (ArrayTypeDefinition, DictionaryTypeDefinition)):
             return UpdateResult(
                 columns=[], rows=[],
-                message=f"Method chain assignment can only target array fields",
+                message=f"Method chain assignment can only target array or collection fields",
             )
 
         source_field = fv.value  # RHS field name string
@@ -1881,10 +1881,10 @@ class QueryExecutor:
             )
 
         source_field_base = source_field_def.type_def.resolve_base_type()
-        if not isinstance(source_field_base, ArrayTypeDefinition):
+        if not isinstance(source_field_base, (ArrayTypeDefinition, DictionaryTypeDefinition)):
             return UpdateResult(
                 columns=[], rows=[],
-                message=f"Source field '{source_field}' is not an array type",
+                message=f"Source field '{source_field}' is not an array or collection type",
             )
 
         # Read source array value
@@ -1902,13 +1902,36 @@ class QueryExecutor:
         return None
 
     def _read_array_for_chain(self, ref: Any, field_def: Any) -> Any:
-        """Read an array field value from raw_record ref, returning resolved Python values."""
+        """Read an array/set/dict field value from raw_record ref, returning resolved Python values."""
         if ref is None:
             return None
+        field_base = field_def.type_def.resolve_base_type()
+
+        # Dictionary: load entry indices → resolve to Python dict
+        if isinstance(field_base, DictionaryTypeDefinition):
+            start_index, length = ref
+            if length == 0:
+                return {}
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            entry_indices = [
+                array_table.element_table.get(start_index + j)
+                for j in range(length)
+            ]
+            entry_type = field_base.entry_type
+            entry_table = self.storage.get_table(entry_type.name)
+            result = {}
+            for entry_idx in entry_indices:
+                raw_entry = entry_table.get(entry_idx)
+                resolved_entry = self._resolve_raw_composite(raw_entry, entry_type, entry_type)
+                result[resolved_entry["key"]] = resolved_entry["value"]
+            return result
+
         start_index, length = ref
         if length == 0:
+            if isinstance(field_base, SetTypeDefinition):
+                return SetValue()
             return []
-        field_base = field_def.type_def.resolve_base_type()
+
         array_table = self.storage.get_array_table_for_type(field_def.type_def)
         elements = [
             array_table.element_table.get(start_index + j)
@@ -1916,6 +1939,24 @@ class QueryExecutor:
         ]
         if is_string_type(field_def.type_def):
             return "".join(elements)
+
+        # Set: resolve string elements, wrap in SetValue
+        if isinstance(field_base, SetTypeDefinition):
+            elem_type = field_base.element_type
+            if is_string_type(elem_type):
+                # Each element is (start, length) tuple for a string
+                char_table = self.storage.get_array_table_for_type(elem_type)
+                resolved = []
+                for elem in elements:
+                    if isinstance(elem, tuple):
+                        s_start, s_len = elem
+                        chars = char_table.get(s_start, s_len) if s_len > 0 else []
+                        resolved.append("".join(chars))
+                    else:
+                        resolved.append(elem)
+                return SetValue(resolved)
+            return SetValue(elements)
+
         # For composite arrays, resolve each element to a dict
         elem_type = field_base.element_type
         elem_base = elem_type.resolve_base_type()
@@ -1937,6 +1978,39 @@ class QueryExecutor:
             raw_record[field_name] = None
             return
         field_base = field_def.type_def.resolve_base_type()
+
+        # Dictionary: convert Python dict to entry composites and insert indices
+        if isinstance(value, dict) and isinstance(field_base, DictionaryTypeDefinition):
+            entry_type = field_base.entry_type
+            entry_base = entry_type.resolve_base_type()
+            entry_indices = []
+            for k, v in value.items():
+                entry_values = {"key": k, "value": v}
+                entry_index = self._create_instance(entry_type, entry_base, entry_values)
+                entry_indices.append(entry_index)
+            array_table = self.storage.get_array_table_for_type(field_def.type_def)
+            raw_record[field_name] = array_table.insert(entry_indices)
+            return
+
+        # SetValue: unwrap and write as array (handle string elements)
+        if isinstance(value, SetValue):
+            elements = list(value)
+            if isinstance(field_base, SetTypeDefinition) and is_string_type(field_base.element_type):
+                # String set: store each string in char table first
+                char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                refs = []
+                for s in elements:
+                    if isinstance(s, str):
+                        refs.append(char_table.insert(list(s)))
+                    else:
+                        refs.append(s)
+                array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                raw_record[field_name] = array_table.insert(refs)
+            else:
+                array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                raw_record[field_name] = array_table.insert(elements)
+            return
+
         if is_string_type(field_def.type_def):
             if isinstance(value, str):
                 value = list(value)
@@ -1965,6 +2039,109 @@ class QueryExecutor:
             # Shouldn't happen for array fields, but handle gracefully
             raw_record[field_name] = value
 
+    def _apply_dict_mutation(
+        self,
+        type_name: str,
+        base: CompositeTypeDefinition,
+        fv: Any,
+        raw_record: dict,
+    ) -> UpdateResult | None:
+        """Apply a dict mutation (e.g. remove()) to a field. Returns error UpdateResult or None."""
+        field_def = base.get_field(fv.name)
+        field_base = field_def.type_def.resolve_base_type()
+
+        if fv.method_name == "remove":
+            args = fv.method_args or []
+            if len(args) != 1:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message="remove() requires exactly 1 argument",
+                )
+            ref = raw_record.get(fv.name)
+            if ref is None:
+                return None  # no-op on null
+            # Read as Python dict, remove key, write back
+            value = self._read_array_for_chain(ref, field_def)
+            key = self._resolve_instance_value(args[0]) if not isinstance(args[0], (int, float, str)) else args[0]
+            new_dict = {k: v for k, v in value.items() if k != key}
+            self._write_chain_result(raw_record, fv.name, field_def, new_dict)
+            return None
+
+        return UpdateResult(
+            columns=[], rows=[],
+            message=f"Unknown dict mutation method: {fv.method_name}()",
+        )
+
+    def _apply_set_mutation(
+        self,
+        type_name: str,
+        base: CompositeTypeDefinition,
+        fv: Any,
+        raw_record: dict,
+    ) -> UpdateResult | None:
+        """Apply a set mutation (e.g. add(), union()) to a field. Returns error UpdateResult or None."""
+        field_def = base.get_field(fv.name)
+        field_base = field_def.type_def.resolve_base_type()
+        set_methods = ("add", "union", "intersect", "difference", "symmetric_difference")
+
+        if fv.method_name not in set_methods:
+            return None  # Not a set-specific method, fall through
+
+        ref = raw_record.get(fv.name)
+
+        if fv.method_name == "add":
+            args = fv.method_args or []
+            if len(args) != 1:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message="add() requires exactly 1 argument",
+                )
+            value = self._read_array_for_chain(ref, field_def)
+            if value is None:
+                value = SetValue()
+            elem = self._resolve_instance_value(args[0]) if not isinstance(args[0], (int, float, str)) else args[0]
+            if elem not in value:
+                new_set = SetValue(list(value) + [elem])
+            else:
+                new_set = SetValue(list(value))
+            self._write_chain_result(raw_record, fv.name, field_def, new_set)
+            return None
+
+        elif fv.method_name in ("union", "intersect", "difference", "symmetric_difference"):
+            args = fv.method_args or []
+            if len(args) != 1:
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"{fv.method_name}() requires exactly 1 argument",
+                )
+            value = self._read_array_for_chain(ref, field_def)
+            if value is None:
+                value = SetValue()
+            other = self._resolve_projection_arg(args[0])
+            if not isinstance(other, (list, SetValue)):
+                return UpdateResult(
+                    columns=[], rows=[],
+                    message=f"{fv.method_name}() argument must be a set or list",
+                )
+            current = list(value)
+            other_list = list(other)
+            if fv.method_name == "union":
+                result = list(current)
+                for e in other_list:
+                    if e not in result:
+                        result.append(e)
+            elif fv.method_name == "intersect":
+                result = [e for e in current if e in other_list]
+            elif fv.method_name == "difference":
+                result = [e for e in current if e not in other_list]
+            else:  # symmetric_difference
+                result = [e for e in current if e not in other_list]
+                result += [e for e in other_list if e not in current]
+            self._write_chain_result(raw_record, fv.name, field_def, SetValue(result))
+            return None
+
+        return None
+
     def _apply_array_mutation(
         self,
         type_name: str,
@@ -1976,11 +2153,21 @@ class QueryExecutor:
         field_def = base.get_field(fv.name)
         field_base = field_def.type_def.resolve_base_type()
 
-        if not isinstance(field_base, ArrayTypeDefinition):
+        if not isinstance(field_base, (ArrayTypeDefinition, DictionaryTypeDefinition)):
             return UpdateResult(
                 columns=[], rows=[],
                 message=f"Method '{fv.method_name}()' can only be applied to array fields",
             )
+
+        # Dispatch to dict-specific mutations
+        if isinstance(field_base, DictionaryTypeDefinition):
+            return self._apply_dict_mutation(type_name, base, fv, raw_record)
+
+        # Dispatch to set-specific mutations
+        if isinstance(field_base, SetTypeDefinition):
+            set_methods = ("add", "union", "intersect", "difference", "symmetric_difference")
+            if fv.method_name in set_methods:
+                return self._apply_set_mutation(type_name, base, fv, raw_record)
 
         ref = raw_record.get(fv.name)
 
@@ -4166,8 +4353,27 @@ class QueryExecutor:
                         arg_strs.append(f".{a.field_name}" + (" desc" if a.descending else ""))
                     else:
                         arg_strs.append("desc" if a.descending else "asc")
+                elif isinstance(a, SetLiteral):
+                    if not a.elements:
+                        arg_strs.append("{,}")
+                    else:
+                        elems = ", ".join(f'"{e}"' if isinstance(e, str) else str(e) for e in a.elements)
+                        arg_strs.append(f"{{{elems}}}")
+                elif isinstance(a, DictLiteral):
+                    if not a.entries:
+                        arg_strs.append("{:}")
+                    else:
+                        entries = ", ".join(
+                            f'"{e.key}": {e.value}' if isinstance(e.key, str)
+                            else f'{e.key}: {e.value}' for e in a.entries
+                        )
+                        arg_strs.append(f"{{{entries}}}")
+                elif isinstance(a, EmptyBraces):
+                    arg_strs.append("{}")
+                elif isinstance(a, str):
+                    arg_strs.append(f'"{a}"')
                 else:
-                    arg_strs.append(repr(a) if isinstance(a, str) else str(a))
+                    arg_strs.append(str(a))
             return f"{mc_name}({', '.join(arg_strs)})"
         return f"{mc_name}()"
 
@@ -4182,11 +4388,11 @@ class QueryExecutor:
     def _apply_array_method(self, value: Any, method_name: str, args: list[Any] | None) -> Any:
         """Apply an array method to a value."""
         if method_name == "length":
-            if isinstance(value, (list, str)):
+            if isinstance(value, (list, str, dict)):
                 return len(value)
             return 0 if value is None else None
         elif method_name == "isEmpty":
-            if isinstance(value, (list, str)):
+            if isinstance(value, (list, str, dict)):
                 return len(value) == 0
             return True if value is None else None
         elif method_name == "contains":
@@ -4195,6 +4401,8 @@ class QueryExecutor:
             if value is None:
                 return False
             search = self._resolve_instance_value(args[0]) if not isinstance(args[0], (int, float, str)) else args[0]
+            if isinstance(value, dict):
+                return search in value
             if isinstance(value, str):
                 return isinstance(search, str) and search in value
             if isinstance(value, list):
@@ -4256,13 +4464,97 @@ class QueryExecutor:
             return None
         if isinstance(arg, list):
             return [self._resolve_projection_arg(a) for a in arg]
+        if isinstance(arg, SetLiteral):
+            return SetValue([self._resolve_projection_arg(e) for e in arg.elements])
+        if isinstance(arg, DictLiteral):
+            return {self._resolve_projection_arg(e.key): self._resolve_projection_arg(e.value) for e in arg.entries}
+        if isinstance(arg, EmptyBraces):
+            return SetValue()
         raise RuntimeError(f"Projection methods only support literal arguments, got {type(arg).__name__}")
+
+    def _wrap_set_if_needed(self, value: Any, was_set: bool) -> Any:
+        """Wrap a list result back into SetValue if the input was a set."""
+        if was_set and isinstance(value, list) and not isinstance(value, SetValue):
+            return SetValue(value)
+        return value
 
     def _apply_projection_method(self, value: Any, method_name: str, args: list[Any] | None) -> Any:
         """Apply a method as an immutable projection (returns copy, no storage writes)."""
         # Read-only methods → delegate
         if method_name in ("length", "isEmpty", "contains", "min", "max"):
             return self._apply_array_method(value, method_name, args)
+
+        # Set-specific methods
+        if isinstance(value, SetValue):
+            if method_name == "add":
+                if not args or len(args) != 1:
+                    raise RuntimeError("add() requires exactly 1 argument")
+                elem = self._resolve_projection_arg(args[0])
+                if elem not in value:
+                    return SetValue(list(value) + [elem])
+                return SetValue(list(value))
+            elif method_name == "union":
+                if not args or len(args) != 1:
+                    raise RuntimeError("union() requires exactly 1 argument")
+                other = self._resolve_projection_arg(args[0])
+                if not isinstance(other, (list, SetValue)):
+                    raise RuntimeError("union() argument must be a set or list")
+                result = list(value)
+                for elem in other:
+                    if elem not in result:
+                        result.append(elem)
+                return SetValue(result)
+            elif method_name == "intersect":
+                if not args or len(args) != 1:
+                    raise RuntimeError("intersect() requires exactly 1 argument")
+                other = self._resolve_projection_arg(args[0])
+                if not isinstance(other, (list, SetValue)):
+                    raise RuntimeError("intersect() argument must be a set or list")
+                other_list = list(other)
+                return SetValue([e for e in value if e in other_list])
+            elif method_name == "difference":
+                if not args or len(args) != 1:
+                    raise RuntimeError("difference() requires exactly 1 argument")
+                other = self._resolve_projection_arg(args[0])
+                if not isinstance(other, (list, SetValue)):
+                    raise RuntimeError("difference() argument must be a set or list")
+                other_list = list(other)
+                return SetValue([e for e in value if e not in other_list])
+            elif method_name == "symmetric_difference":
+                if not args or len(args) != 1:
+                    raise RuntimeError("symmetric_difference() requires exactly 1 argument")
+                other = self._resolve_projection_arg(args[0])
+                if not isinstance(other, (list, SetValue)):
+                    raise RuntimeError("symmetric_difference() argument must be a set or list")
+                other_list = list(other)
+                result = [e for e in value if e not in other_list]
+                result += [e for e in other_list if e not in list(value)]
+                return SetValue(result)
+            # Fall through for methods shared with list (sort, reverse, etc.)
+
+        # Dict-specific methods
+        if isinstance(value, dict):
+            if method_name == "hasKey":
+                if not args or len(args) != 1:
+                    raise RuntimeError("hasKey() requires exactly 1 argument")
+                key = self._resolve_projection_arg(args[0])
+                return key in value
+            elif method_name == "keys":
+                return SetValue(list(value.keys()))
+            elif method_name == "values":
+                return list(value.values())
+            elif method_name == "entries":
+                return [{"key": k, "value": v} for k, v in value.items()]
+            elif method_name == "remove":
+                if not args or len(args) != 1:
+                    raise RuntimeError("remove() requires exactly 1 argument")
+                key = self._resolve_projection_arg(args[0])
+                return {k: v for k, v in value.items() if k != key}
+            else:
+                raise RuntimeError(f"Unknown dict method: {method_name}()")
+
+        # Track whether input was a SetValue for wrapping results
+        was_set = isinstance(value, SetValue)
 
         # Null handling: most projections on None return None
         if value is None:
@@ -4280,11 +4572,11 @@ class QueryExecutor:
             sort_keys = self._parse_sort_keys(args or [], is_composite)
             if isinstance(sort_keys, UpdateResult):
                 raise RuntimeError(sort_keys.message)
-            return self._sort_resolved_elements(value, sort_keys)
+            return self._wrap_set_if_needed(self._sort_resolved_elements(value, sort_keys), was_set)
 
         elif method_name == "reverse":
             if isinstance(value, list):
-                return list(reversed(value))
+                return self._wrap_set_if_needed(list(reversed(value)), was_set)
             elif isinstance(value, str):
                 return value[::-1]
             return value
@@ -4301,7 +4593,7 @@ class QueryExecutor:
                 else:
                     new_elements.append(r)
             if isinstance(value, list):
-                return value + new_elements
+                return self._wrap_set_if_needed(list(value) + new_elements, was_set)
             elif isinstance(value, str):
                 return value + "".join(str(e) for e in new_elements)
             return value
@@ -4317,7 +4609,7 @@ class QueryExecutor:
                 else:
                     new_elements.append(r)
             if isinstance(value, list):
-                return new_elements + value
+                return self._wrap_set_if_needed(new_elements + list(value), was_set)
             elif isinstance(value, str):
                 return "".join(str(e) for e in new_elements) + value
             return value
@@ -4330,7 +4622,7 @@ class QueryExecutor:
                 raise RuntimeError(f"insert() index must be an integer, got {type(idx).__name__}")
             new_elements = [self._resolve_projection_arg(a) for a in args[1:]]
             if isinstance(value, list):
-                return value[:idx] + new_elements + value[idx:]
+                return self._wrap_set_if_needed(list(value[:idx]) + new_elements + list(value[idx:]), was_set)
             return value
 
         elif method_name == "delete":
@@ -4342,7 +4634,7 @@ class QueryExecutor:
             if isinstance(value, list):
                 if idx < 0 or idx >= len(value):
                     raise RuntimeError(f"delete() index {idx} out of range for array of length {len(value)}")
-                return value[:idx] + value[idx + 1:]
+                return self._wrap_set_if_needed(list(value[:idx]) + list(value[idx + 1:]), was_set)
             return value
 
         elif method_name == "remove":
@@ -4353,8 +4645,8 @@ class QueryExecutor:
                 result = list(value)
                 for i, elem in enumerate(result):
                     if elem == search:
-                        return result[:i] + result[i + 1:]
-                return result
+                        return self._wrap_set_if_needed(result[:i] + result[i + 1:], was_set)
+                return self._wrap_set_if_needed(result, was_set)
             return value
 
         elif method_name == "removeAll":
@@ -4362,7 +4654,7 @@ class QueryExecutor:
                 raise RuntimeError("removeAll() requires exactly 1 argument")
             search = self._resolve_projection_arg(args[0])
             if isinstance(value, list):
-                return [e for e in value if e != search]
+                return self._wrap_set_if_needed([e for e in value if e != search], was_set)
             return value
 
         elif method_name == "replace":
@@ -4375,8 +4667,8 @@ class QueryExecutor:
                 for i, elem in enumerate(result):
                     if elem == old:
                         result[i] = new
-                        return result
-                return result
+                        return self._wrap_set_if_needed(result, was_set)
+                return self._wrap_set_if_needed(result, was_set)
             return value
 
         elif method_name == "replaceAll":
@@ -4385,7 +4677,7 @@ class QueryExecutor:
             old = self._resolve_projection_arg(args[0])
             new = self._resolve_projection_arg(args[1])
             if isinstance(value, list):
-                return [new if e == old else e for e in value]
+                return self._wrap_set_if_needed([new if e == old else e for e in value], was_set)
             return value
 
         elif method_name == "swap":
@@ -4546,7 +4838,7 @@ class QueryExecutor:
                     # Handle dotted paths like "address.state"
                     value = self._resolve_field_path(record, field.path, type_def)
                     # Apply array indexing if specified
-                    if field.array_index is not None and isinstance(value, (list, str)):
+                    if field.array_index is not None and isinstance(value, (list, str, dict)):
                         value = self._apply_array_index(value, field.array_index)
                     # Apply post-index path (e.g., employees[0].name)
                     if field.post_path is not None and value is not None:
@@ -4808,8 +5100,14 @@ class QueryExecutor:
 
         return None
 
-    def _apply_array_index(self, value: list | str, array_index: ArrayIndex) -> Any:
-        """Apply array indexing to a list or string value."""
+    def _apply_array_index(self, value: list | str | dict, array_index: ArrayIndex) -> Any:
+        """Apply array indexing to a list, string, or dict value."""
+        if isinstance(value, dict):
+            idx = array_index.index
+            if isinstance(idx, str):
+                return value.get(idx)
+            return None
+
         if not isinstance(value, (list, str)):
             return value
 
@@ -4826,6 +5124,8 @@ class QueryExecutor:
     def _format_array_index(self, array_index: ArrayIndex) -> str:
         """Format an ArrayIndex for display."""
         idx = array_index.index
+        if isinstance(idx, str):
+            return f'"{idx}"'
         if isinstance(idx, int):
             return str(idx)
         elif isinstance(idx, ArraySlice):

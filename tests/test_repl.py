@@ -2525,8 +2525,8 @@ create Person(name="Alice")
 create Person(name="Bob")
 """)
         result = self._query(db_path, "from Person select name, name.contains(\"li\")")
-        assert result.rows[0]["name.contains('li')"] is True
-        assert result.rows[1]["name.contains('li')"] is False
+        assert result.rows[0]['name.contains("li")'] is True
+        assert result.rows[1]['name.contains("li")'] is False
 
     def test_min_primitive_array(self, tmp_path):
         """Test min() on primitive array returns minimum value."""

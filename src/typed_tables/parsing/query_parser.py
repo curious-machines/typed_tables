@@ -48,7 +48,7 @@ class ArraySlice:
 class ArrayIndex:
     """Represents array indexing like [0], [-1], [0:5], [-3:], etc."""
 
-    index: int | ArraySlice  # Single index or slice
+    index: int | str | ArraySlice  # Single index, string key, or slice
 
 
 @dataclass
@@ -1605,6 +1605,10 @@ class QueryParser:
 
     def p_array_index_item_single(self, p: yacc.YaccProduction) -> None:
         """array_index_item : signed_int"""
+        p[0] = p[1]
+
+    def p_array_index_item_string(self, p: yacc.YaccProduction) -> None:
+        """array_index_item : STRING"""
         p[0] = p[1]
 
     def p_array_index_item_slice_full(self, p: yacc.YaccProduction) -> None:

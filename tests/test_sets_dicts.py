@@ -1193,3 +1193,524 @@ class TestDump:
         dump = results[-1]
         # NULL fields should be omitted (default behavior)
         assert 'create X()' in dump.script or 'tags=null' in dump.script
+
+
+# ==============================================================
+# Phase 3: Set projection method tests
+# ==============================================================
+
+class TestSetProjectionMethods:
+    """Test set-specific projection methods (read-only, in SELECT)."""
+
+    def test_set_length(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={10, 20, 30})
+            from X select tags.length()
+        ''')
+        rows = results[-1].rows
+        assert rows[0]["tags.length()"] == 3
+
+    def test_set_isEmpty_false(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={1})
+            from X select tags.isEmpty()
+        ''')
+        assert results[-1].rows[0]["tags.isEmpty()"] == False
+
+    def test_set_isEmpty_true(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={,})
+            from X select tags.isEmpty()
+        ''')
+        assert results[-1].rows[0]["tags.isEmpty()"] == True
+
+    def test_set_contains_true(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={10, 20, 30})
+            from X select tags.contains(20)
+        ''')
+        assert results[-1].rows[0]["tags.contains(20)"] == True
+
+    def test_set_contains_false(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={10, 20, 30})
+            from X select tags.contains(99)
+        ''')
+        assert results[-1].rows[0]["tags.contains(99)"] == False
+
+    def test_set_add_new(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={1, 2})
+            from X select tags.add(3)
+        ''')
+        val = results[-1].rows[0]["tags.add(3)"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 2, 3]
+
+    def test_set_add_duplicate(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={1, 2})
+            from X select tags.add(2)
+        ''')
+        val = results[-1].rows[0]["tags.add(2)"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 2]
+
+    def test_set_union(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={1, 2, 3})
+            from X select tags.union({3, 4, 5})
+        ''')
+        val = results[-1].rows[0]["tags.union({3, 4, 5})"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 2, 3, 4, 5]
+
+    def test_set_intersect(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={1, 2, 3})
+            from X select tags.intersect({2, 3, 4})
+        ''')
+        val = results[-1].rows[0]["tags.intersect({2, 3, 4})"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [2, 3]
+
+    def test_set_difference(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={1, 2, 3})
+            from X select tags.difference({2, 4})
+        ''')
+        val = results[-1].rows[0]["tags.difference({2, 4})"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 3]
+
+    def test_set_symmetric_difference(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={1, 2, 3})
+            from X select tags.symmetric_difference({2, 3, 4})
+        ''')
+        val = results[-1].rows[0]["tags.symmetric_difference({2, 3, 4})"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 4]
+
+    def test_set_sort_preserves_set(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={3, 1, 2})
+            from X select tags.sort()
+        ''')
+        val = results[-1].rows[0]["tags.sort()"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 2, 3]
+
+    def test_set_reverse_preserves_set(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={1, 2, 3})
+            from X select tags.reverse()
+        ''')
+        val = results[-1].rows[0]["tags.reverse()"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [3, 2, 1]
+
+    def test_set_chaining(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            create X(tags={3, 1, 2})
+            from X select tags.add(5).sort()
+        ''')
+        val = results[-1].rows[0]["tags.add(5).sort()"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 2, 3, 5]
+
+
+# ==============================================================
+# Phase 3: Dict projection method tests
+# ==============================================================
+
+class TestDictProjectionMethods:
+    """Test dict-specific projection methods (read-only, in SELECT)."""
+
+    def test_dict_length(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0, "b": 2.0})
+            from X select scores.length()
+        ''')
+        assert results[-1].rows[0]["scores.length()"] == 2
+
+    def test_dict_isEmpty_false(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0})
+            from X select scores.isEmpty()
+        ''')
+        assert results[-1].rows[0]["scores.isEmpty()"] == False
+
+    def test_dict_isEmpty_true(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={:})
+            from X select scores.isEmpty()
+        ''')
+        assert results[-1].rows[0]["scores.isEmpty()"] == True
+
+    def test_dict_contains_key(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0, "b": 2.0})
+            from X select scores.contains("a")
+        ''')
+        assert results[-1].rows[0]['scores.contains("a")'] == True
+
+    def test_dict_contains_missing(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0})
+            from X select scores.contains("z")
+        ''')
+        assert results[-1].rows[0]['scores.contains("z")'] == False
+
+    def test_dict_hasKey(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0, "b": 2.0})
+            from X select scores.hasKey("a")
+        ''')
+        assert results[-1].rows[0]['scores.hasKey("a")'] == True
+
+    def test_dict_hasKey_missing(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0})
+            from X select scores.hasKey("z")
+        ''')
+        assert results[-1].rows[0]['scores.hasKey("z")'] == False
+
+    def test_dict_keys(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0, "b": 2.0})
+            from X select scores.keys()
+        ''')
+        val = results[-1].rows[0]["scores.keys()"]
+        assert isinstance(val, SetValue)
+        assert list(val) == ["a", "b"]
+
+    def test_dict_values(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0, "b": 2.0})
+            from X select scores.values()
+        ''')
+        val = results[-1].rows[0]["scores.values()"]
+        assert val == [1.0, 2.0]
+
+    def test_dict_entries(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0, "b": 2.0})
+            from X select scores.entries()
+        ''')
+        val = results[-1].rows[0]["scores.entries()"]
+        assert val == [{"key": "a", "value": 1.0}, {"key": "b", "value": 2.0}]
+
+    def test_dict_remove_projection(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0, "b": 2.0})
+            from X select scores.remove("a")
+        ''')
+        val = results[-1].rows[0]['scores.remove("a")']
+        assert val == {"b": 2.0}
+
+    def test_dict_keys_length_chain(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0, "b": 2.0, "c": 3.0})
+            from X select scores.keys().length()
+        ''')
+        assert results[-1].rows[0]["scores.keys().length()"] == 3
+
+
+# ==============================================================
+# Phase 3: Dict bracket access tests
+# ==============================================================
+
+class TestDictBracketAccess:
+    """Test dict bracket access scores["midterm"]."""
+
+    def test_dict_bracket_access(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"midterm": 92.5, "final": 88.0})
+            from X select scores["midterm"]
+        ''')
+        assert results[-1].rows[0]['scores["midterm"]'] == 92.5
+
+    def test_dict_bracket_missing_key(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"midterm": 92.5})
+            from X select scores["nonexistent"]
+        ''')
+        assert results[-1].rows[0]['scores["nonexistent"]'] is None
+
+    def test_dict_bracket_column_name(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"midterm": 92.5})
+            from X select scores["midterm"]
+        ''')
+        assert 'scores["midterm"]' in results[-1].columns
+
+
+# ==============================================================
+# Phase 3: Set mutation tests (UPDATE)
+# ==============================================================
+
+class TestSetMutations:
+    """Test set mutations via UPDATE statements."""
+
+    def test_set_add_mutation(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            $x = create X(tags={1, 2})
+            update $x set tags.add(3)
+            from X select *
+        ''')
+        val = results[-1].rows[0]["tags"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 2, 3]
+
+    def test_set_add_duplicate_noop(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            $x = create X(tags={1, 2})
+            update $x set tags.add(2)
+            from X select *
+        ''')
+        val = results[-1].rows[0]["tags"]
+        assert list(val) == [1, 2]
+
+    def test_set_union_mutation(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            $x = create X(tags={1, 2})
+            update $x set tags.union({2, 3, 4})
+            from X select *
+        ''')
+        val = results[-1].rows[0]["tags"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 2, 3, 4]
+
+    def test_set_intersect_mutation(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            $x = create X(tags={1, 2, 3})
+            update $x set tags.intersect({2, 3, 4})
+            from X select *
+        ''')
+        val = results[-1].rows[0]["tags"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [2, 3]
+
+    def test_set_difference_mutation(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            $x = create X(tags={1, 2, 3})
+            update $x set tags.difference({2, 4})
+            from X select *
+        ''')
+        val = results[-1].rows[0]["tags"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 3]
+
+    def test_set_symmetric_difference_mutation(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            $x = create X(tags={1, 2, 3})
+            update $x set tags.symmetric_difference({2, 3, 4})
+            from X select *
+        ''')
+        val = results[-1].rows[0]["tags"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 4]
+
+    def test_set_add_to_null(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            $x = create X()
+            update $x set tags.add(5)
+            from X select *
+        ''')
+        val = results[-1].rows[0]["tags"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [5]
+
+    def test_set_add_string(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {string} }
+            $x = create X(tags={"hello"})
+            update $x set tags.add("world")
+            from X select *
+        ''')
+        val = results[-1].rows[0]["tags"]
+        assert isinstance(val, SetValue)
+        assert list(val) == ["hello", "world"]
+
+
+# ==============================================================
+# Phase 3: Dict mutation tests (UPDATE)
+# ==============================================================
+
+class TestDictMutations:
+    """Test dict mutations via UPDATE statements."""
+
+    def test_dict_remove_mutation(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            $x = create X(scores={"a": 1.0, "b": 2.0})
+            update $x set scores.remove("a")
+            from X select *
+        ''')
+        assert results[-1].rows[0]["scores"] == {"b": 2.0}
+
+    def test_dict_remove_missing_noop(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            $x = create X(scores={"a": 1.0})
+            update $x set scores.remove("z")
+            from X select *
+        ''')
+        assert results[-1].rows[0]["scores"] == {"a": 1.0}
+
+
+# ==============================================================
+# Phase 3: WHERE condition tests
+# ==============================================================
+
+class TestWhereConditions:
+    """Test set/dict methods in WHERE clauses."""
+
+    def test_where_set_contains(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { name: string, tags: {int32} }
+            create X(name="a", tags={1, 2, 3})
+            create X(name="b", tags={4, 5, 6})
+            from X select name where tags.contains(2)
+        ''')
+        assert len(results[-1].rows) == 1
+        assert results[-1].rows[0]["name"] == "a"
+
+    def test_where_dict_hasKey(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { name: string, scores: {string: float64} }
+            create X(name="a", scores={"math": 90.0})
+            create X(name="b", scores={"eng": 80.0})
+            from X select name where scores.hasKey("math")
+        ''')
+        assert len(results[-1].rows) == 1
+        assert results[-1].rows[0]["name"] == "a"
+
+    def test_where_set_length(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { name: string, tags: {int32} }
+            create X(name="a", tags={1, 2, 3})
+            create X(name="b", tags={1})
+            from X select name where tags.length() > 2
+        ''')
+        assert len(results[-1].rows) == 1
+        assert results[-1].rows[0]["name"] == "a"
+
+    def test_where_dict_length(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { name: string, scores: {string: float64} }
+            create X(name="a", scores={"math": 90.0, "eng": 85.0})
+            create X(name="b", scores={"math": 90.0})
+            from X select name where scores.length() = 2
+        ''')
+        assert len(results[-1].rows) == 1
+        assert results[-1].rows[0]["name"] == "a"
+
+
+# ==============================================================
+# Phase 3: Chain mutation tests
+# ==============================================================
+
+class TestChainMutations:
+    """Test chained operations on sets and dicts."""
+
+    def test_set_chain_add_sort(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { tags: {int32} }
+            $x = create X(tags={3, 1})
+            update $x set tags = tags.add(2).sort()
+            from X select *
+        ''')
+        val = results[-1].rows[0]["tags"]
+        assert isinstance(val, SetValue)
+        assert list(val) == [1, 2, 3]
+
+    def test_dict_chain_remove_in_select(self, tmp_db):
+        executor, db_dir, registry, storage = tmp_db
+        results = _run_all(executor, '''
+            type X { scores: {string: float64} }
+            create X(scores={"a": 1.0, "b": 2.0, "c": 3.0})
+            from X select scores.remove("a").length()
+        ''')
+        assert results[-1].rows[0]['scores.remove("a").length()'] == 2
