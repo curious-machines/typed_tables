@@ -11,6 +11,8 @@ from typed_tables.table import Table
 from typed_tables.types import (
     AliasTypeDefinition,
     ArrayTypeDefinition,
+    BigIntTypeDefinition,
+    BigUIntTypeDefinition,
     BooleanTypeDefinition,
     CompositeTypeDefinition,
     DictionaryTypeDefinition,
@@ -99,6 +101,16 @@ class StorageManager:
         elif isinstance(type_def, StringTypeDefinition):
             return {
                 "kind": "string",
+                "element_type": type_def.element_type.name,
+            }
+        elif isinstance(type_def, BigIntTypeDefinition):
+            return {
+                "kind": "bigint",
+                "element_type": type_def.element_type.name,
+            }
+        elif isinstance(type_def, BigUIntTypeDefinition):
+            return {
+                "kind": "biguint",
                 "element_type": type_def.element_type.name,
             }
         elif isinstance(type_def, SetTypeDefinition):

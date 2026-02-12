@@ -17,6 +17,8 @@ from typed_tables.query_executor import ArchiveResult, CollectResult, CompactRes
 from typed_tables.storage import StorageManager
 from typed_tables.types import (
     ArrayTypeDefinition,
+    BigInt,
+    BigUInt,
     CompositeTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
@@ -72,6 +74,8 @@ def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
         return "NULL"
     elif isinstance(value, bool):
         return "true" if value else "false"
+    elif isinstance(value, (BigInt, BigUInt)):
+        return str(int(value))
     elif isinstance(value, int):
         if value > 0xFFFFFFFF:
             return f"0x{value:x}"

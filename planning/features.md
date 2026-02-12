@@ -4,7 +4,7 @@
 
 # Questions
 
-I'm confused why compact shrinks files below the 4096 initial size. I thought that was a requirement. When the compacted table needs to expand, will it simply double or will it first jump to 4096 bytes?
+I'm confused why compact shrinks files below the 4096 initial size. It makes sense that compact would make the tables as small as possible, so it's not a problem. I just thought it was a requirement that tables be at least 4096 bytes at their start. Questin: When the compacted table that is less than 4096 bytes needs to expand, will it simply double in size or will it first jump to 4096 bytes?
 
 ---
 

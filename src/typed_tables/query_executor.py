@@ -77,6 +77,10 @@ from typed_tables.types import (
     PRIMITIVE_TYPE_NAMES,
     AliasTypeDefinition,
     ArrayTypeDefinition,
+    BigInt,
+    BigIntTypeDefinition,
+    BigUInt,
+    BigUIntTypeDefinition,
     BooleanTypeDefinition,
     CompositeTypeDefinition,
     DictionaryTypeDefinition,
@@ -95,6 +99,8 @@ from typed_tables.types import (
     TypeRegistry,
     TypedValue,
     _type_def_to_type_string,
+    is_bigint_type,
+    is_biguint_type,
     is_boolean_type,
     is_dict_type,
     is_set_type,
@@ -518,6 +524,11 @@ class QueryExecutor:
                     continue
                 kind = "Alias"
                 count = None
+            elif isinstance(type_def, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+                if type_name not in referenced_primitives:
+                    continue
+                kind = "BigInt" if isinstance(type_def, BigIntTypeDefinition) else "BigUInt"
+                count = None
             elif isinstance(type_def, StringTypeDefinition):
                 if type_name not in referenced_primitives:
                     continue
@@ -584,6 +595,9 @@ class QueryExecutor:
         if isinstance(type_def, AliasTypeDefinition):
             aliases.add(type_def.name)
             self._collect_referenced_types(type_def.base_type, primitives, aliases)
+        elif isinstance(type_def, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+            # BigInt/BigUInt are special array types — collect like primitives
+            primitives.add(type_def.name)
         elif isinstance(type_def, StringTypeDefinition):
             # String is a special array type — collect it like a primitive
             primitives.add(type_def.name)
@@ -609,6 +623,10 @@ class QueryExecutor:
             return "String"
         if isinstance(type_def, BooleanTypeDefinition):
             return "Boolean"
+        if isinstance(type_def, BigIntTypeDefinition):
+            return "BigInt"
+        if isinstance(type_def, BigUIntTypeDefinition):
+            return "BigUInt"
         if isinstance(type_def, SetTypeDefinition):
             return "Set"
         if isinstance(type_def, DictionaryTypeDefinition):
@@ -703,6 +721,9 @@ class QueryExecutor:
             elif isinstance(type_def, CompositeTypeDefinition):
                 for f in type_def.fields:
                     process_field_type(type_name, kind, f.name, f.type_def)
+            elif isinstance(type_def, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+                # Only show if referenced by user types (like string/path)
+                pass
             elif isinstance(type_def, ArrayTypeDefinition) and type_name not in visited_array_types:
                 visited_array_types.add(type_name)
                 add_edge(type_name, kind, type_def.element_type.name, "[]")
@@ -921,6 +942,12 @@ class QueryExecutor:
                         "size": 0,
                         "default": "",
                     })
+        elif isinstance(base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+            rows.append({
+                "property": "(precision)",
+                "type": "arbitrary",
+                "size": 8,  # inline reference size: (start_index, length)
+            })
         elif isinstance(base, SetTypeDefinition):
             rows.append({
                 "property": "(element_type)",
@@ -1829,6 +1856,24 @@ class QueryExecutor:
                         columns=[], rows=[],
                         message=f"Expected set literal for field '{fv.name}'",
                     )
+            elif isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+                val = int(resolved_value)
+                signed = isinstance(field_base, BigIntTypeDefinition)
+                if not signed and val < 0:
+                    return UpdateResult(
+                        columns=[], rows=[],
+                        message=f"biguint field '{fv.name}' cannot store negative value: {val}",
+                    )
+                if val == 0:
+                    byte_list = [0]
+                elif signed:
+                    byte_length = (val.bit_length() + 8) // 8
+                    byte_list = list(val.to_bytes(byte_length, byteorder='little', signed=True))
+                else:
+                    byte_length = (val.bit_length() + 7) // 8
+                    byte_list = list(val.to_bytes(byte_length, byteorder='little', signed=False))
+                array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                raw_record[fv.name] = array_table.insert(byte_list)
             elif isinstance(field_base, ArrayTypeDefinition):
                 if isinstance(resolved_value, str):
                     resolved_value = list(resolved_value)
@@ -2828,13 +2873,16 @@ class QueryExecutor:
                 # Functions with positional args: range(), repeat(), type conversions, enum conversions
                 evaluated_args = [self._resolve_instance_value(a) for a in value.args]
                 return self._evaluate_math_func(value.name, evaluated_args)
-            elif name_lower in PRIMITIVE_TYPE_NAMES:
+            elif name_lower in PRIMITIVE_TYPE_NAMES or name_lower in ("bigint", "biguint"):
                 raise ValueError(f"{value.name}() requires exactly 1 argument")
             else:
                 raise ValueError(f"Unknown function: {value.name}()")
         elif isinstance(value, CompositeRef):
             # Check if this is actually a single-arg function call (e.g., range(5))
             if value.type_name.lower() in ("range", "repeat"):
+                return self._evaluate_math_func(value.type_name, [value.index])
+            # bigint/biguint conversion: bigint(42), biguint(200)
+            if value.type_name.lower() in ("bigint", "biguint"):
                 return self._evaluate_math_func(value.type_name, [value.index])
             # Type conversion: int16(42), uint8(200), etc.
             if value.type_name.lower() in PRIMITIVE_TYPE_NAMES:
@@ -3180,6 +3228,23 @@ class QueryExecutor:
                 field_references[field.name] = array_table.insert(elements)
                 continue
 
+            if isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+                val = int(field_value)
+                signed = isinstance(field_base, BigIntTypeDefinition)
+                if not signed and val < 0:
+                    raise ValueError(f"biguint field '{field.name}' cannot store negative value: {val}")
+                if val == 0:
+                    byte_list = [0]
+                elif signed:
+                    byte_length = (val.bit_length() + 8) // 8
+                    byte_list = list(val.to_bytes(byte_length, byteorder='little', signed=True))
+                else:
+                    byte_length = (val.bit_length() + 7) // 8
+                    byte_list = list(val.to_bytes(byte_length, byteorder='little', signed=False))
+                array_table = self.storage.get_array_table_for_type(field.type_def)
+                field_references[field.name] = array_table.insert(byte_list)
+                continue
+
             if isinstance(field_base, ArrayTypeDefinition):
                 # Convert string to character list if needed
                 if isinstance(field_value, str):
@@ -3296,6 +3361,8 @@ class QueryExecutor:
             if isinstance(value, list):
                 # Unwrap TypedValues in list
                 row[col_name] = [v.value if isinstance(v, TypedValue) else v for v in value]
+            elif isinstance(value, (BigInt, BigUInt)):
+                row[col_name] = value  # Keep as BigInt/BigUInt for decimal display in REPL
             elif isinstance(value, int) and value > 0xFFFFFFFF:
                 # Format large integers as hex (likely UUIDs)
                 row[col_name] = f"0x{value:032x}"
@@ -3574,6 +3641,21 @@ class QueryExecutor:
                     raise RuntimeError(f"boolean() requires 0 or 1, got {arg}")
                 return bool(arg)
             raise RuntimeError(f"boolean() requires an integer argument, got {type(arg).__name__}")
+
+        # bigint() / biguint() conversion
+        if name_lower == "bigint":
+            if len(args) != 1:
+                raise RuntimeError("bigint() requires exactly 1 argument")
+            val = self._unwrap_typed(args[0])
+            return BigInt(int(val))
+        if name_lower == "biguint":
+            if len(args) != 1:
+                raise RuntimeError("biguint() requires exactly 1 argument")
+            val = self._unwrap_typed(args[0])
+            val = int(val)
+            if val < 0:
+                raise RuntimeError(f"biguint() cannot accept negative value: {val}")
+            return BigUInt(val)
 
         # Type conversion functions: int8(), uint16(), float32(), etc.
         if name_lower in PRIMITIVE_TYPE_NAMES:
@@ -4014,6 +4096,22 @@ class QueryExecutor:
                                 resolved[field.name] = SetValue(str_elements)
                             else:
                                 resolved[field.name] = SetValue(elements)
+                    elif isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+                        start_index, length = ref
+                        if length == 0:
+                            if isinstance(field_base, BigIntTypeDefinition):
+                                resolved[field.name] = BigInt(0)
+                            else:
+                                resolved[field.name] = BigUInt(0)
+                        else:
+                            arr_table = self.storage.get_array_table_for_type(field.type_def)
+                            elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+                            signed = isinstance(field_base, BigIntTypeDefinition)
+                            val = int.from_bytes(bytes(elements), 'little', signed=signed)
+                            if signed:
+                                resolved[field.name] = BigInt(val)
+                            else:
+                                resolved[field.name] = BigUInt(val)
                     elif isinstance(field_base, ArrayTypeDefinition):
                         start_index, length = ref
                         if length == 0:
@@ -4127,6 +4225,22 @@ class QueryExecutor:
                         else:
                             self._resolve_enum_associated_values(ref, field_base)
                             resolved[field.name] = ref
+                    elif isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+                        start_index, length = ref
+                        if length == 0:
+                            if isinstance(field_base, BigIntTypeDefinition):
+                                resolved[field.name] = BigInt(0)
+                            else:
+                                resolved[field.name] = BigUInt(0)
+                        else:
+                            arr_table = self.storage.get_array_table_for_type(field.type_def)
+                            elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+                            signed = isinstance(field_base, BigIntTypeDefinition)
+                            val = int.from_bytes(bytes(elements), 'little', signed=signed)
+                            if signed:
+                                resolved[field.name] = BigInt(val)
+                            else:
+                                resolved[field.name] = BigUInt(val)
                     elif isinstance(field_base, ArrayTypeDefinition):
                         start_index, length = ref
                         if length == 0:
@@ -4160,6 +4274,8 @@ class QueryExecutor:
             return
 
         is_string = isinstance(type_def.resolve_base_type(), StringTypeDefinition)
+        is_bi = isinstance(type_def.resolve_base_type(), BigIntTypeDefinition)
+        is_bu = isinstance(type_def.resolve_base_type(), BigUIntTypeDefinition)
 
         for comp_name, field_name, comp_def in matches:
             table_file = self.storage.data_dir / f"{comp_name}.bin"
@@ -4174,7 +4290,16 @@ class QueryExecutor:
                 ref = record[field_name]
                 if ref is None:
                     continue
-                if is_string:
+                if is_bi or is_bu:
+                    start_index, length = ref
+                    if length == 0:
+                        value = BigInt(0) if is_bi else BigUInt(0)
+                    else:
+                        arr_table = self.storage.get_array_table_for_type(field_def.type_def)
+                        elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+                        val = int.from_bytes(bytes(elements), 'little', signed=is_bi)
+                        value = BigInt(val) if is_bi else BigUInt(val)
+                elif is_string:
                     start_index, length = ref
                     if length == 0:
                         value = ""
@@ -4326,6 +4451,22 @@ class QueryExecutor:
                     else:
                         self._resolve_enum_associated_values(ref, field_base)
                         resolved[field.name] = ref
+                elif isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+                    start_index, length = ref
+                    if length == 0:
+                        if isinstance(field_base, BigIntTypeDefinition):
+                            resolved[field.name] = BigInt(0)
+                        else:
+                            resolved[field.name] = BigUInt(0)
+                    else:
+                        arr_table = self.storage.get_array_table_for_type(field.type_def)
+                        elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+                        signed = isinstance(field_base, BigIntTypeDefinition)
+                        val = int.from_bytes(bytes(elements), 'little', signed=signed)
+                        if signed:
+                            resolved[field.name] = BigInt(val)
+                        else:
+                            resolved[field.name] = BigUInt(val)
                 elif isinstance(field_base, ArrayTypeDefinition):
                     start_index, length = ref
                     if length == 0:
@@ -5138,7 +5279,21 @@ class QueryExecutor:
             field_type_base = f.type_def.resolve_base_type()
             if isinstance(field_type_base, ArrayTypeDefinition):
                 start_index, length = ref
-                if length == 0:
+                if is_bigint_type(f.type_def):
+                    if length == 0:
+                        resolved[f.name] = BigInt(0)
+                    else:
+                        arr_table = self.storage.get_array_table_for_type(f.type_def)
+                        elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+                        resolved[f.name] = BigInt(int.from_bytes(bytes(elements), 'little', signed=True))
+                elif is_biguint_type(f.type_def):
+                    if length == 0:
+                        resolved[f.name] = BigUInt(0)
+                    else:
+                        arr_table = self.storage.get_array_table_for_type(f.type_def)
+                        elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+                        resolved[f.name] = BigUInt(int.from_bytes(bytes(elements), 'little', signed=False))
+                elif length == 0:
                     resolved[f.name] = []
                 else:
                     arr_table = self.storage.get_array_table_for_type(f.type_def)
@@ -5361,6 +5516,8 @@ class QueryExecutor:
                 else:
                     elem_strs.append(str(elem))
             return f"[{', '.join(elem_strs)}]"
+        if isinstance(value, (BigInt, BigUInt)):
+            return str(int(value))
         base = type_def.resolve_base_type()
         if isinstance(base, PrimitiveTypeDefinition):
             if base.primitive in (PrimitiveType.UINT128, PrimitiveType.INT128):
@@ -6008,6 +6165,15 @@ class QueryExecutor:
             if val is None:
                 return "null"
 
+            if is_bigint_type(field_type) or is_biguint_type(field_type):
+                start_idx, length = val
+                if length == 0:
+                    return "0"
+                arr_table = self.storage.get_array_table_for_type(field_type)
+                byte_list = [arr_table.element_table.get(start_idx + j) for j in range(length)]
+                signed = is_bigint_type(field_type)
+                return str(int.from_bytes(bytes(byte_list), byteorder='little', signed=signed))
+
             if isinstance(base, ArrayTypeDefinition):
                 start_idx, length = val
 
@@ -6171,6 +6337,15 @@ class QueryExecutor:
             if val is None:
                 return None
 
+            if is_bigint_type(field_type) or is_biguint_type(field_type):
+                start_idx, length = val
+                if length == 0:
+                    return 0
+                arr_table = self.storage.get_array_table_for_type(field_type)
+                byte_list = [arr_table.element_table.get(start_idx + j) for j in range(length)]
+                signed = is_bigint_type(field_type)
+                return int.from_bytes(bytes(byte_list), byteorder='little', signed=signed)
+
             if isinstance(base, ArrayTypeDefinition):
                 start_idx, length = val
 
@@ -6310,6 +6485,16 @@ class QueryExecutor:
 
             if val is None:
                 return f"{ind}<{field_name} null=\"true\"/>"
+
+            if is_bigint_type(field_type) or is_biguint_type(field_type):
+                start_idx, length = val
+                if length == 0:
+                    return f"{ind}<{field_name}>0</{field_name}>"
+                arr_table = self.storage.get_array_table_for_type(field_type)
+                byte_list = [arr_table.element_table.get(start_idx + j) for j in range(length)]
+                signed = is_bigint_type(field_type)
+                int_val = int.from_bytes(bytes(byte_list), byteorder='little', signed=signed)
+                return f"{ind}<{field_name}>{int_val}</{field_name}>"
 
             if isinstance(base, ArrayTypeDefinition):
                 start_idx, length = val
@@ -6679,6 +6864,16 @@ class QueryExecutor:
                 elem_strs = [self._format_ttq_value(e, elem_base) for e in elements]
             return "{" + ", ".join(elem_strs) + "}"
 
+        elif is_bigint_type(field.type_def) or is_biguint_type(field.type_def):
+            start_index, length = ref
+            if length == 0:
+                return "0"
+            arr_table = self.storage.get_array_table_for_type(field.type_def)
+            byte_list = [arr_table.element_table.get(start_index + j) for j in range(length)]
+            signed = is_bigint_type(field.type_def)
+            value = int.from_bytes(bytes(byte_list), byteorder='little', signed=signed)
+            return str(value)
+
         elif isinstance(field_base, ArrayTypeDefinition):
             start_index, length = ref
             if length == 0:
@@ -6870,6 +7065,23 @@ class QueryExecutor:
 
             if field_value is None:
                 field_references[field.name] = None
+                continue
+
+            if isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+                val = int(field_value)
+                signed = isinstance(field_base, BigIntTypeDefinition)
+                if not signed and val < 0:
+                    raise ValueError(f"biguint field '{field.name}' cannot store negative value: {val}")
+                if val == 0:
+                    byte_list = [0]
+                elif signed:
+                    byte_length = (val.bit_length() + 8) // 8
+                    byte_list = list(val.to_bytes(byte_length, byteorder='little', signed=True))
+                else:
+                    byte_length = (val.bit_length() + 7) // 8
+                    byte_list = list(val.to_bytes(byte_length, byteorder='little', signed=False))
+                array_table = self.storage.get_array_table_for_type(field.type_def)
+                field_references[field.name] = array_table.insert(byte_list)
                 continue
 
             if isinstance(field_base, ArrayTypeDefinition):

@@ -12,6 +12,8 @@ from typed_tables.storage import StorageManager
 from typed_tables.types import (
     AliasTypeDefinition,
     ArrayTypeDefinition,
+    BigIntTypeDefinition,
+    BigUIntTypeDefinition,
     BooleanTypeDefinition,
     CompositeTypeDefinition,
     DictionaryTypeDefinition,
@@ -134,6 +136,12 @@ def _create_type_from_spec(
         return StringTypeDefinition(name=name, element_type=element_type)
     elif kind == "boolean":
         return BooleanTypeDefinition(name=name, primitive=PrimitiveType.BIT)
+    elif kind == "bigint":
+        element_type = registry.get_or_raise(spec["element_type"])
+        return BigIntTypeDefinition(name=name, element_type=element_type)
+    elif kind == "biguint":
+        element_type = registry.get_or_raise(spec["element_type"])
+        return BigUIntTypeDefinition(name=name, element_type=element_type)
     elif kind == "array":
         element_type = registry.get_or_raise(spec["element_type"])
         return ArrayTypeDefinition(name=name, element_type=element_type)

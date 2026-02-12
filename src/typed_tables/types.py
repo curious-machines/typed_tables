@@ -223,6 +223,42 @@ def is_string_type(type_def: TypeDefinition) -> bool:
 
 
 @dataclass
+class BigIntTypeDefinition(ArrayTypeDefinition):
+    """Built-in bigint type — arbitrary-precision signed integer, stored as uint8[]."""
+
+    pass
+
+
+@dataclass
+class BigUIntTypeDefinition(ArrayTypeDefinition):
+    """Built-in biguint type — arbitrary-precision unsigned integer, stored as uint8[]."""
+
+    pass
+
+
+def is_bigint_type(type_def: TypeDefinition) -> bool:
+    """Check if a type resolves to the built-in bigint type."""
+    return isinstance(type_def.resolve_base_type(), BigIntTypeDefinition)
+
+
+def is_biguint_type(type_def: TypeDefinition) -> bool:
+    """Check if a type resolves to the built-in biguint type."""
+    return isinstance(type_def.resolve_base_type(), BigUIntTypeDefinition)
+
+
+class BigInt(int):
+    """Wrapper to distinguish bigint values from regular ints for decimal display."""
+
+    pass
+
+
+class BigUInt(int):
+    """Wrapper to distinguish biguint values from regular ints for decimal display."""
+
+    pass
+
+
+@dataclass
 class SetTypeDefinition(ArrayTypeDefinition):
     """Set type — stored as array with uniqueness constraint."""
 
@@ -475,6 +511,8 @@ def _type_def_to_type_string(td: TypeDefinition) -> str:
         return "{" + _type_def_to_type_string(td.element_type) + "}"
     if isinstance(td, DictionaryTypeDefinition):
         return "{" + _type_def_to_type_string(td.key_type) + ": " + _type_def_to_type_string(td.value_type) + "}"
+    if isinstance(td, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+        return td.name
     if isinstance(td, StringTypeDefinition):
         return td.name
     if isinstance(td, ArrayTypeDefinition):
@@ -517,6 +555,10 @@ class TypeRegistry:
         self._types["string"] = StringTypeDefinition(name="string", element_type=char_prim)
         # Register built-in boolean type (stored as bit, displayed as true/false)
         self._types["boolean"] = BooleanTypeDefinition(name="boolean", primitive=PrimitiveType.BIT)
+        # Register built-in bigint/biguint types (stored as uint8[], arbitrary precision)
+        uint8_prim = self._types["uint8"]
+        self._types["bigint"] = BigIntTypeDefinition(name="bigint", element_type=uint8_prim)
+        self._types["biguint"] = BigUIntTypeDefinition(name="biguint", element_type=uint8_prim)
         # Register built-in path alias (alias for string)
         self._types["path"] = AliasTypeDefinition(name="path", base_type=self._types["string"])
 
