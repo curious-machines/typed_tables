@@ -207,6 +207,7 @@ class Table:
             PrimitiveType.INT32: "<i",
             PrimitiveType.UINT64: "<Q",
             PrimitiveType.INT64: "<q",
+            PrimitiveType.FLOAT16: "<e",
             PrimitiveType.FLOAT32: "<f",
             PrimitiveType.FLOAT64: "<d",
         }
@@ -353,6 +354,7 @@ class Table:
             PrimitiveType.INT32: "<i",
             PrimitiveType.UINT64: "<Q",
             PrimitiveType.INT64: "<q",
+            PrimitiveType.FLOAT16: "<e",
             PrimitiveType.FLOAT32: "<f",
             PrimitiveType.FLOAT64: "<d",
         }

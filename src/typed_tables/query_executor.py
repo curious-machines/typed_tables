@@ -3386,7 +3386,7 @@ class QueryExecutor:
             # For typed integer context, / uses floor division
             effective_op = op
             prim = PRIMITIVE_TYPE_NAMES.get(result_type)
-            if op == "/" and prim and prim not in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+            if op == "/" and prim and prim not in (PrimitiveType.FLOAT16, PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
                 effective_op = "//"
 
             result = self._apply_raw_binary(lv, rv, effective_op)
@@ -3476,7 +3476,7 @@ class QueryExecutor:
         prim = PRIMITIVE_TYPE_NAMES.get(type_name)
         if prim is None:
             return value
-        if prim in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+        if prim in (PrimitiveType.FLOAT16, PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
             return value  # Float overflow not enforced
         min_val, max_val = type_range(prim)
         if min_val <= value <= max_val:
@@ -3510,7 +3510,7 @@ class QueryExecutor:
         # Unwrap TypedValue
         raw = value.value if isinstance(value, TypedValue) else value
         min_val, max_val = type_range(prim)
-        if prim in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+        if prim in (PrimitiveType.FLOAT16, PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
             return TypedValue(value=float(raw), type_name=type_name)
         # Integer conversion
         if isinstance(raw, float):
@@ -3699,7 +3699,7 @@ class QueryExecutor:
         "int32": "i32", "uint32": "u32",
         "int64": "i64", "uint64": "u64",
         "int128": "i128", "uint128": "u128",
-        "float32": "f32", "float64": "f64",
+        "float16": "f16", "float32": "f32", "float64": "f64",
     }
 
     def _format_expr(self, expr: Any) -> str:
@@ -5365,7 +5365,7 @@ class QueryExecutor:
         if isinstance(base, PrimitiveTypeDefinition):
             if base.primitive in (PrimitiveType.UINT128, PrimitiveType.INT128):
                 return f"0x{value:032x}"
-            if base.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+            if base.primitive in (PrimitiveType.FLOAT16, PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
                 # Use repr to preserve the decimal point
                 return repr(float(value))
         return str(value)
@@ -5994,7 +5994,7 @@ class QueryExecutor:
                 return "true" if val else "false"
             elif prim_type.primitive == PrimitiveType.CHARACTER:
                 return repr(chr(val)) if isinstance(val, int) else repr(val)
-            elif prim_type.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+            elif prim_type.primitive in (PrimitiveType.FLOAT16, PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
                 return str(val)
             else:
                 return str(val)
@@ -6153,7 +6153,7 @@ class QueryExecutor:
                 return bool(val)
             elif prim_type.primitive == PrimitiveType.CHARACTER:
                 return chr(val) if isinstance(val, int) else val
-            elif prim_type.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+            elif prim_type.primitive in (PrimitiveType.FLOAT16, PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
                 return float(val)
             elif prim_type.primitive in (
                 PrimitiveType.INT8, PrimitiveType.INT16, PrimitiveType.INT32, PrimitiveType.INT64,
@@ -6291,7 +6291,7 @@ class QueryExecutor:
             elif prim_type.primitive == PrimitiveType.CHARACTER:
                 ch = chr(val) if isinstance(val, int) else val
                 return escape(ch)
-            elif prim_type.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+            elif prim_type.primitive in (PrimitiveType.FLOAT16, PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
                 return str(float(val))
             elif prim_type.primitive in (
                 PrimitiveType.INT8, PrimitiveType.INT16, PrimitiveType.INT32, PrimitiveType.INT64,
@@ -6841,7 +6841,7 @@ class QueryExecutor:
                 return "1" if value else "0"
             elif type_base.primitive == PrimitiveType.CHARACTER:
                 return self._format_ttq_string(value)
-            elif type_base.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+            elif type_base.primitive in (PrimitiveType.FLOAT16, PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
                 return repr(value)
             else:
                 return str(value)

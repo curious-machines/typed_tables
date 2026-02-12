@@ -153,7 +153,7 @@ class QueryLexer:
         "i32": "int32", "u32": "uint32",
         "i64": "int64", "u64": "uint64",
         "i128": "int128", "u128": "uint128",
-        "f32": "float32", "f64": "float64",
+        "f16": "float16", "f32": "float32", "f64": "float64",
     }
 
     def t_VARIABLE(self, t: lex.LexToken) -> lex.LexToken:
@@ -162,15 +162,15 @@ class QueryLexer:
         return t
 
     def t_TYPED_FLOAT(self, t: lex.LexToken) -> lex.LexToken:
-        r"\d+\.\d+(?:f32|f64)"
+        r"\d+\.\d+(?:f16|f32|f64)"
         # Split into value and suffix
-        for suffix in ("f32", "f64"):
+        for suffix in ("f16", "f32", "f64"):
             if t.value.endswith(suffix):
                 t.value = (float(t.value[:-len(suffix)]), self._TYPE_SUFFIXES[suffix])
                 return t
 
     def t_TYPED_INTEGER(self, t: lex.LexToken) -> lex.LexToken:
-        r"(?:0x[0-9a-fA-F]+|0b[01]+|\d+)(?:i8|u8|i16|u16|i32|u32|i64|u64|i128|u128|f32|f64)\b"
+        r"(?:0x[0-9a-fA-F]+|0b[01]+|\d+)(?:i8|u8|i16|u16|i32|u32|i64|u64|i128|u128|f16|f32|f64)\b"
         raw = t.value
         # Find which suffix matches
         for suffix in sorted(self._TYPE_SUFFIXES, key=len, reverse=True):

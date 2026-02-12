@@ -25,6 +25,7 @@ class PrimitiveType(Enum):
     INT64 = "int64"
     UINT128 = "uint128"
     INT128 = "int128"
+    FLOAT16 = "float16"
     FLOAT32 = "float32"
     FLOAT64 = "float64"
 
@@ -44,6 +45,7 @@ class PrimitiveType(Enum):
             PrimitiveType.INT64: 8,
             PrimitiveType.UINT128: 16,
             PrimitiveType.INT128: 16,
+            PrimitiveType.FLOAT16: 2,
             PrimitiveType.FLOAT32: 4,
             PrimitiveType.FLOAT64: 8,
         }
@@ -69,6 +71,7 @@ def type_range(prim: PrimitiveType) -> tuple[int | float, int | float]:
         PrimitiveType.INT64: (-(2**63), 2**63 - 1),
         PrimitiveType.UINT128: (0, 2**128 - 1),
         PrimitiveType.INT128: (-(2**127), 2**127 - 1),
+        PrimitiveType.FLOAT16: (-65504.0, 65504.0),
         PrimitiveType.FLOAT32: (-3.4028235e+38, 3.4028235e+38),
         PrimitiveType.FLOAT64: (-1.7976931348623157e+308, 1.7976931348623157e+308),
     }

@@ -6,8 +6,6 @@
 
 I'm confused why compact shrinks files below the 4096 initial size. I thought that was a requirement. When the compacted table needs to expand, will it simply double or will it first jump to 4096 bytes?
 
-Is it possible to add support for float8 and float16? Also, could we support Fractions?
-
 ---
 
 # For Consideration
@@ -40,6 +38,10 @@ Would be great if we could import binary data (some file format) and be able to 
 - Indexing
 
 # Completed
+
+## Float16, BigInt, and Fractions
+
+Is it possible to add support for float16? Also, can we support BigInt and Fractions?
 
 ## Disable LSP
 
