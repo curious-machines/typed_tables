@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import QueryParser
 from typed_tables.query_executor import QueryExecutor, QueryResult
 from typed_tables.repl import _analyze_table_file, _format_size, print_status
@@ -29,6 +30,34 @@ def executor(db_dir):
     registry = TypeRegistry()
     storage = StorageManager(db_dir, registry)
     return QueryExecutor(storage, registry)
+
+
+@pytest.fixture(scope="session")
+def _item_2045_db():
+    """Pre-build a database with type Item {value: uint8} and 2045 records.
+
+    Uses the Table API directly (not TTQ parsing) for speed.
+    The resulting Item.bin has grown from 4096 to 8192 bytes.
+    """
+    tmp = tempfile.mkdtemp()
+    db_path = Path(tmp)
+    registry = TypeRegistry()
+    storage = StorageManager(db_path, registry)
+    executor = QueryExecutor(storage, registry)
+
+    # Create the type via TTQ (single statement, fast)
+    parser = QueryParser()
+    for q in parser.parse_program('type Item { value: uint8 }'):
+        executor.execute(q)
+
+    # Insert 2045 records via Table API directly (bypasses parser overhead)
+    table = storage.get_table("Item")
+    for i in range(2045):
+        table.insert({"value": i % 256})
+
+    storage.close()
+    yield db_path
+    shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _run(executor, *stmts):
@@ -204,23 +233,30 @@ class TestSavingsCalculation:
         # But dead space is nonzero (the tombstone occupies record bytes)
         assert result["_dead_size_raw"] > 0
 
-    def test_savings_nonzero_when_file_has_grown(self, db_dir, executor):
+    def test_savings_nonzero_when_file_has_grown(self, _item_2045_db):
         """If file has grown beyond initial size but live data fits in smaller size, savings > 0."""
-        # Create enough records to force file growth past 4096, then delete most
-        # uint8 record = 2 bytes. Capacity in 4096: (4096-8)//2 = 2044 records
-        # Need > 2044 records to force growth to 8192
-        _run(executor, 'type Item { value: uint8 }')
-        for i in range(2045):
-            _run(executor, f'create Item(value={i % 256})')
-        # Now delete all but one
-        _run(executor, 'delete Item where value != 0')
+        # Copy the pre-built database (2045 Item records, file grown to 8192)
+        tmp = tempfile.mkdtemp()
+        db_dir = Path(tmp)
+        shutil.rmtree(db_dir)
+        shutil.copytree(_item_2045_db, db_dir)
 
-        bin_path = db_dir / "Item.bin"
-        result = _analyze_table_file(bin_path, db_dir, executor)
-        assert result is not None
-        # File should be 8192 (grew once). Live data fits in 4096.
-        assert result["_file_size_raw"] == 8192
-        assert result["_savings_raw"] == 8192 - 4096  # 4096 bytes saved
+        try:
+            registry = load_registry_from_metadata(db_dir)
+            storage = StorageManager(db_dir, registry)
+            executor = QueryExecutor(storage, registry)
+
+            # Delete all but records where value == 0
+            _run(executor, 'delete Item where value != 0')
+
+            bin_path = db_dir / "Item.bin"
+            result = _analyze_table_file(bin_path, db_dir, executor)
+            assert result is not None
+            # File should be 8192 (grew once). Live data fits in 4096.
+            assert result["_file_size_raw"] == 8192
+            assert result["_savings_raw"] == 8192 - 4096  # 4096 bytes saved
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class TestStatusEnumVariants:
