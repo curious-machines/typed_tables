@@ -4,11 +4,13 @@ This document describes the binary file formats used by Typed Tables to store da
 
 ## Overview
 
-Typed Tables uses a file-per-type storage model. Each type has its own binary file(s):
+Typed Tables uses a file-per-type storage model:
 
-- **Primitive/Alias types**: `<type_name>.bin`
-- **Composite types**: `<type_name>.bin`
-- **Array types**: `<type_name>.bin` (headers) + `<type_name>_elements.bin` (elements)
+- **Composite types**: `<type_name>.bin` — fixed-size records with inline field data
+- **Array element tables**: `<element_type>.bin` — shared element storage for array/string/set fields
+- **Variant tables**: `<enum_name>/<variant_name>.bin` — per-variant tables for Swift-style enums
+- **Dict entry tables**: `Dict_<key>_<value>.bin` — synthetic composites for dictionary entries
+- **System byte tables**: `bigint.bin`, `biguint.bin`, `_frac_num.bin`, `_frac_den.bin`
 - **Metadata**: `_metadata.json`
 
 All binary data is stored in **little-endian** byte order.
@@ -69,6 +71,7 @@ Each primitive type is stored with a fixed size:
 | int64     | 8            | int64               | Signed 64-bit integer      |
 | uint128   | 16           | uint64[2]           | Low 64 bits, then high 64  |
 | int128    | 16           | uint64[2]           | Low 64 bits, then high 64  |
+| float16   | 2            | IEEE 754 half       | 16-bit floating point      |
 | float32   | 4            | IEEE 754 single     | 32-bit floating point      |
 | float64   | 8            | IEEE 754 double     | 64-bit floating point      |
 
@@ -81,52 +84,56 @@ Byte:   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
 
 ## Composite Type Storage
 
-Composite types store **references** to values, not the values themselves. Each field value is stored in its own type's table, and the composite record stores only indices pointing to those values.
+Composite types store field values **inline** in each record. The record begins with a null bitmap followed by the data for each field.
 
 ### Record Layout
 
 ```
-+------------------------+------------------------+-----+------------------------+
-| Field 0 Index (uint32) | Field 1 Index (uint32) | ... | Field N-1 Index        |
-+------------------------+------------------------+-----+------------------------+
++---------------------+------------------+------------------+-----+------------------+
+| Null Bitmap         | Field 0 Data     | Field 1 Data     | ... | Field N-1 Data   |
+| ceil(N/8) bytes     | (variable size)  | (variable size)  |     | (variable size)  |
++---------------------+------------------+------------------+-----+------------------+
 ```
 
-### Field Reference Size
+The null bitmap uses one bit per field. If a bit is set, the corresponding field is null and its data area is zeroed.
 
-All fields use 4 bytes (uint32) to store an index into the field's type table:
+### Field Inline Size
 
-| Field Type    | Reference Size | Format                              |
-|---------------|----------------|-------------------------------------|
-| Primitive     | 4 bytes        | uint32 index into primitive table   |
-| Alias         | 4 bytes        | uint32 index into alias table       |
-| Array         | 4 bytes        | uint32 index into array header table|
-| Composite     | 4 bytes        | uint32 index into composite table   |
+| Field Type           | Inline Size   | Format                                      |
+|----------------------|---------------|---------------------------------------------|
+| Primitive            | 1–16 bytes    | Actual value bytes (depends on primitive)    |
+| Composite ref        | 4 bytes       | uint32 index into referenced type's table    |
+| Array / String       | 8 bytes       | (start_index: u32, length: u32) into element table |
+| Set                  | 8 bytes       | (start_index: u32, length: u32) into element table |
+| Dict                 | 8 bytes       | (start_index: u32, length: u32) into entry index table |
+| Enum (C-style)       | 1–4 bytes     | Discriminant only                            |
+| Enum (Swift-style)   | 5–8 bytes     | Discriminant + uint32 variant table index    |
+| BigInt / BigUInt     | 8 bytes       | (start_index: u32, length: u32) into byte table |
+| Fraction             | 16 bytes      | (num_start: u32, num_len: u32, den_start: u32, den_len: u32) |
 
 ### Example: Person Type
 
-```
-define uuid as uint128
-define name as character[]
-define age as uint8
+```ttq
+alias uuid = uint128
 
-Person {
-  id: uuid      -- 4 bytes (index into uuid.bin)
-  name          -- 4 bytes (index into name.bin header table)
-  age           -- 4 bytes (index into age.bin)
+type Person {
+  id: uuid,       -- 16 bytes inline (uint128 value)
+  name: string,   -- 8 bytes inline (start_index, length into character element table)
+  age: uint8      -- 1 byte inline (actual value)
 }
 ```
 
-Person record size: 4 + 4 + 4 = 12 bytes
+Null bitmap: ceil(3/8) = 1 byte
+Person record size: 1 + 16 + 8 + 1 = 26 bytes
 
 ```
-Byte:   0   1   2   3   4   5   6   7   8   9  10  11
-      |<-- id index -->|<- name index -->|<- age index ->|
+Byte:   0          1  ...  16      17 ... 24     25
+      |<bitmap>|<-- id (uuid) -->|<- name ref ->|<age>|
 ```
 
 To resolve the `name` field:
-1. Read the name index from Person.bin (e.g., index 5)
-2. Look up index 5 in name.bin to get (start_index, length)
-3. Read `length` elements starting at `start_index` from name_elements.bin
+1. Read start_index and length from inline bytes (offset 17–24)
+2. Read `length` elements starting at `start_index` from the character element table
 
 ## Array Type Storage
 
@@ -193,7 +200,9 @@ Type definitions are stored in `_metadata.json` for persistence across sessions.
 {
   "types": {
     "type_name": {
-      "kind": "primitive" | "alias" | "array" | "composite",
+      "kind": "primitive" | "alias" | "array" | "string" | "boolean"
+           | "composite" | "interface" | "enum" | "set" | "dictionary"
+           | "bigint" | "biguint" | "fraction",
       ...type-specific fields...
     }
   }
@@ -276,14 +285,23 @@ Tables use memory-mapped files (mmap) for efficient I/O:
 
 ## Example File Structure
 
-For a database with Person type:
+For a database with Person type (`type Person { id: uuid, name: string, age: uint8 }`):
 
 ```
 data_directory/
-├── _metadata.json      # Type definitions
-├── Person.bin          # Person records (references only)
-├── uuid.bin            # UUID values (uint128)
-├── name.bin            # String headers (start_index, length)
-├── name_elements.bin   # String characters (uint32 code points)
-└── age.bin             # Age values (uint8)
+├── _metadata.json          # Type definitions
+├── Person.bin              # Person records (inline field data)
+├── character.bin           # Character element table (shared by all string/character[] fields)
+```
+
+For a database with fraction and bigint fields:
+
+```
+data_directory/
+├── _metadata.json
+├── Data.bin                # Composite records (inline field data)
+├── _frac_num.bin           # Shared fraction numerator bytes (uint8 elements)
+├── _frac_den.bin           # Shared fraction denominator bytes (uint8 elements)
+├── bigint.bin              # BigInt byte element table
+├── biguint.bin             # BigUInt byte element table
 ```

@@ -834,10 +834,19 @@ SEMICOLON       ::= ";"
  *
  * Type conversion functions:
  * int8(x), uint8(x), int16(x), uint16(x), int32(x), uint32(x),
- * int64(x), uint64(x), int128(x), uint128(x), float32(x), float64(x)
+ * int64(x), uint64(x), int128(x), uint128(x),
+ * float16(x), float32(x), float64(x)
  *   - Convert value to the target type with range checking
  *   - Element-wise for arrays: int16([1,2,3])
  *   - Narrowing always errors on overflow
+ *
+ * Extended numeric conversion functions:
+ * bigint(x)               - Convert to arbitrary-precision signed integer
+ * biguint(x)              - Convert to arbitrary-precision unsigned integer
+ * fraction(n)             - Create fraction n/1
+ * fraction(n, d)          - Create fraction n/d (d must not be zero)
+ * boolean(x)              - Convert 0/1 to false/true
+ * string(x)               - Convert any value to its string representation
  *
  * Enum conversion functions:
  * EnumName(discriminant)   - Convert integer to enum value: Color(0) → Color.red

@@ -42,21 +42,22 @@ $seniors
 
 | Category | Keywords |
 |---|---|
-| Commands | `create`, `delete`, `update`, `set`, `use`, `drop`, `dump`, `compact`, `archive`, `restore`, `execute`, `import`, `show`, `describe`, `collect`, `forward`, `define`, `scope` |
+| Commands | `create`, `delete`, `update`, `set`, `use`, `drop`, `dump`, `compact`, `archive`, `restore`, `execute`, `import`, `show`, `describe`, `collect`, `forward`, `scope` |
 | Query | `from`, `select`, `where`, `sort`, `by`, `group`, `offset`, `limit`, `and`, `or`, `not`, `as`, `to`, `starts`, `with`, `matches`, `temp`, `types`, `interfaces`, `composites`, `enums`, `primitives`, `aliases`, `references`, `graph`, `system` |
 | Type | `type`, `enum`, `interface`, `alias` |
 | Format | `yaml`, `json`, `xml`, `pretty` |
 
 ### Built-in Types
 ```
-bit  character  string  path
+bit  character  string  boolean  path
 uint8   int8    uint16  int16
 uint32  int32   uint64  int64
-uint128 int128  float32 float64
+uint128 int128  float16 float32  float64
+bigint  biguint fraction
 ```
 
 ### Functions
-Highlighted when followed by `(`: `count`, `average`, `sum`, `product`, `min`, `max`, `uuid`, `sqrt`, `pow`, `abs`, `ceil`, `floor`, `round`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`.
+Highlighted when followed by `(`: `count`, `average`, `sum`, `product`, `min`, `max`, `uuid`, `sqrt`, `pow`, `abs`, `ceil`, `floor`, `round`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `bigint`, `biguint`, `fraction`, `boolean`, `string`.
 
 Note: `count`, `average`, `sum`, `product`, `min`, `max` are **not** reserved keywords — they can also be used as field names.
 
@@ -114,7 +115,7 @@ Selecting text and typing a bracket or quote wraps the selection:
 `{ }` blocks are foldable automatically. Click the fold arrow in the gutter next to any opening brace.
 
 ```ttq
-create type Person {    -- [fold arrow here]
+type Person {    -- [fold arrow here]
     name: string,
     age: uint8
 }
@@ -125,8 +126,8 @@ Use `-- region` and `-- endregion` comments to define custom foldable sections.
 
 ```ttq
 -- region Type Definitions
-create type Person { name: string, age: uint8 }
-create type Address { street: string, city: string }
+type Person { name: string, age: uint8 }
+type Address { street: string, city: string }
 -- endregion
 
 -- #region Queries (alternate syntax)
@@ -145,13 +146,13 @@ Type a prefix and press `Tab` to expand. Tab stops (`$1`, `$2`, ...) let you cyc
 
 | Prefix | Expands to |
 |---|---|
-| `type` | `create type Name { field: type }` |
-| `typefrom` | `create type Name from Parent { field: type }` |
-| `enum` | `create enum Name { a, b, c }` |
-| `enumsw` | `create enum Name { bare, variant(field: type) }` |
-| `interface` | `create interface Name { field: type }` |
+| `type` | `type Name { field: type }` |
+| `typefrom` | `type Name from Parent { field: type }` |
+| `enum` | `enum Name { a, b, c }` |
+| `enumsw` | `enum Name { bare, variant(field: type) }` |
+| `interface` | `interface Name { field: type }` |
 | `alias` | `alias name = base_type` |
-| `forward` | `forward type Name` |
+| `forward` | `forward Name` |
 
 ### Instances and Data
 

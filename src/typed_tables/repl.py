@@ -1044,6 +1044,8 @@ EXPRESSIONS (bare eval — no FROM needed):
   min(5, 3)                Multi-argument min/max
   sqrt(16), abs(-5)        Math functions
   boolean(1), string(42)   Type cast functions
+  fraction(355, 113)       Exact rational number
+  bigint(42), biguint(42)  Arbitrary-precision integers
 
   Array math (element-wise):
     [1,2] + [3,4]          [4, 6]
@@ -1071,6 +1073,12 @@ TYPED MATH:
     int16([1,2,3])                 Element-wise: array conversion
     float64(age)                   Field value conversion
     int8(200)                      Error: 200 overflows int8
+    bigint(42)                     Arbitrary-precision signed integer
+    biguint(42)                    Arbitrary-precision unsigned integer
+    fraction(355, 113)             Exact rational 355/113
+    fraction(3)                    Exact rational 3/1
+    boolean(1)                     true; boolean(0) → false
+    string(42)                     "42" (convert any value to string)
 
   Division:
     7i8 / 2i8                      Floor division for typed integers
@@ -1103,11 +1111,17 @@ TYPES:
     uint32, int32             32-bit unsigned/signed integer
     uint64, int64             64-bit unsigned/signed integer
     uint128, int128           128-bit unsigned/signed integer
+    float16                   16-bit floating point (half precision)
     float32, float64          32/64-bit floating point
 
   Special types:
     string                    Built-in (stored as character[], displayed as "Alice")
     boolean                   Built-in (stored as bit, displayed as true/false)
+
+  Extended numeric types:
+    bigint                    Arbitrary-precision signed integer
+    biguint                   Arbitrary-precision unsigned integer
+    fraction                  Exact rational number (e.g., fraction(355, 113) → 355/113)
 
   Collection types:
     int32[]  or  [int32]      Array (ordered, duplicates allowed)

@@ -26,10 +26,15 @@ BUILTIN_TYPES: dict[str, str] = {
     "int64": "Signed 64-bit integer (8 bytes)",
     "uint128": "Unsigned 128-bit integer (16 bytes)",
     "int128": "Signed 128-bit integer (16 bytes)",
+    "float16": "16-bit IEEE 754 float (2 bytes, half precision)",
     "float32": "32-bit IEEE 754 float (4 bytes)",
     "float64": "64-bit IEEE 754 float (8 bytes)",
     "string": "Variable-length UTF-8 string (stored as character[])",
+    "boolean": "Boolean value (stored as bit, displayed as true/false)",
     "path": "File path (alias for string)",
+    "bigint": "Arbitrary-precision signed integer",
+    "biguint": "Arbitrary-precision unsigned integer",
+    "fraction": "Exact rational number (e.g., fraction(355, 113))",
 }
 
 KEYWORDS: dict[str, str] = {

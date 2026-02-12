@@ -20,9 +20,14 @@ TTQ is both the query language and the type definition language.
 
 ## Type System
 
-The built-in primitive types that are supported: bit, character, uint8, int8, uint16, int16, uint32, int32, uint64, int64, uint128, int128, float32, float64
+The built-in primitive types that are supported: bit, character, uint8, int8, uint16, int16, uint32, int32, uint64, int64, uint128, int128, float16, float32, float64
 
-There is also a built-in `string` type. It is stored as `character[]` but always displayed as a joined string (e.g., `"Alice"`). A bare `character[]` is displayed as an array of individual characters (e.g., `['A', 'l', 'i', 'c', 'e']`). Aliases to `string` inherit string display behavior; aliases to `character[]` do not.
+Additional built-in types:
+- `string` — stored as `character[]` but displayed as a joined string (e.g., `"Alice"`). A bare `character[]` is displayed as an array of individual characters (e.g., `['A', 'l', 'i', 'c', 'e']`). Aliases to `string` inherit string display behavior; aliases to `character[]` do not.
+- `boolean` — stored as `bit`, displayed as `true`/`false`.
+- `bigint` — arbitrary-precision signed integer, stored as variable-length byte sequence.
+- `biguint` — arbitrary-precision unsigned integer, stored as variable-length byte sequence.
+- `fraction` — exact rational number (numerator/denominator), stored as two variable-length byte sequences. Construction: `fraction(355, 113)` or `fraction(3)`.
 
 All types have array variants which is indicated by the type name followed by square brackets. For example, `character[]`
 
@@ -56,6 +61,8 @@ Each composite type is stored in its own table as a `.bin` file. A table is an a
 - **Enum fields**: stored inline. C-style: discriminant only (1/2/4 bytes based on max value). Swift-style: `[discriminant (1-4 bytes)][uint32 variant_table_index]` (disc + 4 bytes); variant fields are stored in per-variant `.bin` tables in `{data_dir}/{enum_name}/`.
 - **Set fields**: stored identically to array fields — `(start_index, length)` inline (8 bytes). Uniqueness is enforced at creation/mutation time, not at the storage level.
 - **Dict fields**: stored as `(start_index, length)` inline (8 bytes) pointing into an array of uint32 entry composite indices. Each entry is a synthetic composite type (e.g., `Dict_string_float64`) with `key` and `value` fields, stored in its own `.bin` table.
+- **BigInt/BigUInt fields**: `(start_index, length)` stored inline (8 bytes) — bytes stored in shared `bigint.bin` / `biguint.bin` element tables. Little-endian encoding; signed uses two's complement.
+- **Fraction fields**: `(num_start, num_len, den_start, den_len)` stored inline (16 bytes) — numerator bytes in `_frac_num.bin` (signed), denominator bytes in `_frac_den.bin` (unsigned). Auto-normalized by Python's `fractions.Fraction`.
 
 Array elements are stored in element tables (e.g., `name.bin`). The composite record directly contains the `(start_index, length)` pair needed to locate the elements.
 
@@ -323,6 +330,12 @@ int16(readings)        -- element-wise: int8[] -> int16[]
 int16([1, 2, 3])       -- typed array literal
 float64(age)           -- uint8 -> float64
 int8(200)              -- error: 200 overflows int8 (narrowing always errors on overflow)
+bigint(42)             -- convert to arbitrary-precision signed integer
+biguint(42)            -- convert to arbitrary-precision unsigned integer
+fraction(355, 113)     -- exact rational 355/113
+fraction(3)            -- exact rational 3/1
+boolean(1)             -- true; boolean(0) → false
+string(42)             -- "42" (convert any value to string)
 ```
 
 #### Expression Type Rules
