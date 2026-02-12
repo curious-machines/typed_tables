@@ -292,6 +292,7 @@ def _populate_composite_from_spec(
         fields.append(FD(name=field_spec["name"], type_def=field_type, default_value=default, overflow=overflow))
     stub.fields = fields
     stub.interfaces = spec.get("interfaces", [])
+    stub.parent = spec.get("parent")
 
 
 def _populate_enum_from_spec(

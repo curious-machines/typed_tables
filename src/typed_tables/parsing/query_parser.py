@@ -133,6 +133,7 @@ class DumpGraphQuery:
     """A DUMP GRAPH query."""
 
     output_file: str | None = None  # None = TTQ to stdout
+    type_name: str | None = None  # None = show all types
 
 
 @dataclass
@@ -609,6 +610,14 @@ class QueryParser:
     def p_query_dump_graph_to(self, p: yacc.YaccProduction) -> None:
         """query : DUMP GRAPH TO STRING"""
         p[0] = DumpGraphQuery(output_file=p[4])
+
+    def p_query_dump_graph_type(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP GRAPH IDENTIFIER"""
+        p[0] = DumpGraphQuery(type_name=p[3])
+
+    def p_query_dump_graph_type_to(self, p: yacc.YaccProduction) -> None:
+        """query : DUMP GRAPH IDENTIFIER TO STRING"""
+        p[0] = DumpGraphQuery(type_name=p[3], output_file=p[5])
 
     def p_query_compact_to(self, p: yacc.YaccProduction) -> None:
         """query : COMPACT TO STRING"""

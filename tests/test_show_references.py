@@ -298,3 +298,158 @@ class TestDumpGraph:
         assert isinstance(result, DumpResult)
         assert "type TypeNode" in result.script
         assert "type Edge" in result.script
+
+    def test_dump_graph_filter_type(self, executor, parser):
+        """dump graph <type> filters to edges involving that type."""
+        _run(executor, parser, 'type Point { x: float32, y: float32 }')
+        _run(executor, parser, 'type Line { start: Point, end: Point }')
+        _run(executor, parser, 'type Color { r: uint8, g: uint8, b: uint8 }')
+        result = _run(executor, parser, 'dump graph Point')
+        assert isinstance(result, DumpResult)
+        script = result.script
+        # Point-related nodes should be present
+        assert 'name="Point"' in script
+        assert 'name="Line"' in script
+        # Color should NOT be in the filtered graph
+        assert 'name="Color"' not in script
+
+    def test_dump_graph_filter_type_to_dot(self, executor, parser, tmp_data_dir):
+        """dump graph <type> to "file.dot" filters and outputs DOT."""
+        _run(executor, parser, 'type Point { x: float32, y: float32 }')
+        _run(executor, parser, 'type Line { start: Point }')
+        out_path = str(tmp_data_dir / "graph.dot")
+        result = executor.execute(DumpGraphQuery(type_name="Point", output_file=out_path))
+        assert isinstance(result, DumpResult)
+        assert "digraph" in result.script
+        assert '"Point"' in result.script
+        assert '"Line"' in result.script
+
+    def test_parse_dump_graph_type(self, parser):
+        q = parser.parse("dump graph Person")
+        assert isinstance(q, DumpGraphQuery)
+        assert q.type_name == "Person"
+        assert q.output_file is None
+
+    def test_parse_dump_graph_type_to(self, parser):
+        q = parser.parse('dump graph Person to "types.dot"')
+        assert isinstance(q, DumpGraphQuery)
+        assert q.type_name == "Person"
+        assert q.output_file == "types.dot"
+
+
+# ---- Inheritance edge tests ----
+
+
+class TestInheritanceEdges:
+    def test_extends_edge(self, executor, parser):
+        """Concrete parent produces an (extends) edge."""
+        _run(executor, parser, 'type Person { name: string, age: uint8 }')
+        _run(executor, parser, 'type Employee from Person { department: string }')
+        result = _run(executor, parser, 'show references')
+        edges = _edges(result)
+        assert ("Employee", "Composite", "(extends)", "Person") in edges
+
+    def test_implements_edge(self, executor, parser):
+        """Interface parent produces an (implements) edge."""
+        _run(executor, parser, 'interface Drawable { color: string }')
+        _run(executor, parser, 'type Widget from Drawable { label: string }')
+        result = _run(executor, parser, 'show references')
+        edges = _edges(result)
+        assert ("Widget", "Composite", "(implements)", "Drawable") in edges
+
+    def test_extends_and_implements(self, executor, parser):
+        """Both concrete and interface parents produce edges."""
+        _run(executor, parser, 'interface Labelled { name: string }')
+        _run(executor, parser, 'type Base { id: uint32 }')
+        _run(executor, parser, 'type Derived from Base, Labelled { extra: float32 }')
+        result = _run(executor, parser, 'show references')
+        edges = _edges(result)
+        assert ("Derived", "Composite", "(extends)", "Base") in edges
+        assert ("Derived", "Composite", "(implements)", "Labelled") in edges
+
+    def test_extends_edge_in_dump_graph(self, executor, parser):
+        """Inheritance edges appear in dump graph output."""
+        _run(executor, parser, 'type Person { name: string }')
+        _run(executor, parser, 'type Employee from Person { dept: string }')
+        result = _run(executor, parser, 'dump graph')
+        assert isinstance(result, DumpResult)
+        assert "(extends)" in result.script
+
+    def test_filter_by_parent_shows_extends(self, executor, parser):
+        """Filtering show references by parent type shows extends edge."""
+        _run(executor, parser, 'type Person { name: string }')
+        _run(executor, parser, 'type Employee from Person { dept: string }')
+        result = _run(executor, parser, 'show references Person')
+        edges = _edges(result)
+        assert ("Employee", "Composite", "(extends)", "Person") in edges
+
+
+# ---- Parent tracking tests ----
+
+
+class TestParentTracking:
+    def test_parent_set_on_creation(self, executor, parser):
+        """parent field is set when creating a type with a concrete parent."""
+        _run(executor, parser, 'type Person { name: string }')
+        _run(executor, parser, 'type Employee from Person { dept: string }')
+        emp_def = executor.registry.get("Employee")
+        assert emp_def.parent == "Person"
+
+    def test_parent_none_for_interface_only(self, executor, parser):
+        """parent is None when type only inherits from interfaces."""
+        _run(executor, parser, 'interface Labelled { name: string }')
+        _run(executor, parser, 'type Widget from Labelled { x: uint8 }')
+        widget_def = executor.registry.get("Widget")
+        assert widget_def.parent is None
+
+    def test_parent_none_for_no_inheritance(self, executor, parser):
+        """parent is None when type has no parents."""
+        _run(executor, parser, 'type Point { x: float32, y: float32 }')
+        point_def = executor.registry.get("Point")
+        assert point_def.parent is None
+
+    def test_parent_persists_in_metadata(self, executor, parser, tmp_data_dir):
+        """parent field round-trips through metadata save/load."""
+        from typed_tables.dump import load_registry_from_metadata
+        _run(executor, parser, 'type Person { name: string }')
+        _run(executor, parser, 'type Employee from Person { dept: string }')
+        # Save and reload from metadata
+        executor.storage.save_metadata()
+        registry2 = load_registry_from_metadata(tmp_data_dir)
+        emp_def = registry2.get("Employee")
+        assert emp_def.parent == "Person"
+
+    def test_describe_shows_parent(self, executor, parser):
+        """describe shows a (parent) row for types with concrete parents."""
+        _run(executor, parser, 'type Person { name: string }')
+        _run(executor, parser, 'type Employee from Person { dept: string }')
+        result = _run(executor, parser, 'describe Employee')
+        parent_rows = [r for r in result.rows if r["property"] == "(parent)"]
+        assert len(parent_rows) == 1
+        assert parent_rows[0]["type"] == "Person"
+
+    def test_describe_no_parent_row_without_parent(self, executor, parser):
+        """describe does not show (parent) row for types without concrete parent."""
+        _run(executor, parser, 'type Point { x: float32 }')
+        result = _run(executor, parser, 'describe Point')
+        parent_rows = [r for r in result.rows if r["property"] == "(parent)"]
+        assert len(parent_rows) == 0
+
+    def test_dump_roundtrip_with_parent(self, executor, parser, tmp_data_dir):
+        """dump produces 'from Parent' clause for types with concrete parents."""
+        _run(executor, parser, 'type Person { name: string, age: uint8 }')
+        _run(executor, parser, 'type Employee from Person { dept: string }')
+        result = _run(executor, parser, 'dump')
+        assert isinstance(result, DumpResult)
+        # The dump script should contain "from Person" in the Employee type def
+        assert "from Person" in result.script
+
+    def test_dump_roundtrip_parent_and_interface(self, executor, parser, tmp_data_dir):
+        """dump produces correct from clause with both parent and interface."""
+        _run(executor, parser, 'interface Labelled { name: string }')
+        _run(executor, parser, 'type Base { id: uint32 }')
+        _run(executor, parser, 'type Derived from Base, Labelled { extra: float32 }')
+        result = _run(executor, parser, 'dump')
+        assert isinstance(result, DumpResult)
+        # Should have "from Base, Labelled" in the output
+        assert "from Base, Labelled" in result.script

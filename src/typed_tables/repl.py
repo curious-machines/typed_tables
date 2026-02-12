@@ -857,7 +857,9 @@ SHOW & DESCRIBE:
   describe <type>.<variant>
                            Show fields of an enum variant
 
-  All show commands support: sort by <field>""",
+  All show commands support: sort by <field>
+
+  See also: dump graph (exports the reference graph to a file)""",
 
     "definitions": """\
 DEFINITIONS:
@@ -1411,6 +1413,18 @@ DUMP:
     dump archive              Include system types (full database state)
     dump archive yaml         Combinable with format modifiers
 
+  Graph (export the type reference graph):
+    dump graph                  Export type reference graph as TTQ
+    dump graph to "file.ttq"    TTQ format to file
+    dump graph to "file.dot"    Graphviz DOT format (.dot extension)
+    dump graph to "file"        No extension -> appends .ttq
+    dump graph <type>           Graph filtered to a specific type
+    dump graph <type> to "file" Filtered graph to file
+
+  File extension behavior:
+    dump to "file"              Auto-appends .ttq (or .yaml/.json/.xml)
+    dump to "file.ttq.gz"       Gzip-compressed output (.gz on any format)
+
   Shared references are automatically emitted as $var bindings.
   The dump command is cycle-aware and emits scope/tag syntax for cycles.""",
 
@@ -1431,7 +1445,9 @@ ARCHIVE, RESTORE & COMPACT:
 
   compact to "path"        Create a compacted copy of the database
                            Removes tombstones and unreferenced data
-                           Remaps all references to new indices""",
+                           Remaps all references to new indices
+
+  restore auto-detects extensions: "backup" tries backup.ttar, backup.ttar.gz""",
 
     "cyclic": """\
 CYCLIC DATA:
@@ -1480,7 +1496,9 @@ EXECUTE & IMPORT:
   import "file.ttq"        Subsequent imports are silently skipped
   import "file.ttq.gz"     Gzip-compressed files supported
                            Import tracking is stored in the database
-                           Dropping and recreating the database resets history""",
+                           Dropping and recreating the database resets history
+
+  Auto-extension: "setup" tries setup.ttq, setup.ttq.gz if not found""",
 }
 
 _HELP_ALIASES: dict[str, str] = {
@@ -1507,6 +1525,8 @@ _HELP_ALIASES: dict[str, str] = {
     "group": "queries",
     "limit": "queries",
     "offset": "queries",
+    "graph": "dump",
+    "references": "show",
     "yaml": "dump",
     "json": "dump",
     "xml": "dump",

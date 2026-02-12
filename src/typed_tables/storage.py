@@ -160,6 +160,8 @@ class StorageManager:
             }
             if type_def.interfaces:
                 result["interfaces"] = type_def.interfaces
+            if type_def.parent:
+                result["parent"] = type_def.parent
             return result
         else:
             return {"kind": "unknown"}

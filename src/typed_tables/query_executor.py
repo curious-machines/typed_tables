@@ -759,6 +759,11 @@ class QueryExecutor:
             elif isinstance(type_def, CompositeTypeDefinition):
                 for f in type_def.fields:
                     process_field_type(type_name, kind, f.name, f.type_def)
+                # Inheritance edges
+                if type_def.parent:
+                    add_edge(type_name, kind, type_def.parent, "(extends)")
+                for iface_name in type_def.interfaces:
+                    add_edge(type_name, kind, iface_name, "(implements)")
             elif isinstance(type_def, FractionTypeDefinition):
                 pass
             elif isinstance(type_def, (BigIntTypeDefinition, BigUIntTypeDefinition)):
@@ -786,6 +791,9 @@ class QueryExecutor:
         from pathlib import Path
 
         edges = self._build_type_graph()
+        if query.type_name:
+            names = {query.type_name, query.type_name + "[]"}
+            edges = [e for e in edges if e["source"] in names or e["target"] in names]
         nodes = self._collect_graph_nodes(edges)
 
         if query.output_file:
@@ -857,7 +865,13 @@ class QueryExecutor:
             "Alias": ('box', '#D3D3D3'),
             "Primitive": ('ellipse', '#FFFFE0'),
             "String": ('ellipse', '#FFFFE0'),
+            "Boolean": ('ellipse', '#FFFFE0'),
             "Array": ('ellipse', '#FFD700'),
+            "Set": ('ellipse', '#FFD700'),
+            "Dictionary": ('ellipse', '#FFD700'),
+            "Fraction": ('ellipse', '#DDA0DD'),
+            "BigInt": ('ellipse', '#DDA0DD'),
+            "BigUInt": ('ellipse', '#DDA0DD'),
             "Unknown": ('box', '#FFFFFF'),
         }
 
@@ -974,6 +988,14 @@ class QueryExecutor:
                     "default": default_val,
                     "overflow": field.overflow or "",
                 })
+            if base.parent:
+                rows.append({
+                    "property": "(parent)",
+                    "type": base.parent,
+                    "size": 0,
+                    "default": "",
+                    "overflow": "",
+                })
             if base.interfaces:
                 for iface_name in base.interfaces:
                     rows.append({
@@ -981,6 +1003,7 @@ class QueryExecutor:
                         "type": iface_name,
                         "size": 0,
                         "default": "",
+                        "overflow": "",
                     })
         elif isinstance(base, FractionTypeDefinition):
             rows.append({
@@ -1244,6 +1267,7 @@ class QueryExecutor:
         parents = query.parents
         parent_fields: list[FieldDefinition] = []
         interface_names: list[str] = []
+        concrete_parent: str | None = None
 
         for parent_name in parents:
             if parent_name == query.name:
@@ -1283,6 +1307,7 @@ class QueryExecutor:
                     else:
                         parent_fields.append(f)
             elif isinstance(parent_base, CompositeTypeDefinition):
+                concrete_parent = parent_name
                 # Concrete parent: only one allowed
                 if any(
                     isinstance(self.registry.get(p).resolve_base_type(), CompositeTypeDefinition)
@@ -1355,6 +1380,7 @@ class QueryExecutor:
         stub.fields = fields
         # Deduplicate interface names
         stub.interfaces = list(dict.fromkeys(interface_names))
+        stub.parent = concrete_parent
 
         # Save updated metadata
         self.storage.save_metadata()
@@ -5837,8 +5863,13 @@ class QueryExecutor:
 
         # Helper to emit a type definition
         def emit_type_def(name: str, comp_def: CompositeTypeDefinition) -> None:
-            # Collect inherited field names from interfaces
+            # Collect inherited field names from interfaces and concrete parent
             inherited_fields: set[str] = set()
+            if comp_def.parent:
+                parent_def = self.registry.get(comp_def.parent)
+                if parent_def and isinstance(parent_def, CompositeTypeDefinition):
+                    for f in parent_def.fields:
+                        inherited_fields.add(f.name)
             if comp_def.interfaces:
                 for iface_name in comp_def.interfaces:
                     iface = self.registry.get(iface_name)
@@ -5861,10 +5892,14 @@ class QueryExecutor:
                     fs += f" = {self._format_default_for_dump(f.default_value, f.type_def)}"
                 field_strs.append(fs)
 
-            # Build the from clause
+            # Build the from clause (concrete parent first, then interfaces)
             from_clause = ""
-            if comp_def.interfaces:
-                from_clause = f" from {', '.join(comp_def.interfaces)}"
+            parents_list = []
+            if comp_def.parent:
+                parents_list.append(comp_def.parent)
+            parents_list.extend(comp_def.interfaces)
+            if parents_list:
+                from_clause = f" from {', '.join(parents_list)}"
 
             if pretty:
                 if field_strs:

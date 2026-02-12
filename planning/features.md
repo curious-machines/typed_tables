@@ -32,6 +32,8 @@ This would require turning a query into a sequence of instructions; a mini-compi
 
 ## Create Examples of Building Tree in Python and in TTQ
 
+Show various styles: top-down, bottom-up
+
 ## Add color space transformations?
 
 ## Packed bits and bit arrays
