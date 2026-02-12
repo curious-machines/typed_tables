@@ -486,8 +486,13 @@ class QueryExecutor:
                     continue
                 kind = "Alias"
                 count = None
-            elif isinstance(type_def, (ArrayTypeDefinition, StringTypeDefinition)):
-                # Skip array/string internal types
+            elif isinstance(type_def, StringTypeDefinition):
+                if type_name not in referenced_primitives:
+                    continue
+                kind = "String"
+                count = None
+            elif isinstance(type_def, ArrayTypeDefinition):
+                # Skip array internal types
                 continue
             elif isinstance(type_def, PrimitiveTypeDefinition):
                 if type_name not in referenced_primitives:
@@ -541,6 +546,9 @@ class QueryExecutor:
         if isinstance(type_def, AliasTypeDefinition):
             aliases.add(type_def.name)
             self._collect_referenced_types(type_def.base_type, primitives, aliases)
+        elif isinstance(type_def, StringTypeDefinition):
+            # String is a special array type — collect it like a primitive
+            primitives.add(type_def.name)
         elif isinstance(type_def, PrimitiveTypeDefinition):
             primitives.add(type_def.name)
         elif isinstance(type_def, ArrayTypeDefinition):
@@ -3477,6 +3485,10 @@ class QueryExecutor:
             # Enum type — scan all composites that contain this enum field type
             yield from self._load_records_by_enum_type(type_name, type_def)
 
+        elif isinstance(base, StringTypeDefinition):
+            # String type — scan all composites that contain string fields
+            yield from self._load_records_by_field_type(type_name, type_def)
+
         elif isinstance(base, ArrayTypeDefinition):
             # Standalone array types no longer have header tables;
             # arrays are accessed through composites only
@@ -3560,10 +3572,13 @@ class QueryExecutor:
         if not matches:
             return
 
+        is_string = isinstance(type_def.resolve_base_type(), StringTypeDefinition)
+
         for comp_name, field_name, comp_def in matches:
             table_file = self.storage.data_dir / f"{comp_name}.bin"
             if not table_file.exists():
                 continue
+            field_def = next(f for f in comp_def.fields if f.name == field_name)
             table = self.storage.get_table(comp_name)
             for i in range(table.count):
                 if table.is_deleted(i):
@@ -3572,12 +3587,24 @@ class QueryExecutor:
                 ref = record[field_name]
                 if ref is None:
                     continue
+                if is_string:
+                    start_index, length = ref
+                    if length == 0:
+                        value = ""
+                    else:
+                        arr_table = self.storage.get_array_table_for_type(field_def.type_def)
+                        value = "".join(
+                            arr_table.element_table.get(start_index + j)
+                            for j in range(length)
+                        )
+                else:
+                    value = bool(ref) if is_boolean_type(field_def.type_def) else ref
                 yield {
                     "_source": comp_name,
                     "_index": i,
                     "_field": field_name,
-                    type_name: ref,
-                    "_value": ref,
+                    type_name: value,
+                    "_value": value,
                 }
 
     def _load_records_by_enum_type(

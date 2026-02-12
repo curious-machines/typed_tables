@@ -654,9 +654,10 @@ class TestShowFiltered:
         kinds = {row["kind"] for row in result.rows}
         assert kinds == {"Primitive"}
         names = {row["type"] for row in result.rows}
-        # uint8 is referenced via the 'age' alias, character is referenced via string fields
+        # uint8 is referenced via the 'age' alias
         assert "uint8" in names
-        assert "character" in names
+        # string fields don't contribute "character" to primitives
+        assert "character" not in names
         # Built-in primitives NOT referenced should be absent
         assert "float64" not in names
 
@@ -677,6 +678,7 @@ class TestShowFiltered:
         assert "Enum" in kinds
         assert "Primitive" in kinds
         assert "Alias" in kinds
+        assert "String" in kinds
 
     def test_show_interfaces_parsed(self, parser):
         result = parser.parse("show interfaces")

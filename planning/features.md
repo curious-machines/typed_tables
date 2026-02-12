@@ -2,19 +2,29 @@
 
 ## Status Updates
 
-I would like to expand the "status" command to report the following. If you think this should be a different command, I am open to suggestions, but I think it fits under status information, which shows only the current db at this point.
+I would like to expand the "status" command to report the following:
 
 - Total used disk space for entire database
 - Show break down by table, using total file size of each
 - Per table breakdown show: used disk space, used disk space for live instances only, unused space at table end, total hole space, total unused space (end space + hole space), ratio of used space to hole space, total space saved if compacted
 
+If you think this should be a different command, I am open to suggestions, but I think it fits under status information, which shows only the current db at this point.
+
 ---
 
 # Questions
 
+## String Bug
 There seems to be a bug with strings. I created a type that has a string property and a boolean property. When I used "show types" I see only character. I would expect character[] or string. I would also expect to see string is an alias for character[].
 
 If I use "from character select *" I get no results. If I use 'from "character[]" select *" I get no results. If I use "from string select *" I get no results. I tried boolean (which is handled similarly to string) for comparison and that did work. I would expect "from string ..." to work and probably 'from "character[]" ..." to work as well, but you can investigate and report back what you think from your findings.
+
+## Help Doc Alignment Bug
+
+- help database, describe <type>.<variant> has description on line below. Shift all desc to right by 2
+- help definitions is a mess
+- help types show path is an alias for string. I think we removed path
+
 
 ---
 
