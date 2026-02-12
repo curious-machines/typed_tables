@@ -85,7 +85,8 @@ KEYWORDS: dict[str, str] = {
     "execute": "Run queries from a script file",
     "import": "Import a script (execute once per database)",
     "system": "Modifier for system types (show system types)",
-    "temp": "Mark a database as temporary (use … as temp)",
+    "temporary": "Mark a database as temporary (use … as temporary)",
+    "named": "Name a result column (expr named \"label\")",
     "saturating": "Overflow policy: clamp to min/max on overflow",
     "wrapping": "Overflow policy: modular arithmetic on overflow",
 }

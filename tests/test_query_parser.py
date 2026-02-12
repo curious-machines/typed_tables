@@ -374,7 +374,7 @@ class TestQueryParser:
     def test_parse_eval_with_alias(self):
         """Test parsing eval query with alias."""
         parser = QueryParser()
-        query = parser.parse('uuid() as "id"')
+        query = parser.parse('uuid() named "id"')
 
         assert isinstance(query, EvalQuery)
         expr, alias = query.expressions[0]

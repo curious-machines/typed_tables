@@ -2,7 +2,7 @@
 
 ## Status Updates
 
-I would like to expand the "status" command to report the following. If you think this should be a different command, I am open to suggestions, but I think it fits under status information, which is only the current db at this point.
+I would like to expand the "status" command to report the following. If you think this should be a different command, I am open to suggestions, but I think it fits under status information, which shows only the current db at this point.
 
 - Total used disk space for entire database
 - Show break down by table, using total file size of each
@@ -12,9 +12,9 @@ I would like to expand the "status" command to report the following. If you thin
 
 # Questions
 
-Change "as" to "named" to clarify what that construct it is doing.
+Seems to be a bug with strings. I created a type that has a string property and a boolean property. When I used "show types" I see only character. I would expect character[] or string. If I use "from character select *" I get no results. If I use 'from "character[]" select *" I get no results. If I use "from string select *" I get no results. I tried boolean (which is handled similarly to string) for comparison and that did work. I would expect "from string ..." to work and probably 'from "character[]" ..." to work as well, but you can investigate and report back what you think from your findings.
 
-Change "temp" to "temporary" since temp is a common variable name. This uses the full word ehich we've consistantly done throughout the language.
+REPL docs only have "show types", but we have "show enums", "show primities", etc. The help text is getting quite long. I wonder, can we make a more condensed help text and then extent the help command to give more detail on specific commands. For example "/help show" would show all of the "show" variants.
 
 ---
 

@@ -354,7 +354,7 @@ def run_repl(data_dir: Path | None) -> int:
                             else:
                                 print(f"Switched to database: {new_path}")
                                 if query.temporary:
-                                    print("Note: 'as temp' ignored — existing databases are not deleted on exit. Use 'drop' to delete.")
+                                    print("Note: 'as temporary' ignored — existing databases are not deleted on exit. Use 'drop' to delete.")
                         except Exception as e:
                             print(f"Error loading database: {e}")
                     print()
@@ -486,7 +486,7 @@ def run_repl(data_dir: Path | None) -> int:
                             else:
                                 print(f"Switched to database: {new_path}")
                                 if result.temporary:
-                                    print("Note: 'as temp' ignored — existing databases are not deleted on exit. Use 'drop' to delete.")
+                                    print("Note: 'as temporary' ignored — existing databases are not deleted on exit. Use 'drop' to delete.")
                         except Exception as e:
                             print(f"Error loading database: {e}")
                 # Handle DropResult - delete database
@@ -543,7 +543,7 @@ TTQ - Typed Tables Query Language
 DATABASE:
   status                   Show the currently active database
   use <path>               Switch to (or create) a database directory
-  use <path> as temp       Switch to a temporary database (deleted on exit)
+  use <path> as temporary  Switch to a temporary database (deleted on exit)
   use                      Exit current database (no database selected)
   drop                     Drop the current database (with confirmation)
   drop!                    Drop the current database (no confirmation)
@@ -557,7 +557,7 @@ DEFINITIONS:
                            Define a new composite type
   type <Name> from <Parent> { field: type, ... }
                            Define a type inheriting from another type
-  alias <name> as <type>   Define a type alias
+  alias <name> = <type>    Define a type alias
   enum <Name> { a, b, c }  Define an enumeration
   interface <Name> { ... }  Define an interface
   forward <Name>           Forward-declare a type (for mutual references)
@@ -623,7 +623,7 @@ EXPRESSIONS:
   uuid()                   Generate a random UUID
   1, 2, 3                  Evaluate literal values
   uuid(), uuid()           Multiple expressions
-  uuid() as "id"           Name the result column
+  uuid() named "id"        Name the result column
   5 + 3                    Arithmetic expressions
   [1, 2, 3]                Array literals
   [1, 9, 5].sort()         Method calls on expressions

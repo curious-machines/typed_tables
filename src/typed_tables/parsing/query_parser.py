@@ -597,11 +597,11 @@ class QueryParser:
         p[0] = UseQuery(path=p[2])
 
     def p_query_use_identifier_temp(self, p: yacc.YaccProduction) -> None:
-        """query : USE IDENTIFIER AS TEMP"""
+        """query : USE IDENTIFIER AS TEMPORARY"""
         p[0] = UseQuery(path=p[2], temporary=True)
 
     def p_query_use_string_temp(self, p: yacc.YaccProduction) -> None:
-        """query : USE STRING AS TEMP"""
+        """query : USE STRING AS TEMPORARY"""
         p[0] = UseQuery(path=p[2], temporary=True)
 
     def p_query_create_alias(self, p: yacc.YaccProduction) -> None:
@@ -1257,7 +1257,7 @@ class QueryParser:
         p[0] = p[1] + [p[3]]
 
     def p_eval_expr_with_alias(self, p: yacc.YaccProduction) -> None:
-        """eval_expr_with_alias : eval_expr AS STRING
+        """eval_expr_with_alias : eval_expr NAMED STRING
                                 | eval_expr"""
         if len(p) == 4:
             p[0] = (p[1], p[3])  # (expression, alias)

@@ -180,7 +180,7 @@ value           ::= INTEGER
  *
  * Examples:
  *   uuid()
- *   uuid() as "id", 42 as "answer"
+ *   uuid() named "id", 42 named "answer"
  *   1, 2, 3
  *   [1,9,5,7,3].sort()
  *)
@@ -190,7 +190,7 @@ eval_query      ::= eval_expr_list
 eval_expr_list  ::= eval_expr_with_alias
                   | eval_expr_list "," eval_expr_with_alias
 
-eval_expr_with_alias ::= eval_expr "as" STRING
+eval_expr_with_alias ::= eval_expr "named" STRING
                        | eval_expr
 
 eval_expr       ::= STRING
@@ -249,14 +249,14 @@ describe_query  ::= "describe" IDENTIFIER
  *   use example_data              -- switch to database
  *   use "path with spaces"        -- quoted path
  *   use                           -- exit current database (no database selected)
- *   use example_data as temp      -- temporary database (deleted on REPL exit)
+ *   use example_data as temporary  -- temporary database (deleted on REPL exit)
  *)
 
 use_query       ::= "use"
                   | "use" IDENTIFIER
                   | "use" STRING
-                  | "use" IDENTIFIER "as" "temp"
-                  | "use" STRING "as" "temp"
+                  | "use" IDENTIFIER "as" "temporary"
+                  | "use" STRING "as" "temporary"
 
 
 (* ========== ALIAS Query ========== *)
@@ -782,7 +782,7 @@ SEMICOLON       ::= ";"
  * tag, scope, forward, enum, interface, interfaces,
  * composites, enums, primitives, aliases, references,
  * graph, yaml, json, xml, compact, archive, restore,
- * execute, import, system, temp, asc, desc,
+ * execute, import, system, temporary, named, asc, desc,
  * saturating, wrapping
  *
  * Note: count, average, sum, product, min, max are NOT
@@ -855,7 +855,7 @@ SEMICOLON       ::= ";"
  *
  * from Person select age, count() group by age
  *
- * uuid() as "id1", uuid() as "id2"
+ * uuid() named "id1", uuid() named "id2"
  *
  * [1,9,5,7,3].sort()
  *

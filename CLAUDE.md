@@ -75,7 +75,7 @@ use example_data
 
 Mark a database as temporary — it will be automatically deleted when the REPL exits:
 ```ttq
-use test_db as temp
+use test_db as temporary
 ```
 
 ### Delete Database
@@ -510,7 +510,7 @@ from $seniors select average(age)
 ### Naming Fields
 
 ```ttq
-uuid() as "One", uuid() as "Two"
+uuid() named "One", uuid() named "Two"
 ```
 
 ### Limiting Selection

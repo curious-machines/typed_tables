@@ -4054,8 +4054,8 @@ class TestExpressions:
         assert isinstance(row[0], str)  # hex-formatted UUID
 
     def test_existing_alias_still_works(self):
-        """uuid() as "id", uuid() as "id2" still works."""
-        result = self._eval('uuid() as "id", uuid() as "id2"')
+        """uuid() named "id", uuid() named "id2" still works."""
+        result = self._eval('uuid() named "id", uuid() named "id2"')
         assert "id" in result.columns
         assert "id2" in result.columns
 

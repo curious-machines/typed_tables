@@ -1,4 +1,4 @@
-"""Tests for temporary databases (use <path> as temp)."""
+"""Tests for temporary databases (use <path> as temporary)."""
 
 from __future__ import annotations
 
@@ -16,28 +16,28 @@ from typed_tables.types import TypeRegistry
 
 
 class TestParseUseAsTemp:
-    """Tests for parsing 'use ... as temp' syntax."""
+    """Tests for parsing 'use ... as temporary' syntax."""
 
     def test_parse_use_as_temp_identifier(self):
-        """use test_db as temp → UseQuery with temporary=True."""
+        """use test_db as temporary → UseQuery with temporary=True."""
         parser = QueryParser()
-        query = parser.parse("use test_db as temp")
+        query = parser.parse("use test_db as temporary")
         assert isinstance(query, UseQuery)
         assert query.path == "test_db"
         assert query.temporary is True
 
     def test_parse_use_as_temp_string(self):
-        """use "test_db" as temp → UseQuery with temporary=True."""
+        """use "test_db" as temporary → UseQuery with temporary=True."""
         parser = QueryParser()
-        query = parser.parse('use "test_db" as temp')
+        query = parser.parse('use "test_db" as temporary')
         assert isinstance(query, UseQuery)
         assert query.path == "test_db"
         assert query.temporary is True
 
     def test_parse_use_as_temp_path(self):
-        """use "./test_db" as temp → UseQuery with temporary=True."""
+        """use "./test_db" as temporary → UseQuery with temporary=True."""
         parser = QueryParser()
-        query = parser.parse('use "./test_db" as temp')
+        query = parser.parse('use "./test_db" as temporary')
         assert isinstance(query, UseQuery)
         assert query.path == "./test_db"
         assert query.temporary is True
@@ -51,9 +51,9 @@ class TestParseUseAsTemp:
         assert query.temporary is False
 
     def test_parse_use_as_temp_with_semicolon(self):
-        """use test_db as temp; → works with semicolon."""
+        """use test_db as temporary; → works with semicolon."""
         parser = QueryParser()
-        query = parser.parse("use test_db as temp;")
+        query = parser.parse("use test_db as temporary;")
         assert isinstance(query, UseQuery)
         assert query.path == "test_db"
         assert query.temporary is True
@@ -85,7 +85,7 @@ class TestExecuteUseAsTemp:
     def test_execute_use_temp_result(self, executor):
         """_execute_use passes temporary=True through to UseResult."""
         parser = QueryParser()
-        query = parser.parse("use test_db as temp")
+        query = parser.parse("use test_db as temporary")
         result = executor.execute(query)
         assert isinstance(result, UseResult)
         assert result.path == "test_db"
@@ -109,7 +109,7 @@ class TestTempDatabaseCleanup:
         temp_db = tmp_path / "temp_db"
         script = tmp_path / "test.ttq"
         script.write_text(f"""
-use "{temp_db}" as temp
+use "{temp_db}" as temporary
 type Foo {{ x: uint8 }}
 create Foo(x=42)
 """)
@@ -137,10 +137,10 @@ type Bar {{ y: uint8 }}
         assert other_db.exists()
 
     def test_parse_use_as_temp_in_program(self):
-        """Multiple statements including 'use ... as temp' parse correctly."""
+        """Multiple statements including 'use ... as temporary' parse correctly."""
         parser = QueryParser()
         stmts = parser.parse_program(
-            'use test_db as temp; type Foo { x: uint8 }'
+            'use test_db as temporary; type Foo { x: uint8 }'
         )
         assert len(stmts) == 2
         assert isinstance(stmts[0], UseQuery)

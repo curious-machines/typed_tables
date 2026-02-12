@@ -95,8 +95,8 @@ class TestShowReferences:
         _run(executor, parser, 'alias myid = uint128')
         _run(executor, parser, 'enum Color { red, green, blue }')
         _run(executor, parser, 'enum Shape { none, circle(r: float32), rect(w: float32, h: float32) }')
-        _run(executor, parser, 'interface Named { name: string }')
-        _run(executor, parser, 'type Person from Named { id: myid, age: uint8, color: Color, shape: Shape }')
+        _run(executor, parser, 'interface Labelled { name: string }')
+        _run(executor, parser, 'type Person from Labelled { id: myid, age: uint8, color: Color, shape: Shape }')
 
     def test_show_references_all(self, executor, parser):
         self._setup_schema(executor, parser)
@@ -106,8 +106,8 @@ class TestShowReferences:
         edges = _edges(result)
         # Alias edge
         assert ("myid", "Alias", "(alias)", "uint128") in edges
-        # Named interface edge
-        assert ("Named", "Interface", "name", "string") in edges
+        # Labelled interface edge
+        assert ("Labelled", "Interface", "name", "string") in edges
         # Person composite edges
         assert ("Person", "Composite", "id", "myid") in edges
         assert ("Person", "Composite", "age", "uint8") in edges
