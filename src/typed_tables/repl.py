@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import os
 import readline  # noqa: F401 - enables line editing in input()
 import shutil
 import sys
@@ -14,7 +15,14 @@ from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import DropDatabaseQuery, EvalQuery, ExecuteQuery, ImportQuery, QueryParser, RestoreQuery, UseQuery
 from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, ExecuteResult, ImportResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
 from typed_tables.storage import StorageManager
-from typed_tables.types import EnumValue, TypeRegistry
+from typed_tables.types import (
+    ArrayTypeDefinition,
+    CompositeTypeDefinition,
+    EnumTypeDefinition,
+    EnumValue,
+    InterfaceTypeDefinition,
+    TypeRegistry,
+)
 
 
 def _balance_counts(text: str) -> tuple[int, int, int]:
@@ -169,6 +177,245 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
     print(f"\n({len(result.rows)} row{'s' if len(result.rows) != 1 else ''})")
 
 
+def _format_size(n: int) -> str:
+    """Format a byte count as a human-readable string."""
+    if n < 1024:
+        return f"{n} B"
+    elif n < 1024 * 1024:
+        v = n / 1024
+        return f"{v:.1f} KB" if v != int(v) else f"{int(v)} KB"
+    elif n < 1024 * 1024 * 1024:
+        v = n / (1024 * 1024)
+        return f"{v:.1f} MB" if v != int(v) else f"{int(v)} MB"
+    else:
+        v = n / (1024 * 1024 * 1024)
+        return f"{v:.1f} GB" if v != int(v) else f"{int(v)} GB"
+
+
+def _analyze_table_file(
+    bin_path: Path, data_dir: Path, executor: QueryExecutor
+) -> dict[str, Any] | None:
+    """Analyze a single .bin file and return its metrics.
+
+    Returns a dict with table status info, or None if the file can't be analyzed.
+    """
+    HEADER_SIZE = 8
+    rel = bin_path.relative_to(data_dir)
+    parts = rel.parts  # e.g., ("Person.bin",) or ("Shape", "circle.bin")
+    file_size = os.path.getsize(bin_path)
+
+    if len(parts) == 1:
+        # Root-level .bin file: composite table or array element table
+        table_name = rel.stem
+        type_def = executor.registry.get(table_name)
+        if type_def is None:
+            return {
+                "table": table_name,
+                "kind": "Unknown",
+                "records": "?",
+                "live": "?",
+                "deleted": "?",
+                "file_size": _format_size(file_size),
+                "live_size": "?",
+                "dead_size": "?",
+                "savings": "?",
+                "_file_size_raw": file_size,
+                "_live_size_raw": 0,
+                "_dead_size_raw": 0,
+                "_savings_raw": 0,
+                "_records_raw": 0,
+                "_live_raw": 0,
+                "_deleted_raw": 0,
+            }
+
+        base = type_def.resolve_base_type()
+
+        if isinstance(base, ArrayTypeDefinition):
+            # Array element table — no deletion concept
+            kind = "Array"
+            try:
+                array_table = executor.storage.get_array_table(table_name)
+                table = array_table.element_table
+            except Exception:
+                return None
+        elif isinstance(base, CompositeTypeDefinition):
+            kind = "Composite"
+            try:
+                table = executor.storage.get_table(table_name)
+            except Exception:
+                return None
+        elif isinstance(base, EnumTypeDefinition) and base.has_associated_values:
+            # Shouldn't have root-level enum .bin, but handle gracefully
+            return None
+        elif isinstance(base, InterfaceTypeDefinition):
+            return None
+        else:
+            return None
+
+    elif len(parts) == 2:
+        # Subdirectory: enum variant table (e.g., Shape/circle.bin)
+        enum_name = parts[0]
+        variant_name = Path(parts[1]).stem
+        kind = "Variant"
+
+        enum_def = executor.registry.get(enum_name)
+        if enum_def is None:
+            return None
+        base = enum_def.resolve_base_type()
+        if not isinstance(base, EnumTypeDefinition):
+            return None
+
+        try:
+            table = executor.storage.get_variant_table(base, variant_name)
+        except Exception:
+            return None
+
+        table_name = f"{enum_name}/{variant_name}"
+    else:
+        return None
+
+    record_size = table._record_size
+    total_records = table.count
+
+    # Count live records
+    if kind == "Array":
+        # Array element tables don't support deletion
+        live_records = total_records
+        deleted_records = 0
+    else:
+        deleted_records = 0
+        for i in range(total_records):
+            if table.is_deleted(i):
+                deleted_records += 1
+        live_records = total_records - deleted_records
+
+    live_size = HEADER_SIZE + live_records * record_size
+    dead_size = deleted_records * record_size
+
+    # Savings: how much smaller the file would be after compaction.
+    # Compacted files start at INITIAL_SIZE (4096) and double, so the
+    # compacted file size is the smallest power-of-2 >= INITIAL_SIZE
+    # that fits header + live_records * record_size.
+    INITIAL_SIZE = 4096
+    needed = HEADER_SIZE + live_records * record_size
+    compacted_size = INITIAL_SIZE
+    while compacted_size < needed:
+        compacted_size *= 2
+    savings = max(0, file_size - compacted_size)
+
+    return {
+        "table": table_name,
+        "kind": kind,
+        "records": str(total_records),
+        "live": str(live_records),
+        "deleted": str(deleted_records),
+        "file_size": _format_size(file_size),
+        "live_size": _format_size(live_size),
+        "dead_size": _format_size(dead_size),
+        "savings": _format_size(savings),
+        # Raw values for totals computation
+        "_file_size_raw": file_size,
+        "_live_size_raw": live_size,
+        "_dead_size_raw": dead_size,
+        "_savings_raw": savings,
+        "_records_raw": total_records,
+        "_live_raw": live_records,
+        "_deleted_raw": deleted_records,
+    }
+
+
+def print_status(data_dir: Path | None, executor: QueryExecutor | None) -> None:
+    """Print database status with disk usage and per-table breakdown."""
+    if not data_dir:
+        print("No database selected.")
+        return
+
+    print(f"Database: {data_dir}")
+
+    if executor is None:
+        return
+
+    # Discover all .bin files
+    bin_files = sorted(data_dir.rglob("*.bin"))
+    if not bin_files:
+        print("No tables.")
+        return
+
+    # Analyze each file
+    rows: list[dict[str, Any]] = []
+    for bin_path in bin_files:
+        info = _analyze_table_file(bin_path, data_dir, executor)
+        if info is not None:
+            rows.append(info)
+
+    if not rows:
+        print("No tables.")
+        return
+
+    # Compute totals
+    total_file_size = sum(r["_file_size_raw"] for r in rows)
+    total_live_size = sum(r["_live_size_raw"] for r in rows)
+    total_dead_size = sum(r["_dead_size_raw"] for r in rows)
+    total_savings = sum(r["_savings_raw"] for r in rows)
+    total_records = sum(r["_records_raw"] for r in rows)
+    total_live = sum(r["_live_raw"] for r in rows)
+    total_deleted = sum(r["_deleted_raw"] for r in rows)
+
+    print(f"Total size: {_format_size(total_file_size)} ({len(rows)} table{'s' if len(rows) != 1 else ''})")
+    print()
+
+    # Build display rows (strip raw keys)
+    columns = ["table", "kind", "records", "live", "deleted", "file_size", "live_size", "dead_size", "savings"]
+    display_rows: list[dict[str, str]] = []
+    for r in rows:
+        display_rows.append({
+            "table": r["table"],
+            "kind": r["kind"],
+            "records": str(r["_records_raw"]) if r["records"] != "?" else "?",
+            "live": str(r["_live_raw"]) if r["live"] != "?" else "?",
+            "deleted": str(r["_deleted_raw"]) if r["deleted"] != "?" else "?",
+            "file_size": r["file_size"],
+            "live_size": r["live_size"],
+            "dead_size": r["dead_size"],
+            "savings": r["savings"],
+        })
+
+    # Add totals row
+    totals_row = {
+        "table": "TOTAL",
+        "kind": "",
+        "records": str(total_records),
+        "live": str(total_live),
+        "deleted": str(total_deleted),
+        "file_size": _format_size(total_file_size),
+        "live_size": _format_size(total_live_size),
+        "dead_size": _format_size(total_dead_size),
+        "savings": _format_size(total_savings),
+    }
+    all_rows = display_rows + [totals_row]
+
+    # Calculate column widths
+    col_widths = {col: len(col) for col in columns}
+    for row in all_rows:
+        for col in columns:
+            col_widths[col] = max(col_widths[col], len(row.get(col, "")))
+
+    # Print header
+    header = " | ".join(col.ljust(col_widths[col]) for col in columns)
+    print(header)
+    print("-" * len(header))
+
+    # Print data rows
+    for row in display_rows:
+        vals = [row.get(col, "").ljust(col_widths[col]) for col in columns]
+        print(" | ".join(vals))
+
+    # Print separator and totals
+    print("-" * len(header))
+    vals = [totals_row.get(col, "").ljust(col_widths[col]) for col in columns]
+    print(" | ".join(vals))
+
+
 def run_repl(data_dir: Path | None) -> int:
     """Run the interactive REPL."""
     print(f"TTQ REPL - Typed Tables Query Language")
@@ -297,10 +544,7 @@ def run_repl(data_dir: Path | None) -> int:
                 print("\033[2J\033[H", end="")
                 continue
             elif line.lower().rstrip(";").strip() == "status":
-                if data_dir:
-                    print(f"Database: {data_dir}")
-                else:
-                    print("No database selected.")
+                print_status(data_dir, executor)
                 print()
                 continue
             # Parse and execute query
@@ -540,7 +784,7 @@ def run_repl(data_dir: Path | None) -> int:
 _HELP_TOPICS: dict[str, str] = {
     "database": """\
 DATABASE:
-  status                   Show the currently active database
+  status                   Show database disk usage and table breakdown
   use <path>               Switch to (or create) a database directory
   use <path> as temporary  Switch to a temporary database (deleted on exit)
   use                      Exit current database (no database selected)
