@@ -288,8 +288,10 @@ def run_repl(data_dir: Path | None) -> int:
             # Handle special commands
             if line.lower() == "exit" or line.lower() == "quit":
                 break
-            elif line.lower() == "help":
-                print_help()
+            elif line.lower() == "help" or line.lower().startswith("help "):
+                parts = line.strip().split(None, 1)
+                topic = parts[1].strip().rstrip(";") if len(parts) > 1 else None
+                print_help(topic)
                 continue
             elif line.lower() == "clear":
                 print("\033[2J\033[H", end="")
@@ -535,11 +537,8 @@ def run_repl(data_dir: Path | None) -> int:
     return 0
 
 
-def print_help() -> None:
-    """Print help information."""
-    print("""
-TTQ - Typed Tables Query Language
-
+_HELP_TOPICS: dict[str, str] = {
+    "database": """\
 DATABASE:
   status                   Show the currently active database
   use <path>               Switch to (or create) a database directory
@@ -548,57 +547,149 @@ DATABASE:
   drop                     Drop the current database (with confirmation)
   drop!                    Drop the current database (no confirmation)
   drop <path>              Drop a database directory (with confirmation)
-  drop! <path>             Drop a database directory (no confirmation)
-  show types               List all types
-  describe <type>          Show type structure (use quotes for special names)
+  drop! <path>             Drop a database directory (no confirmation)""",
 
+    "show": """\
+SHOW & DESCRIBE:
+  show types               List all user-defined types
+  show composites          List composite types only
+  show interfaces          List interface types only
+  show enums               List enumeration types only
+  show aliases             List alias types only
+  show primitives          List built-in primitive types
+  show system types        List internal system types (_-prefixed)
+  show references          Show the type reference graph (all edges)
+  show references <type>   Show edges involving a specific type
+
+  describe <type>          Show type structure and fields
+  describe <type>.<variant>
+                           Show fields of an enum variant
+
+  All show commands support: sort by <field>""",
+
+    "definitions": """\
 DEFINITIONS:
   type <Name> { field: type, ... }
                            Define a new composite type
   type <Name> from <Parent> { field: type, ... }
-                           Define a type inheriting from another type
+                           Define a type inheriting from another type or interface
   alias <name> = <type>    Define a type alias
-  enum <Name> { a, b, c }  Define an enumeration
-  interface <Name> { ... }  Define an interface
+  enum <Name> { a, b, c }
+                           Define a C-style enumeration
+  enum <Name> { none, circle(r: float32), ... }
+                           Define a Swift-style enum with associated values
+  enum <Name> : uint8 { ... }
+                           Define an enum with a backing type (enables arithmetic)
+  interface <Name> { ... }
+                           Define an interface (inherited by types via "from")
   forward <Name>           Forward-declare a type (for mutual references)
 
+  Default values:
+    type T { age: uint8 = 0, name: string = "unknown" }
+    Fields without defaults default to NULL.
+    Supported: primitives, strings, arrays, enums (dot notation).
+    Not supported: function calls, inline instances, composite refs.
+
+  Interface defaults are inherited by implementing types:
+    interface Positioned { x: float32 = 0.0, y: float32 = 0.0 }
+    type Point from Positioned { label: string }
+
+  Overflow policy modifiers (integer fields only):
+    type T { x: saturating uint8, y: wrapping int16 }""",
+
+    "create": """\
 CREATE:
-  create <Type>(...)       Create an instance of a type
-    field=value, ...         - Field values separated by commas
-    field=uuid()             - Use uuid() to generate a UUID
-    field=OtherType(index)   - Reference an existing composite instance
-    field=[1, 2, 3]          - Array literal
-                             - Fields can span multiple lines (close paren to finish)
+  create <Type>(...)              Create an instance of a type
+    field=value, ...              - Field values separated by commas
+    field=uuid()                  - Use uuid() to generate a UUID
+    field=OtherType(index)        - Reference an existing composite instance
+    field=OtherType(...)          - Inline instance creation
+    field=[1, 2, 3]               - Array literal
+    field=.variant(...)           - Enum value (shorthand dot notation)
+    field=EnumType.variant        - Enum value (fully qualified)
+                                  - Fields can span multiple lines (close paren to finish)
+
   create <Type>(tag(NAME), ...)
-                           Declare a tag for cyclic references (see CYCLIC DATA)
+                                  Declare a tag for cyclic references (see: help cyclic)
 
+  $var = create <Type>(...)       Bind a created instance to a variable
+
+  Self-referential types:
+    type Node { value: uint8, children: Node[] }
+    create Node(value=0, children=[Node(value=1, children=[])])
+
+  NULL values:
+    Use field=null to set a field to null explicitly.
+    Fields omitted during creation default to null.
+    NULL values display as "NULL" in select results.""",
+
+    "delete": """\
 DELETE:
-  delete <type> where ...  Delete matching records (soft delete)
-  delete <type>            Delete all records of a type
+  delete <type>            Delete all records of a type (soft delete / tombstone)
+  delete <type> where ...  Delete matching records
+  delete! <type>           Force-delete (bypasses system type protection)
+  delete! <type> where ... Force-delete matching records
 
+  Deleted records become tombstones. Use "compact" to reclaim space.""",
+
+    "update": """\
 UPDATE:
   update $var set field=value, ...
                            Update fields on a variable-bound record
   update <Type>(index) set field=value, ...
                            Update fields on a specific record by index
+  update <Type> set field=value where <cond>
+                           Bulk update all matching records
+  update <Type> set field=value
+                           Bulk update all records of a type
 
-NULL VALUES:
-  create <Type>(field=null) Set a field to null (no entry created)
-  Missing fields default to null
+  Enum values in SET and WHERE:
+    update Pixel set color=.blue where color=.green
+    update Pixel set color=Color.blue where color=Color.red
 
+  Array mutations in SET:
+    update $s set readings = readings.append(5)
+    update $s set readings = readings.sort().reverse()
+    update $s set backup = readings.sort()""",
+
+    "queries": """\
 QUERIES:
-  from <type> select *               Select all records
-  from "<type>" select *             Use quotes for special names (e.g., "character[]")
-  from <type> select field1, field2  Select specific fields
-  from <type> select field.nested    Select nested composite fields (dot notation)
-  from <type> select * where <cond>  Filter records
-  from <type> select * sort by f1    Sort results
-  from <type> select * offset N limit M  Paginate results
-  from <type> select * group by field    Group results
-  from $var select *                  Select from a variable (set or single ref)
-  from $var select * where <cond>     Filter variable records further
+  from <Type> select ...              Select records from a type
+  from $var select ...                Select from a collected variable
 
-CONDITIONS:
+  Select clause:
+    select *                          All fields
+    select field1, field2             Specific fields
+    select field.nested               Nested fields (dot notation)
+
+  Modifiers (append to any query):
+    ... where <cond>                  Filter (see: help conditions)
+    ... sort by field [desc]          Sort results
+    ... offset N limit M              Paginate results
+    ... group by field                Group results
+
+  Array indexing in select:
+    readings[0]                       First element
+    readings[-1]                      Last element
+    readings[0:5]                     Slice (start:end)
+    readings[-3:]                     Last 3 elements
+
+  Array projection (composite arrays):
+    employees.name                    Map field across all elements
+    employees[0].name                 Indexed then dot access
+
+  Enum queries:
+    from Shape select *               Overview (shows _variant column)
+    from Shape.circle select *        Variant-specific (WHERE allowed)
+    from Shape.circle select cx where r > 10
+
+  Type-based query:
+    from uint8 select *               Scan all composites with uint8 fields
+
+  Use quotes for special type names: from "character[]" select *""",
+
+    "conditions": """\
+CONDITIONS (used in WHERE clauses):
   field = value            Equality
   field != value           Inequality
   field < value            Less than
@@ -607,71 +698,135 @@ CONDITIONS:
   field >= value           Greater than or equal
   field starts with "str"  String prefix match
   field matches /regex/    Regular expression match
+  field is null            Check for null
+  field is not null        Check for non-null
   cond1 and cond2          Logical AND
   cond1 or cond2           Logical OR
   not condition            Logical NOT
 
-AGGREGATES (in FROM ... SELECT):
-  count()                  Count records
-  sum(field)               Sum of field values
-  average(field)           Average of field values
-  product(field)           Product of field values
-  min(field)               Minimum field value
-  max(field)               Maximum field value
+  Conditions work in: select ... where, delete ... where,
+  update ... where, collect ... where""",
 
-EXPRESSIONS:
+    "aggregates": """\
+AGGREGATES:
+  In FROM ... SELECT queries:
+    count()                  Count records
+    sum(field)               Sum of field values
+    average(field)           Average of field values
+    product(field)           Product of field values
+    min(field)               Minimum field value
+    max(field)               Maximum field value
+    from Person select age, count() group by age
+
+  In bare eval expressions (operating on arrays):
+    sum([1, 2, 3])           6
+    average([10, 20])        15.0
+    min(5, 3)                3 (multi-argument form)
+    max([5, 3, 7])           7
+
+  Note: aggregate names are not reserved — they can also be used as field names.""",
+
+    "expressions": """\
+EXPRESSIONS (bare eval — no FROM needed):
   uuid()                   Generate a random UUID
   1, 2, 3                  Evaluate literal values
-  uuid(), uuid()           Multiple expressions
+  uuid(), uuid()           Multiple expressions (comma-separated)
   uuid() named "id"        Name the result column
-  5 + 3                    Arithmetic expressions
+  5 + 3                    Arithmetic: +, -, *, /, %, //
+  "hello" ++ " world"      String concatenation (++ operator)
   [1, 2, 3]                Array literals
   [1, 9, 5].sort()         Method calls on expressions
+  [1,2,3].contains(2)      Array method calls
   sum([1, 2, 3])           Aggregate functions on arrays
   min(5, 3)                Multi-argument min/max
+  sqrt(16), abs(-5)        Math functions
+  boolean(1), string(42)   Type cast functions
 
+  Array math (element-wise):
+    [1,2] + [3,4]          [4, 6]
+    5 * [1,2,3]            [5, 10, 15]
+
+  Math functions (all vectorize over arrays):
+    sqrt, pow, abs, ceil, floor, round,
+    log, log2, log10, sin, cos, tan""",
+
+    "math": """\
 TYPED MATH:
-  5i8, 200u16, 3.14f32    Type-annotated literals (suffix: i8/u8/.../f64)
-  0xFFu8, 0b1010i8        Hex/binary with type suffix
-  5i8 + 3i8               Type-checked arithmetic (same type required)
-  5i8 + 3                  Bare literal adopts the typed operand's type
-  5i8 + 3i16              Error: type mismatch
-  int16(42)                Type conversion function
-  int16([1,2,3])           Element-wise conversion
-  7i8 / 2i8                Floor division for typed integers
-  saturating/wrapping      Overflow policy modifiers on fields:
-                             type T { x: saturating uint8 }
-  Color(0)                 Enum conversion by discriminant
-  Color("red")             Enum conversion by variant name
-  enum Color : uint8 { red, green, blue }
-                           Enum with backing type (enables arithmetic)
+  Type-annotated literals:
+    5i8, 5i16, 5i32, 5i64          Signed integers
+    5u8, 5u16, 5u32, 5u64, 5u128   Unsigned integers
+    5.0f32, 5.0f64                 Floats
+    0xFFu8, 0b1010i8               Hex/binary with suffix
 
+  Type checking (both operands must match):
+    5i8 + 3i8                      OK: same type
+    5i8 + 3                        OK: bare literal adopts typed operand's type
+    5i8 + 3i16                     Error: type mismatch
+
+  Type conversion functions:
+    int16(42)                      Convert scalar to int16
+    int16([1,2,3])                 Element-wise: array conversion
+    float64(age)                   Field value conversion
+    int8(200)                      Error: 200 overflows int8
+
+  Division:
+    7i8 / 2i8                      Floor division for typed integers
+    Both / and // are floor division for integers.
+    Use float64(x) / float64(y) for true division.
+
+  Overflow policy on fields:
+    x: saturating uint8            Clamp to 0..255
+    y: wrapping int8               Modular arithmetic
+    (default)                      Error on overflow
+
+  Enum arithmetic (with backing type: enum Color : uint8 { ... }):
+    Color.red + 1                  uint8 value 1 (result is integer, not enum)
+    Color(0)                       Enum conversion by discriminant
+    Color("red")                   Enum conversion by variant name
+
+  Bit type (not numeric — use boolean functions):
+    and(a, b), or(a, b)            Logical AND/OR
+    not(a), xor(a, b)              Logical NOT, XOR
+    uint8(flag)                    Cast bit to integer (0 or 1)
+    bit(1)                         Cast integer to bit (only 0 or 1 accepted)""",
+
+    "types": """\
 TYPES:
-  string                   Built-in string type (stored as character[], displayed as string)
-  Primitive types: bit, character, uint8, int8, uint16, int16,
-                   uint32, int32, uint64, int64, uint128, int128,
-                   float32, float64
-  Array types: Add [] suffix (e.g., uint8[], character[])
+  Built-in primitive types:
+    bit                       1-bit value (use boolean functions, not arithmetic)
+    character                 Single character
+    uint8, int8               8-bit unsigned/signed integer
+    uint16, int16             16-bit unsigned/signed integer
+    uint32, int32             32-bit unsigned/signed integer
+    uint64, int64             64-bit unsigned/signed integer
+    uint128, int128           128-bit unsigned/signed integer
+    float32, float64          32/64-bit floating point
 
-EXAMPLES:
-  use ./my_database
+  Special types:
+    string                    Built-in (stored as character[], displayed as "Alice")
+    boolean                   Built-in (stored as bit, displayed as true/false)
+    path                      Built-in alias for string
 
-  type Person { name: string, age: uint8 }
+  Array types:
+    Add [] suffix to any type: uint8[], string[], Person[]
 
-  create Person(name="Alice", age=30)
+  Aliases:
+    alias uuid = uint128      Create a named type alias""",
 
-  from Person select *
-  from Person select name, age where age >= 18
-  from Person select * where name starts with "A" sort by name
-  from Person select age, count() group by age
-  from Person select average(age)
-
+    "variables": """\
 VARIABLES:
   $var = create <Type>(...) Bind a created instance to an immutable variable
   create <Type>(field=$var) Use a variable as a field value
   create <Type>(arr=[$v1, $v2])
                            Use variables as array elements
+  update $var set f=value  Update fields on a variable-bound record
+  from $var select *       Select from a variable
+  dump $var                Dump records referenced by a variable
 
+  Variables are immutable bindings — once assigned, they cannot be reassigned.
+  Variables persist for the duration of the REPL session or script execution.""",
+
+    "collect": """\
 COLLECT:
   $var = collect <Type>    Collect all record indices into a variable
   $var = collect <Type> where <cond>
@@ -686,52 +841,53 @@ COLLECT:
                            Collect from an existing variable
   $var = collect $a, $b    Combine multiple variables
 
+  Collected variables can be used with FROM, UPDATE, DUMP, and other commands.""",
+
+    "dump": """\
 DUMP:
-  dump                     Dump entire database as executable TTQ script
-  dump <type>              Dump a single type as TTQ script
-  dump to "file"           Dump entire database to a file
-  dump <type> to "file"    Dump a single type to a file
-  dump $var                Dump records referenced by a variable
-  dump $var to "file"      Dump variable records to a file
-  dump [Person, $var, ...]
-                           Dump a list of types and/or variables
-  dump [...] to "file"     Dump list to a file
-                           Shared references are emitted as $var bindings
-  dump pretty              Pretty-print with multi-line indented formatting
-  dump pretty <type>       Pretty-print a single type
-                           (pretty can be added to any dump variant above)
-  dump yaml                Dump as YAML (uses anchors/aliases for references)
-  dump yaml pretty         Pretty-print YAML output
-                           (yaml can be combined with other dump options)
-  dump json                Dump as JSON (uses $id/$ref for references)
-  dump json pretty         Pretty-print JSON output
-                           (json can be combined with other dump options)
-  dump xml                 Dump as XML (uses id/ref="#id" for references)
-  dump xml pretty          Pretty-print XML output
-                           (xml can be combined with other dump options)
-  dump to "file.ttq.gz"   Gzip-compress the output (.gz suffix on any format)
-  dump archive             Dump including system types (full database state)
-  dump archive yaml        Dump archive as YAML (combinable with other options)
+  dump                        Dump entire database as executable TTQ script
+  dump <type>                 Dump a single type
+  dump $var                   Dump records referenced by a variable
+  dump [Person, $var, ...]    Dump a list of types and/or variables
+  dump to "file"              Dump to a file (any variant supports "to")
+  dump to "file.ttq.gz"       Gzip-compressed output (.gz suffix on any format)
 
-DELETE:
-  delete <type>            Delete all records of a type
-  delete <type> where ...  Delete matching records
-  delete! <type>           Force-delete (bypasses system type protection)
-  delete! <type> where ... Force-delete matching records
+  Format modifiers (combinable with any variant above):
+    dump pretty               Multi-line indented formatting
+    dump yaml                 YAML format (anchors/aliases for references)
+    dump yaml pretty          Pretty-print YAML
+    dump json                 JSON format ($id/$ref for references)
+    dump json pretty          Pretty-print JSON
+    dump xml                  XML format (id/ref="#id" for references)
+    dump xml pretty           Pretty-print XML
 
-ARCHIVE & RESTORE:
+  System types:
+    dump archive              Include system types (full database state)
+    dump archive yaml         Combinable with format modifiers
+
+  Shared references are automatically emitted as $var bindings.
+  The dump command is cycle-aware and emits scope/tag syntax for cycles.""",
+
+    "archive": """\
+ARCHIVE, RESTORE & COMPACT:
   archive to "file.ttar"   Compact and bundle database into a single file
                            (.ttar extension added automatically if missing)
   archive to "file.ttar.gz"
                            Gzip-compressed archive
+
   restore "file.ttar" to "path"
                            Extract archive into a new database directory
                            (does not require a loaded database)
-  restore "file.ttar"     Restore to directory derived from filename
-                           ("backup.ttar" → "backup", "backup.ttar.gz" → "backup")
+  restore "file.ttar"      Restore to directory derived from filename
+                           ("backup.ttar" -> "backup", "backup.ttar.gz" -> "backup")
   restore "file.ttar.gz" to "path"
                            Restore from a gzip-compressed archive
 
+  compact to "path"        Create a compacted copy of the database
+                           Removes tombstones and unreferenced data
+                           Remaps all references to new indices""",
+
+    "cyclic": """\
 CYCLIC DATA:
   Tags allow creating cyclic data structures. Tags must be used within a
   scope block. A tag declares a name for the record being created, which
@@ -743,16 +899,30 @@ CYCLIC DATA:
   Self-referencing (node points to itself):
     scope { create Node(tag(SELF), value=42, next=SELF) }
 
-  Two-node cycle (A→B→A):
+  Two-node cycle (A->B->A):
     scope { create Node(tag(A), name="A", child=Node(name="B", child=A)) }
+
+  Four-node cycle (A->B->C->D->A):
+    scope {
+      create Node(tag(A), name="A",
+        child=Node(name="B",
+          child=Node(name="C",
+            child=Node(name="D", child=A))))
+    }
 
   Tags and variables declared inside a scope are destroyed when the scope
   exits. Tags cannot be redefined within a scope.
 
-  The dump command is cycle-aware and automatically emits scope blocks with
-  tag syntax when serializing cyclic data, ensuring roundtrip fidelity.
+  Alternative: create with null + update:
+    $n1 = create Node(value=1, next=null)
+    $n2 = create Node(value=2, next=$n1)
+    update $n1 set next=$n2
 
-EXECUTE SCRIPT:
+  The dump command is cycle-aware and automatically emits scope blocks with
+  tag syntax when serializing cyclic data, ensuring roundtrip fidelity.""",
+
+    "scripts": """\
+EXECUTE & IMPORT:
   execute "file.ttq"       Execute queries from a file
   execute "file.ttq.gz"    Execute from a gzip-compressed file
                            In the REPL: scripts may use/drop/restore
@@ -760,20 +930,92 @@ EXECUTE SCRIPT:
                            Paths resolve relative to the calling script
                            Re-executing an already-loaded script is an error
 
-IMPORT SCRIPT (execute once):
   import "file.ttq"        Execute a script once per database
   import "file.ttq"        Subsequent imports are silently skipped
   import "file.ttq.gz"     Gzip-compressed files supported
                            Import tracking is stored in the database
+                           Dropping and recreating the database resets history""",
+}
 
-OTHER:
-  help                     Show this help
-  exit, quit               Exit the REPL
-  clear                    Clear the screen
+_HELP_ALIASES: dict[str, str] = {
+    "select": "queries",
+    "from": "queries",
+    "where": "conditions",
+    "enum": "definitions",
+    "type": "definitions",
+    "alias": "definitions",
+    "interface": "definitions",
+    "forward": "definitions",
+    "scope": "cyclic",
+    "tag": "cyclic",
+    "execute": "scripts",
+    "import": "scripts",
+    "restore": "archive",
+    "compact": "archive",
+    "describe": "show",
+    "null": "create",
+    "use": "database",
+    "drop": "database",
+    "status": "database",
+    "sort": "queries",
+    "group": "queries",
+    "limit": "queries",
+    "offset": "queries",
+    "yaml": "dump",
+    "json": "dump",
+    "xml": "dump",
+    "pretty": "dump",
+    "boolean": "types",
+    "string": "types",
+    "bit": "types",
+    "overflow": "math",
+    "saturating": "math",
+    "wrapping": "math",
+}
 
+
+def print_help(topic: str | None = None) -> None:
+    """Print help information, optionally for a specific topic."""
+    if topic is None:
+        print("""
+TTQ - Typed Tables Query Language
+
+  database      use, drop, status
+  show          show types/enums/interfaces/..., describe
+  definitions   type, alias, enum, interface, forward, defaults
+  create        create instances, inline values, arrays, null
+  delete        delete records, force delete
+  update        update fields by variable, index, or bulk
+  queries       from...select, sort, offset/limit, group by
+  conditions    =, !=, <, >, starts with, matches, and/or/not
+  aggregates    count, sum, average, product, min, max
+  expressions   uuid(), literals, named, arithmetic, methods
+  math          typed literals, type checking, overflow policies
+  types         built-in primitives, arrays, string, boolean
+  variables     $var bindings, usage in create/update/select
+  collect       collect records into variables
+  dump          dump database (TTQ, YAML, JSON, XML)
+  archive       archive, restore, compact
+  cyclic        scope blocks, tags for cyclic references
+  scripts       execute, import
+
+Type "help <topic>" for details. Example: help dump
+
+Other commands: help, exit/quit, clear
 Queries can span multiple lines. Semicolons are optional.
-End with closing ) or }, or press Enter on empty line.
 """)
+        return
+
+    key = topic.lower().strip()
+    # Resolve aliases
+    key = _HELP_ALIASES.get(key, key)
+
+    if key in _HELP_TOPICS:
+        print()
+        print(_HELP_TOPICS[key])
+        print()
+    else:
+        print(f'\nUnknown help topic "{topic}". Type "help" for available topics.\n')
 
 
 def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> tuple[int, Path | None]:

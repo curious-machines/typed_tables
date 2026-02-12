@@ -12,9 +12,9 @@ I would like to expand the "status" command to report the following. If you thin
 
 # Questions
 
-Seems to be a bug with strings. I created a type that has a string property and a boolean property. When I used "show types" I see only character. I would expect character[] or string. If I use "from character select *" I get no results. If I use 'from "character[]" select *" I get no results. If I use "from string select *" I get no results. I tried boolean (which is handled similarly to string) for comparison and that did work. I would expect "from string ..." to work and probably 'from "character[]" ..." to work as well, but you can investigate and report back what you think from your findings.
+There seems to be a bug with strings. I created a type that has a string property and a boolean property. When I used "show types" I see only character. I would expect character[] or string. I would also expect to see string is an alias for character[].
 
-REPL docs only have "show types", but we have "show enums", "show primities", etc. The help text is getting quite long. I wonder, can we make a more condensed help text and then extent the help command to give more detail on specific commands. For example "/help show" would show all of the "show" variants.
+If I use "from character select *" I get no results. If I use 'from "character[]" select *" I get no results. If I use "from string select *" I get no results. I tried boolean (which is handled similarly to string) for comparison and that did work. I would expect "from string ..." to work and probably 'from "character[]" ..." to work as well, but you can investigate and report back what you think from your findings.
 
 ---
 
