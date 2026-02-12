@@ -164,6 +164,7 @@ class FieldDef:
     name: str
     type_name: str
     default_value: Any = None
+    overflow: str | None = None  # "saturating" or "wrapping"
 
 
 @dataclass
@@ -364,6 +365,7 @@ class CreateEnumQuery:
 
     name: str
     variants: list[EnumVariantSpec] = field(default_factory=list)
+    backing_type: str | None = None  # e.g. "uint8", "uint16"
 
 
 @dataclass
@@ -425,6 +427,14 @@ class MethodCallExpr:
     target: Any
     method_name: str
     method_args: list[Any] | None = None
+
+
+@dataclass
+class TypedLiteral:
+    """A literal with an explicit type suffix: 5i8, 200u16, 3.14f32."""
+
+    value: int | float
+    type_name: str  # "int8", "uint16", "float32", etc.
 
 
 @dataclass
@@ -640,6 +650,11 @@ class QueryParser:
         """query : ENUM IDENTIFIER LBRACE enum_variant_list RBRACE
                  | ENUM IDENTIFIER LBRACE enum_variant_list COMMA RBRACE"""
         p[0] = CreateEnumQuery(name=p[2], variants=p[4])
+
+    def p_query_create_enum_backed(self, p: yacc.YaccProduction) -> None:
+        """query : ENUM IDENTIFIER COLON IDENTIFIER LBRACE enum_variant_list RBRACE
+                 | ENUM IDENTIFIER COLON IDENTIFIER LBRACE enum_variant_list COMMA RBRACE"""
+        p[0] = CreateEnumQuery(name=p[2], variants=p[6], backing_type=p[4])
 
     def p_enum_variant_list_single(self, p: yacc.YaccProduction) -> None:
         """enum_variant_list : enum_variant"""
@@ -911,6 +926,27 @@ class QueryParser:
         else:
             p[0] = FieldDef(name=p[1], type_name=p[3] + "[]", default_value=p[7])
 
+    def p_type_field_def_overflow(self, p: yacc.YaccProduction) -> None:
+        """type_field_def : IDENTIFIER COLON overflow_modifier IDENTIFIER
+                          | IDENTIFIER COLON overflow_modifier IDENTIFIER LBRACKET RBRACKET"""
+        if len(p) == 7:
+            p[0] = FieldDef(name=p[1], type_name=p[4] + "[]", overflow=p[3])
+        else:
+            p[0] = FieldDef(name=p[1], type_name=p[4], overflow=p[3])
+
+    def p_type_field_def_overflow_default(self, p: yacc.YaccProduction) -> None:
+        """type_field_def : IDENTIFIER COLON overflow_modifier IDENTIFIER EQ instance_value
+                          | IDENTIFIER COLON overflow_modifier IDENTIFIER LBRACKET RBRACKET EQ instance_value"""
+        if len(p) == 7:
+            p[0] = FieldDef(name=p[1], type_name=p[4], default_value=p[6], overflow=p[3])
+        else:
+            p[0] = FieldDef(name=p[1], type_name=p[4] + "[]", default_value=p[8], overflow=p[3])
+
+    def p_overflow_modifier(self, p: yacc.YaccProduction) -> None:
+        """overflow_modifier : SATURATING
+                             | WRAPPING"""
+        p[0] = p[1].lower()
+
     def p_instance_field_list_single(self, p: yacc.YaccProduction) -> None:
         """instance_field_list : instance_field"""
         p[0] = [p[1]]
@@ -1011,6 +1047,18 @@ class QueryParser:
         """tagged_instance_field_list : instance_field_list"""
         p[0] = (None, p[1])
 
+    def p_instance_value_typed_literal(self, p: yacc.YaccProduction) -> None:
+        """instance_value : TYPED_INTEGER
+                          | TYPED_FLOAT"""
+        value, type_name = p[1]
+        p[0] = TypedLiteral(value=value, type_name=type_name)
+
+    def p_instance_value_negative_typed(self, p: yacc.YaccProduction) -> None:
+        """instance_value : MINUS TYPED_INTEGER
+                          | MINUS TYPED_FLOAT"""
+        value, type_name = p[2]
+        p[0] = TypedLiteral(value=-value, type_name=type_name)
+
     def p_instance_value_literal(self, p: yacc.YaccProduction) -> None:
         """instance_value : STRING
                           | INTEGER
@@ -1024,11 +1072,11 @@ class QueryParser:
 
     def p_instance_value_func(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER LPAREN RPAREN"""
-        p[0] = FunctionCall(name=p[1].lower())
+        p[0] = FunctionCall(name=p[1])
 
     def p_instance_value_func_with_positional_args(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER LPAREN func_positional_args RPAREN"""
-        p[0] = FunctionCall(name=p[1].lower(), args=p[3])
+        p[0] = FunctionCall(name=p[1], args=p[3])
 
     def p_func_positional_args_two(self, p: yacc.YaccProduction) -> None:
         """func_positional_args : instance_value COMMA instance_value"""
@@ -1037,6 +1085,10 @@ class QueryParser:
     def p_func_positional_args_extend(self, p: yacc.YaccProduction) -> None:
         """func_positional_args : func_positional_args COMMA instance_value"""
         p[0] = p[1] + [p[3]]
+
+    def p_instance_value_func_single_string(self, p: yacc.YaccProduction) -> None:
+        """instance_value : IDENTIFIER LPAREN STRING RPAREN"""
+        p[0] = FunctionCall(name=p[1], args=[p[3]])
 
     def p_instance_value_composite_ref(self, p: yacc.YaccProduction) -> None:
         """instance_value : IDENTIFIER LPAREN INTEGER RPAREN"""
@@ -1148,6 +1200,12 @@ class QueryParser:
         """array_elements : array_elements COMMA array_element"""
         p[0] = p[1] + [p[3]]
 
+    def p_array_element_typed(self, p: yacc.YaccProduction) -> None:
+        """array_element : TYPED_INTEGER
+                         | TYPED_FLOAT"""
+        value, type_name = p[1]
+        p[0] = TypedLiteral(value=value, type_name=type_name)
+
     def p_array_element(self, p: yacc.YaccProduction) -> None:
         """array_element : STRING
                          | INTEGER
@@ -1196,6 +1254,12 @@ class QueryParser:
         else:
             p[0] = (p[1], None)  # (expression, no alias)
 
+    def p_eval_expr_typed_literal(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : TYPED_INTEGER
+                     | TYPED_FLOAT"""
+        value, type_name = p[1]
+        p[0] = TypedLiteral(value=value, type_name=type_name)
+
     def p_eval_expr_literal(self, p: yacc.YaccProduction) -> None:
         """eval_expr : STRING
                      | INTEGER
@@ -1204,11 +1268,11 @@ class QueryParser:
 
     def p_eval_expr_func(self, p: yacc.YaccProduction) -> None:
         """eval_expr : IDENTIFIER LPAREN RPAREN"""
-        p[0] = FunctionCall(name=p[1].lower())
+        p[0] = FunctionCall(name=p[1])
 
     def p_eval_expr_func_with_args(self, p: yacc.YaccProduction) -> None:
         """eval_expr : IDENTIFIER LPAREN eval_arg_list RPAREN"""
-        p[0] = FunctionCall(name=p[1].lower(), args=p[3])
+        p[0] = FunctionCall(name=p[1], args=p[3])
 
     def p_eval_arg_list_single(self, p: yacc.YaccProduction) -> None:
         """eval_arg_list : eval_expr"""
@@ -1523,6 +1587,18 @@ class QueryParser:
     def p_condition_paren(self, p: yacc.YaccProduction) -> None:
         """condition : LPAREN condition RPAREN"""
         p[0] = p[2]
+
+    def p_value_typed_literal(self, p: yacc.YaccProduction) -> None:
+        """value : TYPED_INTEGER
+                 | TYPED_FLOAT"""
+        value, type_name = p[1]
+        p[0] = TypedLiteral(value=value, type_name=type_name)
+
+    def p_value_negative_typed(self, p: yacc.YaccProduction) -> None:
+        """value : MINUS TYPED_INTEGER
+                 | MINUS TYPED_FLOAT"""
+        value, type_name = p[2]
+        p[0] = TypedLiteral(value=-value, type_name=type_name)
 
     def p_value_integer(self, p: yacc.YaccProduction) -> None:
         """value : INTEGER"""

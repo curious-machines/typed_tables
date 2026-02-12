@@ -630,6 +630,22 @@ EXPRESSIONS:
   sum([1, 2, 3])           Aggregate functions on arrays
   min(5, 3)                Multi-argument min/max
 
+TYPED MATH:
+  5i8, 200u16, 3.14f32    Type-annotated literals (suffix: i8/u8/.../f64)
+  0xFFu8, 0b1010i8        Hex/binary with type suffix
+  5i8 + 3i8               Type-checked arithmetic (same type required)
+  5i8 + 3                  Bare literal adopts the typed operand's type
+  5i8 + 3i16              Error: type mismatch
+  int16(42)                Type conversion function
+  int16([1,2,3])           Element-wise conversion
+  7i8 / 2i8                Floor division for typed integers
+  saturating/wrapping      Overflow policy modifiers on fields:
+                             type T { x: saturating uint8 }
+  Color(0)                 Enum conversion by discriminant
+  Color("red")             Enum conversion by variant name
+  enum Color : uint8 { red, green, blue }
+                           Enum with backing type (enables arithmetic)
+
 TYPES:
   string                   Built-in string type (stored as character[], displayed as string)
   Primitive types: bit, character, uint8, int8, uint16, int16,

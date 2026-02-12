@@ -58,6 +58,7 @@ from typed_tables.parsing.query_parser import (
     ShowReferencesQuery,
     ShowTypesQuery,
     TagReference,
+    TypedLiteral,
     UnaryExpr,
     UpdateQuery,
     UseQuery,
@@ -66,6 +67,7 @@ from typed_tables.parsing.query_parser import (
 )
 from typed_tables.storage import StorageManager
 from typed_tables.types import (
+    PRIMITIVE_TYPE_NAMES,
     AliasTypeDefinition,
     ArrayTypeDefinition,
     CompositeTypeDefinition,
@@ -80,7 +82,9 @@ from typed_tables.types import (
     StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
+    TypedValue,
     is_string_type,
+    type_range,
 )
 
 
@@ -232,6 +236,8 @@ class QueryExecutor:
         # Script execution tracking
         self._script_stack: list[Path] = []  # stack of script directories for relative path resolution
         self._loaded_scripts: set[str] = set()  # absolute paths of scripts loaded via execute
+        # Current overflow policy context (set during CREATE/UPDATE per target field)
+        self._current_overflow_policy: str | None = None
 
     @staticmethod
     def _sort_rows(rows: list[dict[str, Any]], sort_by: list[str], defaults: list[str] | None = None) -> list[dict[str, Any]]:
@@ -808,6 +814,7 @@ class QueryExecutor:
                     "type": field.type_def.name,
                     "size": field.type_def.reference_size,
                     "default": default_val,
+                    "overflow": field.overflow or "",
                 })
             # List implementing types
             impl_types = self.registry.find_implementing_types(query.table)
@@ -818,6 +825,7 @@ class QueryExecutor:
                         "type": impl_name,
                         "size": 0,
                         "default": "",
+                        "overflow": "",
                     })
         elif isinstance(base, CompositeTypeDefinition):
             for field in base.fields:
@@ -828,6 +836,7 @@ class QueryExecutor:
                     "type": field.type_def.name,
                     "size": field.type_def.reference_size,
                     "default": default_val,
+                    "overflow": field.overflow or "",
                 })
             if base.interfaces:
                 for iface_name in base.interfaces:
@@ -845,8 +854,10 @@ class QueryExecutor:
             })
 
         columns = ["property", "type", "size"]
-        if any("default" in row for row in rows):
+        if any(row.get("default") is not None for row in rows):
             columns.append("default")
+        if any(row.get("overflow") for row in rows):
+            columns.append("overflow")
 
         if query.sort_by:
             rows = self._sort_rows(rows, query.sort_by)
@@ -963,6 +974,11 @@ class QueryExecutor:
                     )
 
             fd = FieldDefinition(name=field_def.name, type_def=field_type)
+            if field_def.overflow is not None:
+                err = self._validate_overflow_modifier(field_def.overflow, field_type, field_def.name)
+                if err:
+                    return CreateResult(columns=[], rows=[], message=err, type_name=query.name)
+                fd.overflow = field_def.overflow
             if field_def.default_value is not None:
                 try:
                     fd.default_value = self._resolve_default_value(field_def.default_value, field_type)
@@ -1118,6 +1134,11 @@ class QueryExecutor:
                     )
 
             fd = FieldDefinition(name=field_def.name, type_def=field_type)
+            if field_def.overflow is not None:
+                err = self._validate_overflow_modifier(field_def.overflow, field_type, field_def.name)
+                if err:
+                    return CreateResult(columns=[], rows=[], message=err, type_name=query.name)
+                fd.overflow = field_def.overflow
             if field_def.default_value is not None:
                 try:
                     fd.default_value = self._resolve_default_value(field_def.default_value, field_type)
@@ -1235,11 +1256,33 @@ class QueryExecutor:
 
             variants.append(EVD(name=vspec.name, discriminant=disc, fields=fields))
 
+        # Validate and resolve backing type
+        backing_prim = None
+        if query.backing_type:
+            prim = PRIMITIVE_TYPE_NAMES.get(query.backing_type)
+            if prim is None or prim not in self._OVERFLOW_NUMERIC_TYPES:
+                return CreateResult(
+                    columns=[], rows=[],
+                    message=f"Enum backing type must be an integer type, got '{query.backing_type}'",
+                    type_name=query.name,
+                )
+            backing_prim = prim
+            # Validate discriminants fit the backing type
+            min_val, max_val = type_range(prim)
+            for v in variants:
+                if v.discriminant < min_val or v.discriminant > max_val:
+                    return CreateResult(
+                        columns=[], rows=[],
+                        message=f"Discriminant {v.discriminant} for variant '{v.name}' out of range for {query.backing_type}",
+                        type_name=query.name,
+                    )
+
         # Create and register the enum type
         enum_def = EnumTypeDefinition(
             name=query.name,
             variants=variants,
             has_explicit_values=has_explicit,
+            backing_type=backing_prim,
         )
         self.registry.register(enum_def)
         self.storage.save_metadata()
@@ -2277,6 +2320,14 @@ class QueryExecutor:
 
     def _resolve_instance_value(self, value: Any) -> Any:
         """Resolve a value from CREATE instance, handling function calls, composite refs, inline instances, variable refs, tag refs, and null."""
+        if isinstance(value, TypedLiteral):
+            return value.value  # Strip type info for storage
+        if isinstance(value, list):
+            # Resolve TypedLiteral elements; leave InlineInstance/CompositeRef/etc.
+            # for downstream handling in _create_instance.
+            if any(isinstance(elem, TypedLiteral) for elem in value):
+                return [elem.value if isinstance(elem, TypedLiteral) else elem for elem in value]
+            return value
         if isinstance(value, NullValue):
             return None
         elif isinstance(value, TagReference):
@@ -2299,18 +2350,28 @@ class QueryExecutor:
                 raise ValueError(f"Cannot use set variable ${value.var_name} as a single field value")
             return ref
         elif isinstance(value, FunctionCall):
-            if value.name == "uuid":
+            name_lower = value.name.lower()
+            if name_lower == "uuid":
                 # Generate a random UUID as uint128
                 return uuid_module.uuid4().int
             elif value.args:
-                # Functions with positional args: range(), repeat()
+                # Functions with positional args: range(), repeat(), type conversions, enum conversions
                 evaluated_args = [self._resolve_instance_value(a) for a in value.args]
                 return self._evaluate_math_func(value.name, evaluated_args)
+            elif name_lower in PRIMITIVE_TYPE_NAMES:
+                raise ValueError(f"{value.name}() requires exactly 1 argument")
             else:
                 raise ValueError(f"Unknown function: {value.name}()")
         elif isinstance(value, CompositeRef):
             # Check if this is actually a single-arg function call (e.g., range(5))
-            if value.type_name in ("range", "repeat"):
+            if value.type_name.lower() in ("range", "repeat"):
+                return self._evaluate_math_func(value.type_name, [value.index])
+            # Type conversion: int16(42), uint8(200), etc.
+            if value.type_name.lower() in PRIMITIVE_TYPE_NAMES:
+                return self._unwrap_typed(self._convert_to_type(value.index, value.type_name.lower()))
+            # Enum conversion: Color(0)
+            enum_td = self.registry.get(value.type_name)
+            if enum_td is not None and isinstance(enum_td.resolve_base_type(), EnumTypeDefinition):
                 return self._evaluate_math_func(value.type_name, [value.index])
             # Return the index directly - the type will be validated during instance creation
             return value.index
@@ -2342,6 +2403,24 @@ class QueryExecutor:
                 self._define_tag(value.tag, value.type_name, index)
             return index
         return value
+
+    # Valid numeric primitive types for overflow modifiers (excludes float, bit, character)
+    _OVERFLOW_NUMERIC_TYPES = {
+        PrimitiveType.UINT8, PrimitiveType.INT8,
+        PrimitiveType.UINT16, PrimitiveType.INT16,
+        PrimitiveType.UINT32, PrimitiveType.INT32,
+        PrimitiveType.UINT64, PrimitiveType.INT64,
+        PrimitiveType.UINT128, PrimitiveType.INT128,
+    }
+
+    def _validate_overflow_modifier(self, overflow: str, field_type: TypeDefinition, field_name: str) -> str | None:
+        """Validate that an overflow modifier is allowed on this field type. Returns error message or None."""
+        base = field_type.resolve_base_type()
+        if isinstance(base, PrimitiveTypeDefinition):
+            if base.primitive in self._OVERFLOW_NUMERIC_TYPES:
+                return None
+            return f"Overflow modifier '{overflow}' not allowed on {base.primitive.value} field '{field_name}'"
+        return f"Overflow modifier '{overflow}' only allowed on integer fields, not '{field_type.name}' field '{field_name}'"
 
     def _resolve_default_value(self, raw_value: Any, type_def: TypeDefinition) -> Any:
         """Resolve a default value from a type field definition.
@@ -2648,7 +2727,7 @@ class QueryExecutor:
         for i, expr_tuple in enumerate(query.expressions):
             # Expressions are now (expr, alias) tuples
             expr, alias = expr_tuple
-            if isinstance(expr, (BinaryExpr, UnaryExpr, MethodCallExpr, list)) or (
+            if isinstance(expr, (BinaryExpr, UnaryExpr, MethodCallExpr, TypedLiteral, list)) or (
                 isinstance(expr, FunctionCall) and expr.args
             ):
                 value = self._evaluate_expr(expr)
@@ -2658,7 +2737,7 @@ class QueryExecutor:
             # Use alias if provided, otherwise generate column name
             if alias:
                 base_name = alias
-            elif isinstance(expr, (BinaryExpr, UnaryExpr, FunctionCall, MethodCallExpr, list)):
+            elif isinstance(expr, (BinaryExpr, UnaryExpr, FunctionCall, MethodCallExpr, TypedLiteral, list)):
                 base_name = self._format_expr(expr)
             else:
                 base_name = f"expr_{i}"
@@ -2672,9 +2751,13 @@ class QueryExecutor:
 
             columns.append(col_name)
 
+            # Unwrap TypedValue for display
+            if isinstance(value, TypedValue):
+                value = value.value
             # Format the value for display
             if isinstance(value, list):
-                row[col_name] = value
+                # Unwrap TypedValues in list
+                row[col_name] = [v.value if isinstance(v, TypedValue) else v for v in value]
             elif isinstance(value, int) and value > 0xFFFFFFFF:
                 # Format large integers as hex (likely UUIDs)
                 row[col_name] = f"0x{value:032x}"
@@ -2706,6 +2789,14 @@ class QueryExecutor:
             target = self._evaluate_expr(expr.target)
             args = [self._evaluate_expr(a) for a in expr.method_args] if expr.method_args else None
             return self._apply_projection_method(target, expr.method_name, args)
+        # TypedLiteral → TypedValue with range validation
+        if isinstance(expr, TypedLiteral):
+            prim = PRIMITIVE_TYPE_NAMES.get(expr.type_name)
+            if prim is not None:
+                min_val, max_val = type_range(prim)
+                if isinstance(expr.value, (int, float)) and (expr.value < min_val or expr.value > max_val):
+                    raise RuntimeError(f"Literal {expr.value} out of range for {expr.type_name} ({min_val}..{max_val})")
+            return TypedValue(value=expr.value, type_name=expr.type_name)
         # Leaf: FunctionCall — with args → math function, no args → existing path
         if isinstance(expr, FunctionCall):
             if expr.args:
@@ -2714,8 +2805,61 @@ class QueryExecutor:
             return self._resolve_instance_value(expr)
         return expr
 
+    def _enum_to_typed_value(self, value: Any) -> Any:
+        """If value is an EnumValue with a backing type, convert to TypedValue. Otherwise return as-is."""
+        if isinstance(value, EnumValue):
+            # Find the enum type definition to check for backing type
+            for type_name in self.registry.list_types():
+                td = self.registry.get(type_name)
+                if isinstance(td, EnumTypeDefinition) and td.backing_type:
+                    variant = td.get_variant(value.variant_name)
+                    if variant and variant.discriminant == value.discriminant:
+                        return TypedValue(value=value.discriminant, type_name=td.backing_type.value)
+        return value
+
     def _apply_scalar_binary(self, left: Any, right: Any, op: str) -> Any:
-        """Apply a binary operator to two scalar values."""
+        """Apply a binary operator to two scalar values, with TypedValue propagation."""
+        # Auto-convert enum values with backing types
+        left = self._enum_to_typed_value(left)
+        right = self._enum_to_typed_value(right)
+
+        left_typed = isinstance(left, TypedValue)
+        right_typed = isinstance(right, TypedValue)
+
+        if left_typed or right_typed:
+            # Determine the result type
+            if left_typed and right_typed:
+                if left.type_name != right.type_name:
+                    raise RuntimeError(f"Type mismatch: {left.type_name} vs {right.type_name}")
+                result_type = left.type_name
+            elif left_typed:
+                result_type = left.type_name
+            else:
+                result_type = right.type_name
+
+            # Unwrap for raw arithmetic
+            lv = left.value if left_typed else left
+            rv = right.value if right_typed else right
+
+            # Concat: unwrap to string, no TypedValue result
+            if op == "++":
+                return str(lv) + str(rv)
+
+            # For typed integer context, / uses floor division
+            effective_op = op
+            prim = PRIMITIVE_TYPE_NAMES.get(result_type)
+            if op == "/" and prim and prim not in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+                effective_op = "//"
+
+            result = self._apply_raw_binary(lv, rv, effective_op)
+            # Enforce overflow on the typed result
+            result = self._enforce_overflow(result, result_type, self._current_overflow_policy)
+            return TypedValue(value=result, type_name=result_type)
+
+        return self._apply_raw_binary(left, right, op)
+
+    def _apply_raw_binary(self, left: Any, right: Any, op: str) -> Any:
+        """Apply a binary operator to two raw (untyped) scalar values."""
         if op == "++":
             return str(left) + str(right)
         if op == "+":
@@ -2754,6 +2898,13 @@ class QueryExecutor:
 
     def _apply_scalar_unary(self, operand: Any, op: str) -> Any:
         """Apply a unary operator to a scalar value."""
+        if isinstance(operand, TypedValue):
+            raw = operand.value
+            if op == "-":
+                return TypedValue(value=-raw, type_name=operand.type_name)
+            if op == "+":
+                return operand
+            raise RuntimeError(f"Unknown unary operator: {op}")
         if op == "-":
             if not isinstance(operand, (int, float)):
                 raise RuntimeError(f"Cannot negate non-numeric value: {operand!r}")
@@ -2776,6 +2927,64 @@ class QueryExecutor:
         else:
             return [self._apply_scalar_binary(left, r, op) for r in right]
 
+    @staticmethod
+    def _enforce_overflow(value: int | float, type_name: str, policy: str | None) -> int | float:
+        """Enforce overflow policy on a computed result.
+
+        - policy=None or 'error': raise on overflow
+        - policy='saturating': clamp to min/max
+        - policy='wrapping': modular arithmetic
+        """
+        prim = PRIMITIVE_TYPE_NAMES.get(type_name)
+        if prim is None:
+            return value
+        if prim in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+            return value  # Float overflow not enforced
+        min_val, max_val = type_range(prim)
+        if min_val <= value <= max_val:
+            return value
+
+        if policy == "saturating":
+            return max(min_val, min(value, max_val))
+        elif policy == "wrapping":
+            range_size = max_val - min_val + 1
+            return ((value - min_val) % range_size) + min_val
+        else:
+            raise RuntimeError(
+                f"Overflow: result {value} out of range for {type_name} ({min_val}..{max_val})")
+
+    @staticmethod
+    def _unwrap_typed(value: Any) -> Any:
+        """Unwrap a TypedValue to its raw value. Recursively handles lists."""
+        if isinstance(value, TypedValue):
+            return value.value
+        if isinstance(value, list):
+            return [v.value if isinstance(v, TypedValue) else v for v in value]
+        return value
+
+    def _convert_to_type(self, value: Any, type_name: str) -> Any:
+        """Convert a value to the given primitive type with range checking. Returns TypedValue."""
+        prim = PRIMITIVE_TYPE_NAMES.get(type_name)
+        if prim is None:
+            raise RuntimeError(f"Unknown primitive type for conversion: {type_name}")
+        if isinstance(value, list):
+            return [self._convert_to_type(elem, type_name) for elem in value]
+        # Unwrap TypedValue
+        raw = value.value if isinstance(value, TypedValue) else value
+        min_val, max_val = type_range(prim)
+        if prim in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
+            return TypedValue(value=float(raw), type_name=type_name)
+        # Integer conversion
+        if isinstance(raw, float):
+            if raw != int(raw):
+                raise RuntimeError(f"Cannot convert {raw} to {type_name}: not an integer")
+            raw = int(raw)
+        if not isinstance(raw, int):
+            raise RuntimeError(f"Cannot convert {type(raw).__name__} to {type_name}")
+        if raw < min_val or raw > max_val:
+            raise RuntimeError(f"Value {raw} out of range for {type_name} ({min_val}..{max_val})")
+        return TypedValue(value=raw, type_name=type_name)
+
     _MATH_FUNCS_1 = {
         "sqrt": __import__("math").sqrt,
         "abs": abs,
@@ -2792,7 +3001,39 @@ class QueryExecutor:
 
     def _evaluate_math_func(self, name: str, args: list) -> Any:
         """Evaluate a math function call."""
-        if name == "pow":
+        name_lower = name.lower()
+
+        # Type conversion functions: int8(), uint16(), float32(), etc.
+        if name_lower in PRIMITIVE_TYPE_NAMES:
+            if len(args) != 1:
+                raise RuntimeError(f"{name}() requires exactly 1 argument")
+            return self._convert_to_type(args[0], name_lower)
+
+        # Enum conversion: Color(0) → Color.red, Color("red") → Color.red
+        enum_def = self.registry.get(name)
+        if enum_def is not None and isinstance(enum_def.resolve_base_type(), EnumTypeDefinition):
+            enum_base = enum_def.resolve_base_type()
+            if len(args) != 1:
+                raise RuntimeError(f"{name}() requires exactly 1 argument")
+            arg = self._unwrap_typed(args[0])
+            if isinstance(arg, str):
+                # Lookup by variant name
+                variant = enum_base.get_variant(arg)
+                if variant is None:
+                    raise RuntimeError(f"No variant named '{arg}' on enum '{name}'")
+                if variant.fields:
+                    raise RuntimeError(f"Cannot convert string to variant '{arg}' with associated values")
+                return EnumValue(variant_name=variant.name, discriminant=variant.discriminant, fields={})
+            elif isinstance(arg, int):
+                # Lookup by discriminant
+                variant = enum_base.get_variant_by_discriminant(arg)
+                if variant is None:
+                    raise RuntimeError(f"No variant with discriminant {arg} on enum '{name}'")
+                return EnumValue(variant_name=variant.name, discriminant=variant.discriminant, fields={})
+            else:
+                raise RuntimeError(f"{name}() requires an integer or string argument")
+
+        if name_lower == "pow":
             if len(args) != 2:
                 raise RuntimeError("pow() requires exactly 2 arguments")
             base, exp = args
@@ -2801,21 +3042,21 @@ class QueryExecutor:
             return base ** exp
 
         # Aggregate functions on arrays
-        if name == "sum":
+        if name_lower == "sum":
             if len(args) != 1:
                 raise RuntimeError("sum() requires exactly 1 argument")
             arg = args[0]
             if isinstance(arg, list):
                 return sum(arg)
             return arg
-        if name == "average":
+        if name_lower == "average":
             if len(args) != 1:
                 raise RuntimeError("average() requires exactly 1 argument")
             arg = args[0]
             if isinstance(arg, list):
                 return sum(arg) / len(arg) if arg else None
             return float(arg)
-        if name == "product":
+        if name_lower == "product":
             if len(args) != 1:
                 raise RuntimeError("product() requires exactly 1 argument")
             arg = args[0]
@@ -2825,21 +3066,21 @@ class QueryExecutor:
                     result *= v
                 return result
             return arg
-        if name == "count":
+        if name_lower == "count":
             if len(args) != 1:
                 raise RuntimeError("count() requires exactly 1 argument")
             arg = args[0]
             if isinstance(arg, list):
                 return len(arg)
             return 1
-        if name == "min":
+        if name_lower == "min":
             if len(args) == 1:
                 arg = args[0]
                 if isinstance(arg, list):
                     return min(arg) if arg else None
                 return arg
             return min(args)
-        if name == "max":
+        if name_lower == "max":
             if len(args) == 1:
                 arg = args[0]
                 if isinstance(arg, list):
@@ -2847,7 +3088,7 @@ class QueryExecutor:
                 return arg
             return max(args)
 
-        if name == "repeat":
+        if name_lower == "repeat":
             if len(args) != 2:
                 raise RuntimeError("repeat() requires exactly 2 arguments: repeat(value, count)")
             value, count = args
@@ -2857,7 +3098,7 @@ class QueryExecutor:
                 raise RuntimeError(f"repeat() count must be non-negative, got {count}")
             return [value] * count
 
-        if name == "range":
+        if name_lower == "range":
             if len(args) == 1:
                 if not isinstance(args[0], (int, float)):
                     raise RuntimeError(f"range() arguments must be numeric, got {type(args[0]).__name__}")
@@ -2869,7 +3110,7 @@ class QueryExecutor:
             else:
                 raise RuntimeError("range() takes 1-3 arguments")
 
-        func = self._MATH_FUNCS_1.get(name)
+        func = self._MATH_FUNCS_1.get(name_lower)
         if func is None:
             raise RuntimeError(f"Unknown function: {name}()")
         if len(args) != 1:
@@ -2879,8 +3120,23 @@ class QueryExecutor:
             return [func(elem) for elem in arg]
         return func(arg)
 
+    # Map primitive type names back to type suffixes for display
+    _TYPE_NAME_TO_SUFFIX = {
+        "int8": "i8", "uint8": "u8",
+        "int16": "i16", "uint16": "u16",
+        "int32": "i32", "uint32": "u32",
+        "int64": "i64", "uint64": "u64",
+        "int128": "i128", "uint128": "u128",
+        "float32": "f32", "float64": "f64",
+    }
+
     def _format_expr(self, expr: Any) -> str:
         """Format an expression tree as a human-readable column name."""
+        if isinstance(expr, TypedLiteral):
+            suffix = self._TYPE_NAME_TO_SUFFIX.get(expr.type_name, expr.type_name)
+            if isinstance(expr.value, float):
+                return f"{expr.value}{suffix}"
+            return f"{expr.value}{suffix}"
         if isinstance(expr, MethodCallExpr):
             target = self._format_expr(expr.target)
             if expr.method_args:
@@ -4380,15 +4636,16 @@ class QueryExecutor:
                     variant_strs.append(f"{v.name} = {v.discriminant}")
                 else:
                     variant_strs.append(v.name)
+            backing_clause = f" : {enum_def.backing_type.value}" if enum_def.backing_type else ""
             if pretty:
-                lines.append(f"enum {name} {{")
+                lines.append(f"enum {name}{backing_clause} {{")
                 for i, vs in enumerate(variant_strs):
                     comma = "," if i < len(variant_strs) - 1 else ""
                     lines.append(f"    {vs}{comma}")
                 lines.append("}")
                 lines.append("")
             else:
-                lines.append(f"enum {name} {{ {', '.join(variant_strs)} }}")
+                lines.append(f"enum {name}{backing_clause} {{ {', '.join(variant_strs)} }}")
 
         # Emit interface definitions
         for name, iface_def in interfaces:
@@ -4398,7 +4655,8 @@ class QueryExecutor:
                 if field_type_name.endswith("[]"):
                     base_elem = field_type_name[:-2]
                     field_type_name = f"{base_elem}[]"
-                fs = f"{f.name}: {field_type_name}"
+                overflow_prefix = f"{f.overflow} " if f.overflow else ""
+                fs = f"{f.name}: {overflow_prefix}{field_type_name}"
                 if f.default_value is not None:
                     fs += f" = {self._format_default_for_dump(f.default_value, f.type_def)}"
                 field_strs.append(fs)
@@ -4459,7 +4717,8 @@ class QueryExecutor:
                 if field_type_name.endswith("[]"):
                     base_elem = field_type_name[:-2]
                     field_type_name = f"{base_elem}[]"
-                fs = f"{f.name}: {field_type_name}"
+                overflow_prefix = f"{f.overflow} " if f.overflow else ""
+                fs = f"{f.name}: {overflow_prefix}{field_type_name}"
                 if f.default_value is not None:
                     fs += f" = {self._format_default_for_dump(f.default_value, f.type_def)}"
                 field_strs.append(fs)

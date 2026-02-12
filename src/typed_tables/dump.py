@@ -178,7 +178,8 @@ def _populate_interface_from_spec(
     for field_spec in spec.get("fields", []):
         field_type = registry.get_or_raise(field_spec["type"])
         default = _deserialize_default_value(field_spec.get("default"), field_type)
-        fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type, default_value=default))
+        overflow = field_spec.get("overflow")
+        fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type, default_value=default, overflow=overflow))
     stub.fields = fields
 
 
@@ -203,7 +204,8 @@ def _populate_composite_from_spec(
     for field_spec in spec["fields"]:
         field_type = registry.get_or_raise(field_spec["type"])
         default = _deserialize_default_value(field_spec.get("default"), field_type)
-        fields.append(FD(name=field_spec["name"], type_def=field_type, default_value=default))
+        overflow = field_spec.get("overflow")
+        fields.append(FD(name=field_spec["name"], type_def=field_type, default_value=default, overflow=overflow))
     stub.fields = fields
     stub.interfaces = spec.get("interfaces", [])
 
@@ -236,6 +238,10 @@ def _populate_enum_from_spec(
         ))
     stub.variants = variants
     stub.has_explicit_values = spec.get("has_explicit_values", False)
+    backing = spec.get("backing_type")
+    if backing:
+        from typed_tables.types import PrimitiveType as PT, PRIMITIVE_TYPE_NAMES as PTN
+        stub.backing_type = PTN.get(backing)
 
 
 def format_value(value: Any, type_def: TypeDefinition) -> str:

@@ -107,11 +107,14 @@ class StorageManager:
                 if v.fields:
                     vspec["fields"] = [{"name": f.name, "type": f.type_def.name} for f in v.fields]
                 variants.append(vspec)
-            return {
+            result_enum: dict[str, Any] = {
                 "kind": "enum",
                 "variants": variants,
                 "has_explicit_values": type_def.has_explicit_values,
             }
+            if type_def.backing_type is not None:
+                result_enum["backing_type"] = type_def.backing_type.value
+            return result_enum
         elif isinstance(type_def, InterfaceTypeDefinition):
             return {
                 "kind": "interface",
@@ -131,6 +134,8 @@ class StorageManager:
     def _serialize_field_def(self, f: FieldDefinition) -> dict[str, Any]:
         """Serialize a field definition including optional default value."""
         entry: dict[str, Any] = {"name": f.name, "type": f.type_def.name}
+        if f.overflow is not None:
+            entry["overflow"] = f.overflow
         if f.default_value is not None:
             entry["default"] = self._serialize_default_value(f.default_value, f.type_def)
         return entry

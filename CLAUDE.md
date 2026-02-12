@@ -255,6 +255,129 @@ describe Shape
 describe Shape.circle
 ```
 
+### Typed Math Expressions
+
+Math operations are type-checked at the schema level. No implicit type casting — operands must be the same type, and literals auto-size from field context.
+
+#### Overflow Policy
+
+Fields can specify overflow behavior with a modifier before the type:
+
+```ttq
+type Sensor {
+    reading: saturating int8,        -- clamp to -128..127
+    count: wrapping uint16,          -- modular arithmetic (C-style)
+    temperature: float32             -- default: error on overflow
+}
+```
+
+Three policies: **error** (default, no keyword), **saturating** (clamp to min/max), **wrapping** (modular arithmetic). Overflow modifiers are not allowed on float types.
+
+#### Type-Annotated Literals
+
+Literals can carry explicit type suffixes:
+
+```ttq
+5i8, 5i16, 5i32, 5i64         -- signed integers
+5u8, 5u16, 5u32, 5u64, 5u128  -- unsigned integers
+5.0f32, 5.0f64                 -- floats
+0xFFu8, 0b1010i8               -- hex/binary with suffix
+```
+
+#### Literal Auto-Sizing
+
+Bare literals (no suffix) adopt the type of the field they're used with:
+
+```ttq
+-- reading is int8 (-128..127)
+from Sensor select reading + 1       -- 1 becomes int8, ok
+from Sensor select reading + 200     -- error: 200 doesn't fit int8
+
+-- bare eval, no field context
+5 + 3                                -- arbitrary precision, no overflow
+```
+
+If a literal doesn't fit in the contextual type, it's always an error regardless of overflow policy. This is distinct from runtime overflow (e.g., `127 + 1` where both operands are valid int8 but the result overflows — governed by the field's policy).
+
+#### Type Conversion
+
+Primitive type names work as conversion functions:
+
+```ttq
+int16(value)           -- convert scalar to int16
+int16(readings)        -- element-wise: int8[] -> int16[]
+int16([1, 2, 3])       -- typed array literal
+float64(age)           -- uint8 -> float64
+int8(200)              -- error: 200 overflows int8 (narrowing always errors on overflow)
+```
+
+#### Expression Type Rules
+
+Both operands must have the same type. Mixed-type expressions require explicit casting:
+
+```ttq
+-- reading is int8, count is uint16
+reading + count                         -- error: type mismatch
+int16(reading) + int16(count) + 1       -- ok: all int16, literal adopts int16
+```
+
+Same rules apply in WHERE clauses — no special widening:
+
+```ttq
+from Sensor select * where reading > 200          -- error: 200 doesn't fit int8
+from Sensor select * where int16(reading) > 200   -- ok: both int16
+```
+
+Only bare eval expressions (no field context) use arbitrary precision.
+
+#### Division
+
+Both `/` and `//` perform floor division (toward negative infinity). Use `float64(x) / float64(y)` for true division.
+
+#### C-Style Enum Arithmetic
+
+Enums can specify a backing integer type:
+
+```ttq
+enum Color : uint8 { red, green, blue }
+enum HttpStatus : uint16 { ok = 200, not_found = 404, internal_error = 500 }
+```
+
+Enum values participate in arithmetic as their backing type. The result is the integer type, not the enum:
+
+```ttq
+Color.red + 1          -- uint8 value 1
+```
+
+#### Enum Conversion
+
+The enum name works as a conversion function, accepting integers or strings:
+
+```ttq
+Color(0)               -- Color.red (by discriminant)
+Color("red")           -- Color.red (by variant name)
+Color(5)               -- error: no variant with discriminant 5
+Color("purple")        -- error: no variant named "purple"
+```
+
+For Swift-style enums, string conversion only works for bare variants (no associated values).
+
+#### Bit Type
+
+Bit values are not numeric. Use boolean functions:
+
+```ttq
+and(a, b), or(a, b), not(a), xor(a, b)
+```
+
+Bit values can be cast to integer types (produces 0 or 1) and back (only 0 or 1 accepted):
+
+```ttq
+uint8(flag)            -- 0 or 1 as uint8
+bit(1)                 -- ok
+bit(2)                 -- error: only 0 or 1
+```
+
 ### Create Entry
 
 ```ttq

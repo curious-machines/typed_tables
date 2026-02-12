@@ -170,6 +170,8 @@ comparison_op   ::= "=" | "!=" | "<" | "<=" | ">" | ">="
 value           ::= INTEGER
                   | FLOAT
                   | STRING
+                  | TYPED_INTEGER
+                  | TYPED_FLOAT
 
 
 (* ========== Eval Query (Bare Expressions) ========== *)
@@ -194,8 +196,10 @@ eval_expr_with_alias ::= eval_expr "as" STRING
 eval_expr       ::= STRING
                   | INTEGER
                   | FLOAT
+                  | TYPED_INTEGER                           (* typed literal: 5i8, 0xFFu8 *)
+                  | TYPED_FLOAT                             (* typed float literal: 3.14f32 *)
                   | IDENTIFIER "(" ")"                      (* zero-arg function: uuid() *)
-                  | IDENTIFIER "(" eval_arg_list ")"        (* function with args: sum([1,2,3]), min(5,3) *)
+                  | IDENTIFIER "(" eval_arg_list ")"        (* function with args: sum([1,2,3]), int16(42) *)
                   | "[" eval_expr_items "]"                 (* array literal: [1, 2, 3] *)
                   | "[" "]"                                 (* empty array: [] *)
                   | eval_expr binop eval_expr               (* arithmetic: 5 + 3, [1,2] * 3 *)
@@ -339,6 +343,10 @@ type_field_items ::= type_field_def
 
 type_field_def  ::= IDENTIFIER ":" type_ref
                   | IDENTIFIER ":" type_ref "=" instance_value   (* default value *)
+                  | IDENTIFIER ":" overflow_modifier type_ref
+                  | IDENTIFIER ":" overflow_modifier type_ref "=" instance_value
+
+overflow_modifier ::= "saturating" | "wrapping"
 
 type_ref        ::= IDENTIFIER
                   | IDENTIFIER "[" "]"        (* array type, e.g., int8[] *)
@@ -365,6 +373,10 @@ type_ref        ::= IDENTIFIER
 
 enum_query      ::= "enum" IDENTIFIER "{" enum_variant_list "}"
                   | "enum" IDENTIFIER "{" enum_variant_list "," "}"
+                  | "enum" IDENTIFIER ":" IDENTIFIER "{" enum_variant_list "}"
+                  | "enum" IDENTIFIER ":" IDENTIFIER "{" enum_variant_list "," "}"
+                  (* The second IDENTIFIER after ":" is the backing integer type,
+                   * e.g., enum Color : uint8 { red, green, blue } *)
 
 enum_variant_list ::= enum_variant
                     | enum_variant_list "," enum_variant
@@ -421,8 +433,13 @@ instance_field  ::= IDENTIFIER "=" instance_value
 instance_value  ::= STRING
                   | INTEGER
                   | FLOAT
+                  | TYPED_INTEGER                           (* typed literal: 5i8 *)
+                  | TYPED_FLOAT                             (* typed float literal: 3.14f32 *)
+                  | "-" TYPED_INTEGER                       (* negative typed literal: -5i8 *)
+                  | "-" TYPED_FLOAT                         (* negative typed float: -3.14f32 *)
                   | IDENTIFIER "(" ")"
-                  | IDENTIFIER "(" INTEGER ")"              (* composite reference: TypeName(index) *)
+                  | IDENTIFIER "(" INTEGER ")"              (* composite reference or enum conversion: TypeName(index) *)
+                  | IDENTIFIER "(" STRING ")"               (* enum conversion by name: Color("red") *)
                   | IDENTIFIER "(" instance_field_list ")"  (* inline instance creation *)
                   | IDENTIFIER "(" "tag" "(" IDENTIFIER ")" "," instance_field_list ")"  (* inline instance with tag *)
                   | "[" "]"                                 (* empty array *)
@@ -434,7 +451,7 @@ instance_value  ::= STRING
 array_elements  ::= array_element
                   | array_elements "," array_element
 
-array_element   ::= STRING | INTEGER | FLOAT
+array_element   ::= STRING | INTEGER | FLOAT | TYPED_INTEGER | TYPED_FLOAT
                   | IDENTIFIER "(" instance_field_list ")"  (* inline instance *)
                   | VARIABLE                                (* variable reference: $var *)
                   | "null"                                  (* null reference *)
@@ -739,6 +756,14 @@ INTEGER         ::= -?[0-9]+
 
 FLOAT           ::= -?[0-9]+\.[0-9]+
 
+TYPED_INTEGER   ::= (INTEGER | HEX_INTEGER | BIN_INTEGER) type_suffix
+                  (* e.g., 5i8, 200u16, 0xFFu8, 0b1010i8 *)
+                  (* type_suffix: i8|u8|i16|u16|i32|u32|i64|u64|i128|u128|f32|f64 *)
+
+TYPED_FLOAT     ::= [0-9]+\.[0-9]+ float_suffix
+                  (* e.g., 3.14f32, 2.718f64 *)
+                  (* float_suffix: f32|f64 *)
+
 STRING          ::= "\"" ([^"\\] | \\.)* "\""
 
 REGEX           ::= "/" ([^/\\] | \\.)* "/"
@@ -757,7 +782,8 @@ SEMICOLON       ::= ";"
  * tag, scope, forward, enum, interface, interfaces,
  * composites, enums, primitives, aliases, references,
  * graph, yaml, json, xml, compact, archive, restore,
- * execute, import, system, temp, asc, desc
+ * execute, import, system, temp, asc, desc,
+ * saturating, wrapping
  *
  * Note: count, average, sum, product, min, max are NOT
  * reserved — they are parsed as identifiers and can be
@@ -767,10 +793,20 @@ SEMICOLON       ::= ";"
 
 (* ========== Operator Precedence ========== *)
 (*
- * From lowest to highest:
+ * From lowest to highest (WHERE conditions):
  *   1. OR
  *   2. AND
  *   3. NOT (right associative)
+ *
+ * Eval expression operators (lowest to highest):
+ *   1. ++ (string concatenation)
+ *   2. +, - (addition, subtraction)
+ *   3. *, /, %, // (multiplication, division, modulo, floor division)
+ *   4. unary -, unary +
+ *
+ * Typed expressions: both operands must be the same type.
+ * A bare literal + typed value adopts the typed operand's type.
+ * Typed integer / uses floor division. Use float64(x)/float64(y) for true division.
  *)
 
 
@@ -795,6 +831,17 @@ SEMICOLON       ::= ";"
  * sin(x), cos(x), tan(x) - Trigonometric functions
  *
  * Math functions vectorize over arrays: sqrt([1,4,9]) → [1.0,2.0,3.0]
+ *
+ * Type conversion functions:
+ * int8(x), uint8(x), int16(x), uint16(x), int32(x), uint32(x),
+ * int64(x), uint64(x), int128(x), uint128(x), float32(x), float64(x)
+ *   - Convert value to the target type with range checking
+ *   - Element-wise for arrays: int16([1,2,3])
+ *   - Narrowing always errors on overflow
+ *
+ * Enum conversion functions:
+ * EnumName(discriminant)   - Convert integer to enum value: Color(0) → Color.red
+ * EnumName("variant_name") - Convert string to enum value: Color("red") → Color.red
  *)
 
 

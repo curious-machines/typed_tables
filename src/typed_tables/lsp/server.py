@@ -86,6 +86,8 @@ KEYWORDS: dict[str, str] = {
     "import": "Import a script (execute once per database)",
     "system": "Modifier for system types (show system types)",
     "temp": "Mark a database as temporary (use … as temp)",
+    "saturating": "Overflow policy: clamp to min/max on overflow",
+    "wrapping": "Overflow policy: modular arithmetic on overflow",
 }
 
 FUNCTIONS: dict[str, str] = {

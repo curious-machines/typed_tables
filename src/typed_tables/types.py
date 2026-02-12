@@ -54,6 +54,27 @@ class PrimitiveType(Enum):
 PRIMITIVE_TYPE_NAMES: dict[str, PrimitiveType] = {pt.value: pt for pt in PrimitiveType}
 
 
+def type_range(prim: PrimitiveType) -> tuple[int | float, int | float]:
+    """Return (min_val, max_val) for a primitive type."""
+    ranges: dict[PrimitiveType, tuple[int | float, int | float]] = {
+        PrimitiveType.BIT: (0, 1),
+        PrimitiveType.CHARACTER: (0, 0x10FFFF),
+        PrimitiveType.UINT8: (0, 0xFF),
+        PrimitiveType.INT8: (-128, 127),
+        PrimitiveType.UINT16: (0, 0xFFFF),
+        PrimitiveType.INT16: (-32768, 32767),
+        PrimitiveType.UINT32: (0, 0xFFFFFFFF),
+        PrimitiveType.INT32: (-(2**31), 2**31 - 1),
+        PrimitiveType.UINT64: (0, 2**64 - 1),
+        PrimitiveType.INT64: (-(2**63), 2**63 - 1),
+        PrimitiveType.UINT128: (0, 2**128 - 1),
+        PrimitiveType.INT128: (-(2**127), 2**127 - 1),
+        PrimitiveType.FLOAT32: (-3.4028235e+38, 3.4028235e+38),
+        PrimitiveType.FLOAT64: (-1.7976931348623157e+308, 1.7976931348623157e+308),
+    }
+    return ranges[prim]
+
+
 # Size of a reference (index) to an entry in a table
 REFERENCE_SIZE = 4  # uint32 index
 
@@ -199,12 +220,24 @@ def is_string_type(type_def: TypeDefinition) -> bool:
 
 
 @dataclass
+class TypedValue:
+    """A value with a known primitive type, used for type-checked math expressions."""
+
+    value: int | float
+    type_name: str  # "int8", "uint16", "float32", etc.
+
+    def __repr__(self) -> str:
+        return f"TypedValue({self.value!r}, {self.type_name!r})"
+
+
+@dataclass
 class FieldDefinition:
     """Definition of a field within a composite type."""
 
     name: str
     type_def: TypeDefinition
     default_value: Any = None  # None = NULL default (current behavior)
+    overflow: str | None = None  # "saturating" or "wrapping"
 
 
 @dataclass
@@ -329,6 +362,7 @@ class EnumTypeDefinition(TypeDefinition):
 
     variants: list[EnumVariantDefinition] = field(default_factory=list)
     has_explicit_values: bool = False  # True for C-style with `= N`
+    backing_type: PrimitiveType | None = None  # e.g. PrimitiveType.UINT8 for `enum Color : uint8 { ... }`
 
     @property
     def discriminant_size(self) -> int:

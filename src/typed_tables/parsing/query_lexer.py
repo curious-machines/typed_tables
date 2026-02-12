@@ -65,12 +65,16 @@ class QueryLexer:
         "temp": "TEMP",
         "asc": "ASC",
         "desc": "DESC",
+        "saturating": "SATURATING",
+        "wrapping": "WRAPPING",
     }
 
     # Token list
     tokens = [
         "VARIABLE",
         "IDENTIFIER",
+        "TYPED_INTEGER",
+        "TYPED_FLOAT",
         "INTEGER",
         "FLOAT",
         "STRING",
@@ -139,10 +143,43 @@ class QueryLexer:
     def __init__(self) -> None:
         self.lexer: lex.LexToken = None  # type: ignore
 
+    # Map of type suffixes to canonical primitive type names
+    _TYPE_SUFFIXES = {
+        "i8": "int8", "u8": "uint8",
+        "i16": "int16", "u16": "uint16",
+        "i32": "int32", "u32": "uint32",
+        "i64": "int64", "u64": "uint64",
+        "i128": "int128", "u128": "uint128",
+        "f32": "float32", "f64": "float64",
+    }
+
     def t_VARIABLE(self, t: lex.LexToken) -> lex.LexToken:
         r"\$[a-zA-Z_][a-zA-Z0-9_]*"
         t.value = t.value[1:]  # Strip the $ prefix, store just the name
         return t
+
+    def t_TYPED_FLOAT(self, t: lex.LexToken) -> lex.LexToken:
+        r"\d+\.\d+(?:f32|f64)"
+        # Split into value and suffix
+        for suffix in ("f32", "f64"):
+            if t.value.endswith(suffix):
+                t.value = (float(t.value[:-len(suffix)]), self._TYPE_SUFFIXES[suffix])
+                return t
+
+    def t_TYPED_INTEGER(self, t: lex.LexToken) -> lex.LexToken:
+        r"(?:0x[0-9a-fA-F]+|0b[01]+|\d+)(?:i8|u8|i16|u16|i32|u32|i64|u64|i128|u128|f32|f64)\b"
+        raw = t.value
+        # Find which suffix matches
+        for suffix in sorted(self._TYPE_SUFFIXES, key=len, reverse=True):
+            if raw.endswith(suffix):
+                num_str = raw[:-len(suffix)]
+                type_name = self._TYPE_SUFFIXES[suffix]
+                if type_name.startswith("float"):
+                    t.type = "TYPED_FLOAT"
+                    t.value = (float(int(num_str, 0)), type_name)
+                else:
+                    t.value = (int(num_str, 0), type_name)
+                return t
 
     def t_FLOAT(self, t: lex.LexToken) -> lex.LexToken:
         r"\d+\.\d+"

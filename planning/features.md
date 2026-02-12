@@ -12,7 +12,13 @@ I would like to expand the "status" command to report the following. If you thin
 
 # Questions
 
-- how do we know types when using numbers
+Does it make sense to allow expr in casts? That way the cast can be implicitly performed on each item or each function result in the expr, before evaluating the expr.
+
+Should we have a string cast to convert values to strings. This would work with enums too: Color.red becomes "Color.red" or maybe just "red" to match what the enum cast expects; supports round-tripping.
+
+Change "as" to "named" to clarify
+
+Change "temp" to "temporary"?
 
 ---
 
@@ -34,13 +40,20 @@ This would require turning a query into a sequence of instructions; a mini-compi
 
 ## Create Examples of Building Tree in Python and in TTQ
 
+## Add color space transformations?
+
 ---
 
 # Deferred
 
 - phase 8, lambdas and map
+- phase 7, bitwise operators
 
 # Completed
+
+## Typed Math Expressions
+
+Phases 1-6 implemented: overflow policy on fields (saturating/wrapping), type-annotated literals (5i8, 3.14f32, 0xFFu8), type conversion functions (int16(), uint8(), etc.), TypedValue propagation with type checking, overflow enforcement, enum backing types and conversion.
 
 ## Default Values
 
