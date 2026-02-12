@@ -933,14 +933,16 @@ UPDATE:
     update Pixel set color=.blue where color=.green
     update Pixel set color=Color.blue where color=Color.red
 
-  Array/set/dict mutations in SET:
+  Array/set/dict/string mutations in SET:
     update $s set readings.sort()
     update $s set readings = readings.append(5).sort()
     update $s set tags.add("new")
     update $s set tags.union({"a", "b"})
     update $s set scores.remove("midterm")
+    update $s set name.uppercase()
+    update $s set name = name.trim().uppercase()
 
-  See also: help arrays, help sets, help dictionaries""",
+  See also: help strings, help arrays, help sets, help dictionaries""",
 
     "queries": """\
 QUERIES:
@@ -1105,7 +1107,7 @@ TYPES:
   Aliases:
     alias uuid = uint128      Create a named type alias
 
-  See also: help arrays, help sets, help dictionaries""",
+  See also: help strings, help arrays, help sets, help dictionaries""",
 
     "arrays": """\
 ARRAYS:
@@ -1216,6 +1218,81 @@ SETS:
     update $x set tags = tags.add(5).sort()
 
   Sets display as {elem1, elem2} in SELECT and dump output.""",
+
+    "strings": """\
+STRINGS:
+  Strings are stored as character[] but displayed as joined text ("Alice").
+
+  Operators (WHERE clauses):
+    field starts with "prefix"   String prefix match
+    field matches /regex/        Regular expression match
+
+  Shared read-only methods (also work on arrays/sets/dicts):
+    .length()                  Number of characters
+    .isEmpty()                 True if length is zero
+    .contains("substr")        True if substring is found
+
+  String-only read methods (SELECT / WHERE / eval):
+    .uppercase()               Convert to uppercase
+    .lowercase()               Convert to lowercase
+    .capitalize()              Capitalize first character
+    .trim()                    Strip whitespace from both ends
+    .trimStart()               Strip leading whitespace
+    .trimEnd()                 Strip trailing whitespace
+    .startsWith("prefix")      True if string starts with prefix
+    .endsWith("suffix")        True if string ends with suffix
+    .indexOf("substr")         Index of first occurrence (-1 if not found)
+    .lastIndexOf("substr")     Index of last occurrence (-1 if not found)
+    .padStart(len)             Pad start with spaces to reach length
+    .padStart(len, "0")        Pad start with specified character
+    .padEnd(len)               Pad end with spaces to reach length
+    .padEnd(len, ".")          Pad end with specified character
+    .repeat(n)                 Repeat the string n times
+    .split(",")                Split into a string array by delimiter
+    .match("pattern")          Regex search: returns [full, group1, ...] or null
+
+  Array-compatible methods (also work on strings):
+    .sort()                    Sort characters alphabetically
+    .reverse()                 Reverse character order
+    .append("!")               Append to end
+    .prepend(">>")             Prepend to start
+    .insert(5, "!")            Insert string at index
+    .delete(0)                 Remove character at index
+    .remove("world")           Remove first occurrence of substring
+    .removeAll("ab")           Remove all occurrences of substring
+    .replace("old", "new")     Replace first occurrence of substring
+    .replaceAll("old", "new")  Replace all occurrences of substring
+    .swap(0, 2)                Swap characters at two indices
+
+  Mutation methods (UPDATE SET — modify in storage):
+    update $x set name.uppercase()
+    update $x set name.lowercase()
+    update $x set name.capitalize()
+    update $x set name.trim()
+    update $x set name.trimStart()
+    update $x set name.trimEnd()
+    update $x set name.padStart(10, "0")
+    update $x set name.padEnd(10)
+    update $x set name.repeat(2)
+
+  Chaining (SELECT or UPDATE):
+    from Item select name.trim().uppercase()
+    from Item select name.lowercase().replace("hello", "hi")
+    update $x set name = name.trim().uppercase()
+
+  WHERE clause examples:
+    from Item select * where name.startsWith("Hello")
+    from Item select * where name.indexOf("World") >= 0
+    from Item select * where name.length() > 5
+
+  Eval expressions:
+    "hello world".uppercase()         "HELLO WORLD"
+    "  hello  ".trim()                "hello"
+    "a,b,c".split(",")               ["a", "b", "c"]
+    "abc".repeat(3)                   "abcabcabc"
+
+  Note: substring() is not needed — use array slicing:
+    name[0:5], name[-3:], name[1:-1]""",
 
     "dictionaries": """\
 DICTIONARIES:
@@ -1411,7 +1488,7 @@ _HELP_ALIASES: dict[str, str] = {
     "xml": "dump",
     "pretty": "dump",
     "boolean": "types",
-    "string": "types",
+    "string": "strings",
     "bit": "types",
     "array": "arrays",
     "set": "sets",
@@ -1442,6 +1519,7 @@ TTQ - Typed Tables Query Language
   expressions   uuid(), literals, named, arithmetic, methods
   math          typed literals, type checking, overflow policies
   types         built-in primitives, string, boolean, collections
+  strings       string methods: uppercase, trim, split, match, ...
   arrays        array methods: sort, append, remove, contains, ...
   sets          set methods: add, union, intersect, difference, ...
   dictionaries  dict methods: hasKey, keys, values, remove, ...

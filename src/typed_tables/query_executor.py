@@ -103,6 +103,25 @@ from typed_tables.types import (
 )
 
 
+# String-only method names — dispatched to _apply_string_method before array methods
+_STRING_ONLY_METHODS = frozenset({
+    "uppercase", "lowercase", "capitalize",
+    "trim", "trimStart", "trimEnd",
+    "startsWith", "endsWith",
+    "indexOf", "lastIndexOf",
+    "padStart", "padEnd",
+    "repeat", "split",
+    "match",
+})
+
+# String mutation methods that can be used in UPDATE SET field.method() form
+_STRING_MUTATION_METHODS = frozenset({
+    "uppercase", "lowercase", "capitalize",
+    "trim", "trimStart", "trimEnd",
+    "padStart", "padEnd", "repeat",
+})
+
+
 @dataclass
 class QueryResult:
     """Result of a query execution."""
@@ -2169,6 +2188,10 @@ class QueryExecutor:
             if fv.method_name in set_methods:
                 return self._apply_set_mutation(type_name, base, fv, raw_record)
 
+        # Dispatch to string-specific mutations
+        if is_string_type(field_def.type_def) and fv.method_name in _STRING_MUTATION_METHODS:
+            return self._apply_string_mutation(type_name, base, fv, raw_record)
+
         ref = raw_record.get(fv.name)
 
         if fv.method_name == "reverse":
@@ -2447,6 +2470,76 @@ class QueryExecutor:
                 columns=[], rows=[],
                 message=f"Unknown array mutation method: {fv.method_name}()",
             )
+
+    def _apply_string_mutation(
+        self,
+        type_name: str,
+        base: CompositeTypeDefinition,
+        fv: Any,
+        raw_record: dict,
+    ) -> UpdateResult | None:
+        """Apply a string-specific mutation. Reads chars, transforms as string, writes back."""
+        field_def = base.get_field(fv.name)
+        ref = raw_record.get(fv.name)
+
+        if ref is None:
+            return None  # no-op on null
+
+        start_index, length = ref
+        array_table = self.storage.get_array_table_for_type(field_def.type_def)
+        chars = array_table.get(start_index, length) if length > 0 else []
+        value = "".join(chars)
+
+        args = fv.method_args or []
+        resolved_args = [self._resolve_instance_value(a) for a in args]
+
+        if fv.method_name == "uppercase":
+            result = value.upper()
+        elif fv.method_name == "lowercase":
+            result = value.lower()
+        elif fv.method_name == "capitalize":
+            result = value.capitalize()
+        elif fv.method_name == "trim":
+            result = value.strip()
+        elif fv.method_name == "trimStart":
+            result = value.lstrip()
+        elif fv.method_name == "trimEnd":
+            result = value.rstrip()
+        elif fv.method_name == "padStart":
+            if len(resolved_args) < 1 or len(resolved_args) > 2:
+                return UpdateResult(columns=[], rows=[], message="padStart() requires 1 or 2 arguments")
+            pad_len = int(resolved_args[0])
+            pad_char = str(resolved_args[1]) if len(resolved_args) > 1 else " "
+            if len(pad_char) != 1:
+                return UpdateResult(columns=[], rows=[], message="padStart() pad character must be a single character")
+            result = value.rjust(pad_len, pad_char)
+        elif fv.method_name == "padEnd":
+            if len(resolved_args) < 1 or len(resolved_args) > 2:
+                return UpdateResult(columns=[], rows=[], message="padEnd() requires 1 or 2 arguments")
+            pad_len = int(resolved_args[0])
+            pad_char = str(resolved_args[1]) if len(resolved_args) > 1 else " "
+            if len(pad_char) != 1:
+                return UpdateResult(columns=[], rows=[], message="padEnd() pad character must be a single character")
+            result = value.ljust(pad_len, pad_char)
+        elif fv.method_name == "repeat":
+            if len(resolved_args) != 1:
+                return UpdateResult(columns=[], rows=[], message="repeat() requires exactly 1 argument")
+            n = int(resolved_args[0])
+            if n < 0:
+                return UpdateResult(columns=[], rows=[], message="repeat() count must be non-negative")
+            result = value * n
+        else:
+            return UpdateResult(columns=[], rows=[], message=f"Unknown string mutation method: {fv.method_name}()")
+
+        # Write back as char array
+        new_chars = list(result)
+        if len(new_chars) == length:
+            # Same length — update in place
+            array_table.update_in_place(start_index, length, new_chars)
+        else:
+            # Different length — insert new
+            raw_record[fv.name] = array_table.insert(new_chars)
+        return None
 
     def _resolve_append_elements(
         self,
@@ -4478,6 +4571,76 @@ class QueryExecutor:
             return SetValue(value)
         return value
 
+    def _apply_string_method(self, value: str, method_name: str, args: list[Any] | None) -> Any:
+        """Apply a string-only method. Assumes value is already a str."""
+        resolved_args = [self._resolve_projection_arg(a) for a in args] if args else []
+
+        if method_name == "uppercase":
+            return value.upper()
+        elif method_name == "lowercase":
+            return value.lower()
+        elif method_name == "capitalize":
+            return value.capitalize()
+        elif method_name == "trim":
+            return value.strip()
+        elif method_name == "trimStart":
+            return value.lstrip()
+        elif method_name == "trimEnd":
+            return value.rstrip()
+        elif method_name == "startsWith":
+            if len(resolved_args) != 1:
+                raise RuntimeError("startsWith() requires exactly 1 argument")
+            return value.startswith(str(resolved_args[0]))
+        elif method_name == "endsWith":
+            if len(resolved_args) != 1:
+                raise RuntimeError("endsWith() requires exactly 1 argument")
+            return value.endswith(str(resolved_args[0]))
+        elif method_name == "indexOf":
+            if len(resolved_args) != 1:
+                raise RuntimeError("indexOf() requires exactly 1 argument")
+            return value.find(str(resolved_args[0]))
+        elif method_name == "lastIndexOf":
+            if len(resolved_args) != 1:
+                raise RuntimeError("lastIndexOf() requires exactly 1 argument")
+            return value.rfind(str(resolved_args[0]))
+        elif method_name == "padStart":
+            if len(resolved_args) < 1 or len(resolved_args) > 2:
+                raise RuntimeError("padStart() requires 1 or 2 arguments: length[, char]")
+            pad_len = int(resolved_args[0])
+            pad_char = str(resolved_args[1]) if len(resolved_args) > 1 else " "
+            if len(pad_char) != 1:
+                raise RuntimeError("padStart() pad character must be a single character")
+            return value.rjust(pad_len, pad_char)
+        elif method_name == "padEnd":
+            if len(resolved_args) < 1 or len(resolved_args) > 2:
+                raise RuntimeError("padEnd() requires 1 or 2 arguments: length[, char]")
+            pad_len = int(resolved_args[0])
+            pad_char = str(resolved_args[1]) if len(resolved_args) > 1 else " "
+            if len(pad_char) != 1:
+                raise RuntimeError("padEnd() pad character must be a single character")
+            return value.ljust(pad_len, pad_char)
+        elif method_name == "repeat":
+            if len(resolved_args) != 1:
+                raise RuntimeError("repeat() requires exactly 1 argument")
+            n = int(resolved_args[0])
+            if n < 0:
+                raise RuntimeError("repeat() count must be non-negative")
+            return value * n
+        elif method_name == "split":
+            if len(resolved_args) != 1:
+                raise RuntimeError("split() requires exactly 1 argument: delimiter")
+            return value.split(str(resolved_args[0]))
+        elif method_name == "match":
+            if len(resolved_args) != 1:
+                raise RuntimeError("match() requires exactly 1 argument: pattern")
+            pattern = str(resolved_args[0])
+            m = re.search(pattern, value)
+            if m is None:
+                return None
+            return [m.group(0)] + list(m.groups())
+        else:
+            raise RuntimeError(f"Unknown string method: {method_name}()")
+
     def _apply_projection_method(self, value: Any, method_name: str, args: list[Any] | None) -> Any:
         """Apply a method as an immutable projection (returns copy, no storage writes)."""
         # Read-only methods → delegate
@@ -4553,6 +4716,14 @@ class QueryExecutor:
             else:
                 raise RuntimeError(f"Unknown dict method: {method_name}()")
 
+        # String-only methods
+        if method_name in _STRING_ONLY_METHODS:
+            if isinstance(value, str):
+                return self._apply_string_method(value, method_name, args)
+            if value is None:
+                return None
+            raise RuntimeError(f"{method_name}() can only be applied to string values")
+
         # Track whether input was a SetValue for wrapping results
         was_set = isinstance(value, SetValue)
 
@@ -4566,6 +4737,8 @@ class QueryExecutor:
             return None
 
         if method_name == "sort":
+            if isinstance(value, str):
+                return "".join(sorted(value))
             if not isinstance(value, list):
                 return value
             is_composite = any(isinstance(e, dict) for e in value)
@@ -4621,6 +4794,9 @@ class QueryExecutor:
             if not isinstance(idx, int):
                 raise RuntimeError(f"insert() index must be an integer, got {type(idx).__name__}")
             new_elements = [self._resolve_projection_arg(a) for a in args[1:]]
+            if isinstance(value, str):
+                insert_str = "".join(str(e) for e in new_elements)
+                return value[:idx] + insert_str + value[idx:]
             if isinstance(value, list):
                 return self._wrap_set_if_needed(list(value[:idx]) + new_elements + list(value[idx:]), was_set)
             return value
@@ -4631,6 +4807,10 @@ class QueryExecutor:
             idx = self._resolve_projection_arg(args[0])
             if not isinstance(idx, int):
                 raise RuntimeError(f"delete() index must be an integer, got {type(idx).__name__}")
+            if isinstance(value, str):
+                if idx < 0 or idx >= len(value):
+                    raise RuntimeError(f"delete() index {idx} out of range for string of length {len(value)}")
+                return value[:idx] + value[idx + 1:]
             if isinstance(value, list):
                 if idx < 0 or idx >= len(value):
                     raise RuntimeError(f"delete() index {idx} out of range for array of length {len(value)}")
@@ -4641,6 +4821,11 @@ class QueryExecutor:
             if not args or len(args) != 1:
                 raise RuntimeError("remove() requires exactly 1 argument")
             search = self._resolve_projection_arg(args[0])
+            if isinstance(value, str):
+                idx = value.find(str(search))
+                if idx >= 0:
+                    return value[:idx] + value[idx + len(str(search)):]
+                return value
             if isinstance(value, list):
                 result = list(value)
                 for i, elem in enumerate(result):
@@ -4653,6 +4838,8 @@ class QueryExecutor:
             if not args or len(args) != 1:
                 raise RuntimeError("removeAll() requires exactly 1 argument")
             search = self._resolve_projection_arg(args[0])
+            if isinstance(value, str):
+                return value.replace(str(search), "")
             if isinstance(value, list):
                 return self._wrap_set_if_needed([e for e in value if e != search], was_set)
             return value
@@ -4662,6 +4849,8 @@ class QueryExecutor:
                 raise RuntimeError("replace() requires exactly 2 arguments: old, new")
             old = self._resolve_projection_arg(args[0])
             new = self._resolve_projection_arg(args[1])
+            if isinstance(value, str):
+                return value.replace(str(old), str(new), 1)
             if isinstance(value, list):
                 result = list(value)
                 for i, elem in enumerate(result):
@@ -4676,6 +4865,8 @@ class QueryExecutor:
                 raise RuntimeError("replaceAll() requires exactly 2 arguments: old, new")
             old = self._resolve_projection_arg(args[0])
             new = self._resolve_projection_arg(args[1])
+            if isinstance(value, str):
+                return value.replace(str(old), str(new))
             if isinstance(value, list):
                 return self._wrap_set_if_needed([new if e == old else e for e in value], was_set)
             return value
@@ -4687,6 +4878,12 @@ class QueryExecutor:
             b = self._resolve_projection_arg(args[1])
             if not isinstance(a, int) or not isinstance(b, int):
                 raise RuntimeError("swap() indices must be integers")
+            if isinstance(value, str):
+                if a < 0 or a >= len(value) or b < 0 or b >= len(value):
+                    raise RuntimeError(f"swap() index out of range for string of length {len(value)}")
+                chars = list(value)
+                chars[a], chars[b] = chars[b], chars[a]
+                return "".join(chars)
             if isinstance(value, list):
                 if a < 0 or a >= len(value) or b < 0 or b >= len(value):
                     raise RuntimeError(f"swap() index out of range for array of length {len(value)}")

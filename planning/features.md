@@ -8,6 +8,8 @@ Are you letting Ply store its generated parser tables? This speeds up parser cre
 
 I'm confused why compact shrinks files below the 4096 initial size. I thought that was a requirement. When the compacted table needs to expand, will it simply double or will it first jump to 4096 bytes?
 
+Is it possible to add support for float8 and float16? Also, could we support Fractions?
+
 ---
 
 # For Consideration
@@ -21,20 +23,6 @@ We should consider if we can approach the query executor as a type of vm. We wou
 We would need to figure out how information is passed between instructions. We could use a stack, which is pretty simple. We could have an notion of registers that store specific types of values.
 
 This would require turning a query into a sequence of instructions; a mini-compiler of sorts. This will be useful for debugging and could serve as a way to distribute queries between multiple running instances.
-
-## String Operations
-
-string.replaceAll, .sort, and .swap don't appear to work. Check all array-like methods to confirm that they work. these should be covered by tests
-
-what methods do we support?
-add methods for uppercase, lowercase, capitalize, etc.
-should we add others?
-can we remove "starts with" from language and rely on string methods instead?
-same question for "matches /regex/", like a .matches(regex) method instead? This gets a little more complicated in that we might want to return captures (matches sections in regex using parentheses)
-
-## Add Help Docs
-
-REPL help should include dedicated sections for arrays, sets, dictionaries, strings, listing all available functions and methods
 
 ## Disable LSP
 
@@ -56,6 +44,20 @@ Would be great if we could import binary data (some file format) and be able to 
 - Indexing
 
 # Completed
+
+## Add Help Docs
+
+REPL help should include dedicated sections for arrays, sets, dictionaries, strings, listing all available functions and methods
+
+## String Operations
+
+string.replaceAll, .sort, and .swap don't appear to work. Check all array-like methods to confirm that they work. these should be covered by tests
+
+what methods do we support?
+add methods for uppercase, lowercase, capitalize, etc.
+should we add others?
+can we remove "starts with" from language and rely on string methods instead?
+same question for "matches /regex/", like a .matches(regex) method instead? This gets a little more complicated in that we might want to return captures (matches sections in regex using parentheses)
 
 ## Add a Set Type
 
