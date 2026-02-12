@@ -887,6 +887,10 @@ CREATE:
     field=OtherType(index)        - Reference an existing composite instance
     field=OtherType(...)          - Inline instance creation
     field=[1, 2, 3]               - Array literal
+    field={"a", "b"}              - Set literal (unique elements)
+    field={"key": val, ...}       - Dict literal (unique keys)
+    field={,}                     - Empty set
+    field={:}                     - Empty dict
     field=.variant(...)           - Enum value (shorthand dot notation)
     field=EnumType.variant        - Enum value (fully qualified)
                                   - Fields can span multiple lines (close paren to finish)
@@ -929,10 +933,14 @@ UPDATE:
     update Pixel set color=.blue where color=.green
     update Pixel set color=Color.blue where color=Color.red
 
-  Array mutations in SET:
-    update $s set readings = readings.append(5)
-    update $s set readings = readings.sort().reverse()
-    update $s set backup = readings.sort()""",
+  Array/set/dict mutations in SET:
+    update $s set readings.sort()
+    update $s set readings = readings.append(5).sort()
+    update $s set tags.add("new")
+    update $s set tags.union({"a", "b"})
+    update $s set scores.remove("midterm")
+
+  See also: help arrays, help sets, help dictionaries""",
 
     "queries": """\
 QUERIES:
@@ -950,11 +958,12 @@ QUERIES:
     ... offset N limit M              Paginate results
     ... group by field                Group results
 
-  Array indexing in select:
+  Array/dict indexing in select:
     readings[0]                       First element
     readings[-1]                      Last element
     readings[0:5]                     Slice (start:end)
     readings[-3:]                     Last 3 elements
+    scores["midterm"]                 Dict value by key
 
   Array projection (composite arrays):
     employees.name                    Map field across all elements
@@ -1088,11 +1097,166 @@ TYPES:
     string                    Built-in (stored as character[], displayed as "Alice")
     boolean                   Built-in (stored as bit, displayed as true/false)
 
-  Array types:
-    Add [] suffix to any type: uint8[], string[], Person[]
+  Collection types:
+    int32[]  or  [int32]      Array (ordered, duplicates allowed)
+    {int32}                   Set (ordered, unique elements)
+    {string: int32}           Dictionary (ordered key-value pairs, unique keys)
 
   Aliases:
-    alias uuid = uint128      Create a named type alias""",
+    alias uuid = uint128      Create a named type alias
+
+  See also: help arrays, help sets, help dictionaries""",
+
+    "arrays": """\
+ARRAYS:
+  Definition:
+    type Sensor { readings: int32[] }
+    type Sensor { readings: [int32] }     Prefix syntax (equivalent)
+
+  Literals:
+    [1, 2, 3]                             Array of integers
+    []                                    Empty array
+
+  Read-only methods (SELECT / WHERE / eval):
+    .length()                  Number of elements
+    .isEmpty()                 True if length is zero
+    .contains(val)             True if val is in the array
+    .min()                     Minimum numeric value
+    .max()                     Maximum numeric value
+    .min(.field)               Min by field (composite arrays)
+    .max(.field)               Max by field (composite arrays)
+
+  Projection methods (SELECT — return a copy, no storage writes):
+    .sort()                    Sort elements (ascending)
+    .sort(.field)              Sort by field (composite arrays)
+    .sort(.field desc)         Sort descending
+    .reverse()                 Reverse element order
+    .append(val, ...)          Add to end (flatten array args)
+    .prepend(val, ...)         Add to beginning
+    .insert(idx, val, ...)     Insert at index
+    .delete(idx)               Remove element at index
+    .remove(val)               Remove first occurrence of val
+    .removeAll(val)            Remove all occurrences of val
+    .replace(old, new)         Replace first occurrence
+    .replaceAll(old, new)      Replace all occurrences
+    .swap(i, j)                Swap elements at indices i and j
+
+  Mutation methods (UPDATE SET — modify in place):
+    update $s set readings.reverse()
+    update $s set readings.sort()
+    update $s set readings.append(42)
+    update $s set readings.prepend(0)
+    update $s set readings.insert(2, 99)
+    update $s set readings.delete(0)
+    update $s set readings.remove(42)
+    update $s set readings.removeAll(0)
+    update $s set readings.replace(1, 2)
+    update $s set readings.replaceAll(0, -1)
+    update $s set readings.swap(0, 1)
+
+  Chaining (SELECT or UPDATE):
+    from Sensor select readings.sort().reverse()
+    update $s set readings = readings.append(5).sort()
+    update $s set backup = readings.sort()
+
+  Indexing:
+    readings[0]                First element
+    readings[-1]               Last element
+    readings[0:5]              Slice (start:end)
+    readings[-3:]              Last 3 elements
+    readings[:-1]              All but last
+
+  Array math (element-wise):
+    [1,2] + [3,4]             [4, 6]
+    5 * [1,2,3]               [5, 10, 15]""",
+
+    "sets": """\
+SETS:
+  Definition:
+    type Student { tags: {string} }
+    type Data { nums: {int32} }
+
+  Literals:
+    {"math", "science"}        Set of strings
+    {1, 2, 3}                  Set of integers
+    {,}                        Empty set (explicit)
+    {}                         Empty set (inferred from field type)
+
+  Duplicate elements are rejected on creation:
+    create X(tags={1, 2, 1})   Error: Duplicate element
+
+  Read-only methods (SELECT / WHERE / eval):
+    .length()                  Number of elements
+    .isEmpty()                 True if length is zero
+    .contains(val)             True if val is in the set
+
+  Set algebra methods (SELECT — return a new set):
+    .add(val)                  Add element (no-op if already present)
+    .union({...})              Elements in either set
+    .intersect({...})          Elements in both sets
+    .difference({...})         Elements in this but not other
+    .symmetric_difference({...})
+                               Elements in either but not both
+
+  Array-compatible methods (also work on sets, preserving SetValue):
+    .sort()                    Sort elements
+    .reverse()                 Reverse order
+    .remove(val)               Remove first occurrence
+    .removeAll(val)            Remove all occurrences
+
+  Mutation methods (UPDATE SET):
+    update $x set tags.add("new")
+    update $x set tags.union({"a", "b"})
+    update $x set tags.intersect({"a"})
+    update $x set tags.difference({"old"})
+    update $x set tags.symmetric_difference({"a", "b"})
+
+  Chaining (SELECT or UPDATE):
+    from X select tags.add(5).sort()
+    update $x set tags = tags.add(5).sort()
+
+  Sets display as {elem1, elem2} in SELECT and dump output.""",
+
+    "dictionaries": """\
+DICTIONARIES:
+  Definition:
+    type Student { scores: {string: float64} }
+    type Lookup { data: {int32: string} }
+
+  Literals:
+    {"math": 92.5, "eng": 88.0}  Dict with string keys
+    {1: "one", 2: "two"}         Dict with integer keys
+    {:}                           Empty dict (explicit)
+    {}                            Empty dict (inferred from field type)
+
+  Duplicate keys are rejected on creation:
+    create X(scores={"a": 1.0, "a": 2.0})  Error: Duplicate key
+
+  Bracket access (SELECT):
+    scores["midterm"]            Value for key, or NULL if missing
+
+  Read-only methods (SELECT / WHERE / eval):
+    .length()                  Number of key-value pairs
+    .isEmpty()                 True if length is zero
+    .contains(key)             True if key exists (same as hasKey)
+    .hasKey(key)               True if key exists
+
+  Projection methods (SELECT — return a copy):
+    .keys()                    Set of all keys (returns SetValue)
+    .values()                  List of all values
+    .entries()                 List of {key: k, value: v} dicts
+    .remove(key)               New dict without the specified key
+
+  Mutation methods (UPDATE SET):
+    update $x set scores.remove("midterm")
+
+  Chaining (SELECT):
+    scores.keys().length()       Number of keys
+    scores.remove("a").length()  Length after removing a key
+
+  Dicts display as {key: val, ...} in SELECT and dump output.
+  Internal storage uses entry composites (Dict_<key>_<val> types),
+  which are hidden from show types and dump.""",
 
     "variables": """\
 VARIABLES:
@@ -1249,6 +1413,11 @@ _HELP_ALIASES: dict[str, str] = {
     "boolean": "types",
     "string": "types",
     "bit": "types",
+    "array": "arrays",
+    "set": "sets",
+    "dict": "dictionaries",
+    "dictionary": "dictionaries",
+    "dicts": "dictionaries",
     "overflow": "math",
     "saturating": "math",
     "wrapping": "math",
@@ -1272,7 +1441,10 @@ TTQ - Typed Tables Query Language
   aggregates    count, sum, average, product, min, max
   expressions   uuid(), literals, named, arithmetic, methods
   math          typed literals, type checking, overflow policies
-  types         built-in primitives, arrays, string, boolean
+  types         built-in primitives, string, boolean, collections
+  arrays        array methods: sort, append, remove, contains, ...
+  sets          set methods: add, union, intersect, difference, ...
+  dictionaries  dict methods: hasKey, keys, values, remove, ...
   variables     $var bindings, usage in create/update/select
   collect       collect records into variables
   dump          dump database (TTQ, YAML, JSON, XML)

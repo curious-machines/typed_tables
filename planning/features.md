@@ -8,8 +8,6 @@ Are you letting Ply store its generated parser tables? This speeds up parser cre
 
 I'm confused why compact shrinks files below the 4096 initial size. I thought that was a requirement. When the compacted table needs to expand, will it simply double or will it first jump to 4096 bytes?
 
-string.replaceAll, .sort, and .swap don't appear to work. Check all array-like methods to confirm that they work. these should be covered by tests
-
 ---
 
 # For Consideration
@@ -24,13 +22,15 @@ We would need to figure out how information is passed between instructions. We c
 
 This would require turning a query into a sequence of instructions; a mini-compiler of sorts. This will be useful for debugging and could serve as a way to distribute queries between multiple running instances.
 
-## More String Operations
+## String Operations
+
+string.replaceAll, .sort, and .swap don't appear to work. Check all array-like methods to confirm that they work. these should be covered by tests
 
 what methods do we support?
 add methods for uppercase, lowercase, capitalize, etc.
 should we add others?
 can we remove "starts with" from language and rely on string methods instead?
-same question for "matches /regex/", like a .matches(regex) method instead?
+same question for "matches /regex/", like a .matches(regex) method instead? This gets a little more complicated in that we might want to return captures (matches sections in regex using parentheses)
 
 ## Add Help Docs
 
@@ -61,11 +61,13 @@ Would be great if we could import binary data (some file format) and be able to 
 
 Phase 1: Type system (`SetTypeDefinition`, `{int32}` syntax, metadata kind `"set"`, `is_set_type()`).
 Phase 2: Literals (`{1, 2, 3}`, `{,}` empty), instance creation with uniqueness enforcement, storage as array with dedup, SELECT resolution via `SetValue` wrapper, REPL display as `{...}`, dump format, UPDATE support.
+Phase 3: Operations — `add(val)`, `union(other)`, `intersect(other)`, `difference(other)`, `symmetric_difference(other)` as projection methods (SELECT) and mutations (UPDATE). `SetValue` preserved through sort/reverse/append chains.
 
 ## Add a Dictionary Type
 
 Phase 1: Type system (`DictionaryTypeDefinition`, `{string: int32}` syntax, synthetic entry composites `Dict_string_int32`, metadata kind `"dictionary"`, `is_dict_type()`).
 Phase 2: Literals (`{"key": val}`, `{:}` empty), instance creation with key uniqueness enforcement, storage as array of uint32 entry indices, SELECT resolution to Python `dict`, REPL display as `{k: v, ...}`, dump format (entry composites filtered), UPDATE support.
+Phase 3: Operations — `hasKey(k)`, `keys()`, `values()`, `entries()`, `remove(k)` as projection methods (SELECT) and mutations (UPDATE). Dict bracket access `scores["midterm"]`. `length()`, `isEmpty()`, `contains()` extended for dicts. Chain read/write support for sets and dicts.
 
 ## Help Doc Alignment Bug
 

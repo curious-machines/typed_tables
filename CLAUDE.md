@@ -54,6 +54,8 @@ Each composite type is stored in its own table as a `.bin` file. A table is an a
 - **Array fields**: `(start_index, length)` stored inline (8 bytes) — `start_index` is a uint32 index into the element table, `length` is a uint32 element count.
 - **Composite ref fields**: uint32 index (4 bytes) into the referenced type's table.
 - **Enum fields**: stored inline. C-style: discriminant only (1/2/4 bytes based on max value). Swift-style: `[discriminant (1-4 bytes)][uint32 variant_table_index]` (disc + 4 bytes); variant fields are stored in per-variant `.bin` tables in `{data_dir}/{enum_name}/`.
+- **Set fields**: stored identically to array fields — `(start_index, length)` inline (8 bytes). Uniqueness is enforced at creation/mutation time, not at the storage level.
+- **Dict fields**: stored as `(start_index, length)` inline (8 bytes) pointing into an array of uint32 entry composite indices. Each entry is a synthetic composite type (e.g., `Dict_string_float64`) with `key` and `value` fields, stored in its own `.bin` table.
 
 Array elements are stored in element tables (e.g., `name.bin`). The composite record directly contains the `(start_index, length)` pair needed to locate the elements.
 
@@ -117,6 +119,18 @@ type Employee from Person {
 Types with array fields:
 ```ttq
 type Sensor { name: string, readings: int8[] }
+```
+
+Types with set fields (unique elements, `{type}` syntax):
+```ttq
+type Student { name: string, tags: {string} }
+type Data { nums: {int32} }
+```
+
+Types with dictionary fields (unique keys, `{keytype: valuetype}` syntax):
+```ttq
+type Student { name: string, scores: {string: float64} }
+type Lookup { data: {int32: string} }
 ```
 
 Trailing commas are allowed:
@@ -394,6 +408,20 @@ With array values:
 create Sensor(name="temperature", readings=[25, 26, 24, 27])
 ```
 
+With set values (duplicate elements are rejected):
+```ttq
+create Student(name="Alice", tags={"math", "science"})
+create Data(nums={,})       -- empty set
+```
+
+With dictionary values (duplicate keys are rejected):
+```ttq
+create Student(name="Alice", scores={"midterm": 92.5, "final": 88.0})
+create Student(name="Bob", scores={:})  -- empty dict
+```
+
+`{}` infers set or dict from the field type.
+
 ### Variable Bindings
 
 Variables are immutable bindings to created instances:
@@ -574,6 +602,74 @@ from Team select employees[0].address.city
 Array projection maps a field path across all elements of a composite array:
 ```ttq
 from Team select employees.name
+```
+
+### Dictionary Bracket Access
+
+Dictionary fields can be accessed by key using string bracket syntax:
+```ttq
+from Student select scores["midterm"]
+from Student select scores["final"]
+```
+
+Missing keys return NULL.
+
+### Collection Methods
+
+Arrays, sets, and dictionaries support method calls in SELECT and WHERE clauses.
+
+**Shared read-only methods** (arrays, sets, dicts):
+```ttq
+from X select tags.length()         -- number of elements
+from X select tags.isEmpty()        -- true if empty
+from X select tags.contains(val)    -- true if element/key exists
+```
+
+**Set-specific methods** (return a new set):
+```ttq
+from X select tags.add(5)                        -- add element (no-op if present)
+from X select tags.union({3, 4})                  -- elements in either
+from X select tags.intersect({1, 2})              -- elements in both
+from X select tags.difference({2})                -- elements in this but not other
+from X select tags.symmetric_difference({2, 3})   -- elements in either but not both
+```
+
+**Dict-specific methods**:
+```ttq
+from X select scores.hasKey("math")   -- true if key exists
+from X select scores.keys()           -- set of all keys
+from X select scores.values()         -- list of all values
+from X select scores.entries()        -- list of {key, value} pairs
+from X select scores.remove("math")   -- new dict without key
+```
+
+**Method chaining** works on sets and dicts:
+```ttq
+from X select tags.add(5).sort()
+from X select scores.keys().length()
+from X select scores.remove("a").length()
+```
+
+**Collection methods in WHERE**:
+```ttq
+from X select * where tags.contains(5)
+from X select * where scores.hasKey("math")
+from X select * where tags.length() > 2
+```
+
+**Set/dict mutations in UPDATE**:
+```ttq
+update $x set tags.add("new")
+update $x set tags.union({"a", "b"})
+update $x set tags.intersect({"a"})
+update $x set tags.difference({"old"})
+update $x set tags.symmetric_difference({"a", "b"})
+update $x set scores.remove("midterm")
+```
+
+Assignment chaining works for sets:
+```ttq
+update $x set tags = tags.add(5).sort()
 ```
 
 ### Grouping
