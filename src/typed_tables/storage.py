@@ -20,6 +20,7 @@ from typed_tables.types import (
     EnumValue,
     EnumVariantDefinition,
     FieldDefinition,
+    FractionTypeDefinition,
     InterfaceTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
@@ -113,6 +114,8 @@ class StorageManager:
                 "kind": "biguint",
                 "element_type": type_def.element_type.name,
             }
+        elif isinstance(type_def, FractionTypeDefinition):
+            return {"kind": "fraction"}
         elif isinstance(type_def, SetTypeDefinition):
             return {
                 "kind": "set",
@@ -316,6 +319,28 @@ class StorageManager:
         enum_dir.mkdir(exist_ok=True)
         table = Table(variant_type, enum_dir / f"{variant_name}.bin")
         self._variant_tables[enum_name][variant_name] = table
+        return table
+
+    def get_fraction_num_table(self) -> ArrayTable:
+        """Shared numerator byte table for fraction types."""
+        key = "_frac_num"
+        if key in self._array_tables:
+            return self._array_tables[key]
+        uint8_type = self.registry.get("uint8")
+        synth = ArrayTypeDefinition(name=key, element_type=uint8_type)
+        table = create_array_table(synth, self.data_dir, key)
+        self._array_tables[key] = table
+        return table
+
+    def get_fraction_den_table(self) -> ArrayTable:
+        """Shared denominator byte table for fraction types."""
+        key = "_frac_den"
+        if key in self._array_tables:
+            return self._array_tables[key]
+        uint8_type = self.registry.get("uint8")
+        synth = ArrayTypeDefinition(name=key, element_type=uint8_type)
+        table = create_array_table(synth, self.data_dir, key)
+        self._array_tables[key] = table
         return table
 
     def close(self) -> None:

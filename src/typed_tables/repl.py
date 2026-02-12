@@ -15,6 +15,8 @@ from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import DropDatabaseQuery, EvalQuery, ExecuteQuery, ImportQuery, QueryParser, RestoreQuery, UseQuery
 from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, ExecuteResult, ImportResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
 from typed_tables.storage import StorageManager
+from fractions import Fraction
+
 from typed_tables.types import (
     ArrayTypeDefinition,
     BigInt,
@@ -76,6 +78,10 @@ def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
         return "true" if value else "false"
     elif isinstance(value, (BigInt, BigUInt)):
         return str(int(value))
+    elif isinstance(value, Fraction):
+        if value.denominator == 1:
+            return str(value.numerator)
+        return str(value)
     elif isinstance(value, int):
         if value > 0xFFFFFFFF:
             return f"0x{value:x}"

@@ -1,5 +1,11 @@
 # TODO
 
+## REPL Updates
+
+- Some REPL commands, like dump, change their behavior based on file extensions; they write different file formats or compress results. Please find all commands that do this and update the help docs to explain all file extension options. Also, I don't see "dump graph". I can't tell that that is an option. it should show up under "format modifiers". Make sure all commands show all of their variants, ignoring recursion, of course.
+
+"show references" and "dump graph" are similar concepts outputted differently. However, I can show references for a type, but can't dump the graph for a type. These two commands should be in parity as to what they support, except that show prints to screen and dump can output to a file.
+
 ---
 
 # Questions
@@ -9,6 +15,8 @@ I'm confused why compact shrinks files below the 4096 initial size. It makes sen
 ---
 
 # For Consideration
+
+## Complete Set of Trig Functions
 
 ## Support Indexes
 

@@ -73,6 +73,7 @@ from typed_tables.parsing.query_parser import (
     VariableReference,
 )
 from typed_tables.storage import StorageManager
+from fractions import Fraction
 from typed_tables.types import (
     PRIMITIVE_TYPE_NAMES,
     AliasTypeDefinition,
@@ -88,6 +89,7 @@ from typed_tables.types import (
     EnumValue,
     EnumVariantDefinition,
     FieldDefinition,
+    FractionTypeDefinition,
     InterfaceTypeDefinition,
     NULL_REF,
     PrimitiveType,
@@ -103,6 +105,7 @@ from typed_tables.types import (
     is_biguint_type,
     is_boolean_type,
     is_dict_type,
+    is_fraction_type,
     is_set_type,
     is_string_type,
     type_range,
@@ -126,6 +129,32 @@ _STRING_MUTATION_METHODS = frozenset({
     "trim", "trimStart", "trimEnd",
     "padStart", "padEnd", "repeat",
 })
+
+
+def _fraction_encode(frac: Fraction, storage: StorageManager) -> tuple[int, int, int, int]:
+    """Encode Fraction → (num_start, num_len, den_start, den_len)."""
+    n, d = frac.numerator, frac.denominator
+    if n == 0:
+        num_bytes = [0]
+    else:
+        num_bytes = list(n.to_bytes((n.bit_length() + 8) // 8, 'little', signed=True))
+    den_bytes = list(d.to_bytes((d.bit_length() + 7) // 8, 'little', signed=False))
+    num_start, num_len = storage.get_fraction_num_table().insert(num_bytes)
+    den_start, den_len = storage.get_fraction_den_table().insert(den_bytes)
+    return (num_start, num_len, den_start, den_len)
+
+
+def _fraction_decode(storage: StorageManager, num_start: int, num_len: int, den_start: int, den_len: int) -> Fraction:
+    """Decode (num_start, num_len, den_start, den_len) → Fraction."""
+    if num_len == 0:
+        return Fraction(0)
+    nt = storage.get_fraction_num_table()
+    num_bytes = bytes(nt.element_table.get(num_start + j) for j in range(num_len))
+    numerator = int.from_bytes(num_bytes, 'little', signed=True)
+    dt = storage.get_fraction_den_table()
+    den_bytes = bytes(dt.element_table.get(den_start + j) for j in range(den_len))
+    denominator = int.from_bytes(den_bytes, 'little', signed=False)
+    return Fraction(numerator, denominator)
 
 
 @dataclass
@@ -524,6 +553,11 @@ class QueryExecutor:
                     continue
                 kind = "Alias"
                 count = None
+            elif isinstance(type_def, FractionTypeDefinition):
+                if type_name not in referenced_primitives:
+                    continue
+                kind = "Fraction"
+                count = None
             elif isinstance(type_def, (BigIntTypeDefinition, BigUIntTypeDefinition)):
                 if type_name not in referenced_primitives:
                     continue
@@ -595,6 +629,8 @@ class QueryExecutor:
         if isinstance(type_def, AliasTypeDefinition):
             aliases.add(type_def.name)
             self._collect_referenced_types(type_def.base_type, primitives, aliases)
+        elif isinstance(type_def, FractionTypeDefinition):
+            primitives.add(type_def.name)
         elif isinstance(type_def, (BigIntTypeDefinition, BigUIntTypeDefinition)):
             # BigInt/BigUInt are special array types — collect like primitives
             primitives.add(type_def.name)
@@ -623,6 +659,8 @@ class QueryExecutor:
             return "String"
         if isinstance(type_def, BooleanTypeDefinition):
             return "Boolean"
+        if isinstance(type_def, FractionTypeDefinition):
+            return "Fraction"
         if isinstance(type_def, BigIntTypeDefinition):
             return "BigInt"
         if isinstance(type_def, BigUIntTypeDefinition):
@@ -721,6 +759,8 @@ class QueryExecutor:
             elif isinstance(type_def, CompositeTypeDefinition):
                 for f in type_def.fields:
                     process_field_type(type_name, kind, f.name, f.type_def)
+            elif isinstance(type_def, FractionTypeDefinition):
+                pass
             elif isinstance(type_def, (BigIntTypeDefinition, BigUIntTypeDefinition)):
                 # Only show if referenced by user types (like string/path)
                 pass
@@ -942,6 +982,12 @@ class QueryExecutor:
                         "size": 0,
                         "default": "",
                     })
+        elif isinstance(base, FractionTypeDefinition):
+            rows.append({
+                "property": "(precision)",
+                "type": "exact rational",
+                "size": 16,
+            })
         elif isinstance(base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
             rows.append({
                 "property": "(precision)",
@@ -1855,6 +1901,16 @@ class QueryExecutor:
                     return UpdateResult(
                         columns=[], rows=[],
                         message=f"Expected set literal for field '{fv.name}'",
+                    )
+            elif isinstance(field_base, FractionTypeDefinition):
+                if isinstance(resolved_value, Fraction):
+                    raw_record[fv.name] = _fraction_encode(resolved_value, self.storage)
+                elif isinstance(resolved_value, (int, BigInt, BigUInt)):
+                    raw_record[fv.name] = _fraction_encode(Fraction(int(resolved_value)), self.storage)
+                else:
+                    return UpdateResult(
+                        columns=[], rows=[],
+                        message=f"Expected fraction value for field '{fv.name}'",
                     )
             elif isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
                 val = int(resolved_value)
@@ -2873,16 +2929,16 @@ class QueryExecutor:
                 # Functions with positional args: range(), repeat(), type conversions, enum conversions
                 evaluated_args = [self._resolve_instance_value(a) for a in value.args]
                 return self._evaluate_math_func(value.name, evaluated_args)
-            elif name_lower in PRIMITIVE_TYPE_NAMES or name_lower in ("bigint", "biguint"):
-                raise ValueError(f"{value.name}() requires exactly 1 argument")
+            elif name_lower in PRIMITIVE_TYPE_NAMES or name_lower in ("bigint", "biguint", "fraction"):
+                raise ValueError(f"{value.name}() requires at least 1 argument")
             else:
                 raise ValueError(f"Unknown function: {value.name}()")
         elif isinstance(value, CompositeRef):
             # Check if this is actually a single-arg function call (e.g., range(5))
             if value.type_name.lower() in ("range", "repeat"):
                 return self._evaluate_math_func(value.type_name, [value.index])
-            # bigint/biguint conversion: bigint(42), biguint(200)
-            if value.type_name.lower() in ("bigint", "biguint"):
+            # bigint/biguint/fraction conversion: bigint(42), biguint(200), fraction(3)
+            if value.type_name.lower() in ("bigint", "biguint", "fraction"):
                 return self._evaluate_math_func(value.type_name, [value.index])
             # Type conversion: int16(42), uint8(200), etc.
             if value.type_name.lower() in PRIMITIVE_TYPE_NAMES:
@@ -3228,6 +3284,15 @@ class QueryExecutor:
                 field_references[field.name] = array_table.insert(elements)
                 continue
 
+            if isinstance(field_base, FractionTypeDefinition):
+                if isinstance(field_value, Fraction):
+                    field_references[field.name] = _fraction_encode(field_value, self.storage)
+                elif isinstance(field_value, (int, BigInt, BigUInt)):
+                    field_references[field.name] = _fraction_encode(Fraction(int(field_value)), self.storage)
+                else:
+                    raise ValueError(f"Expected fraction value for field '{field.name}', got {type(field_value).__name__}")
+                continue
+
             if isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
                 val = int(field_value)
                 signed = isinstance(field_base, BigIntTypeDefinition)
@@ -3361,6 +3426,8 @@ class QueryExecutor:
             if isinstance(value, list):
                 # Unwrap TypedValues in list
                 row[col_name] = [v.value if isinstance(v, TypedValue) else v for v in value]
+            elif isinstance(value, Fraction):
+                row[col_name] = value
             elif isinstance(value, (BigInt, BigUInt)):
                 row[col_name] = value  # Keep as BigInt/BigUInt for decimal display in REPL
             elif isinstance(value, int) and value > 0xFFFFFFFF:
@@ -3468,31 +3535,31 @@ class QueryExecutor:
         if op == "++":
             return str(left) + str(right)
         if op == "+":
-            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+            if not isinstance(left, (int, float, Fraction)) or not isinstance(right, (int, float, Fraction)):
                 raise RuntimeError(f"Cannot add non-numeric values: {left!r} + {right!r} (use ++ for string concatenation)")
             return left + right
         if op == "-":
-            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+            if not isinstance(left, (int, float, Fraction)) or not isinstance(right, (int, float, Fraction)):
                 raise RuntimeError(f"Cannot subtract non-numeric values: {left!r} - {right!r}")
             return left - right
         if op == "*":
-            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+            if not isinstance(left, (int, float, Fraction)) or not isinstance(right, (int, float, Fraction)):
                 raise RuntimeError(f"Cannot multiply non-numeric values: {left!r} * {right!r}")
             return left * right
         if op == "/":
-            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+            if not isinstance(left, (int, float, Fraction)) or not isinstance(right, (int, float, Fraction)):
                 raise RuntimeError(f"Cannot divide non-numeric values: {left!r} / {right!r}")
             if right == 0:
                 raise RuntimeError("Division by zero")
             return left / right
         if op == "%":
-            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+            if not isinstance(left, (int, float, Fraction)) or not isinstance(right, (int, float, Fraction)):
                 raise RuntimeError(f"Cannot modulo non-numeric values: {left!r} % {right!r}")
             if right == 0:
                 raise RuntimeError("Division by zero")
             return left % right
         if op == "//":
-            if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+            if not isinstance(left, (int, float, Fraction)) or not isinstance(right, (int, float, Fraction)):
                 raise RuntimeError(f"Cannot integer-divide non-numeric values: {left!r} // {right!r}")
             if right == 0:
                 raise RuntimeError("Division by zero")
@@ -3511,11 +3578,11 @@ class QueryExecutor:
                 return operand
             raise RuntimeError(f"Unknown unary operator: {op}")
         if op == "-":
-            if not isinstance(operand, (int, float)):
+            if not isinstance(operand, (int, float, Fraction)):
                 raise RuntimeError(f"Cannot negate non-numeric value: {operand!r}")
             return -operand
         if op == "+":
-            if not isinstance(operand, (int, float)):
+            if not isinstance(operand, (int, float, Fraction)):
                 raise RuntimeError(f"Cannot apply unary + to non-numeric value: {operand!r}")
             return operand
         raise RuntimeError(f"Unknown unary operator: {op}")
@@ -3656,6 +3723,28 @@ class QueryExecutor:
             if val < 0:
                 raise RuntimeError(f"biguint() cannot accept negative value: {val}")
             return BigUInt(val)
+
+        # fraction() conversion
+        if name_lower == "fraction":
+            if len(args) == 1:
+                val = self._unwrap_typed(args[0])
+                if isinstance(val, Fraction):
+                    return val
+                if isinstance(val, (int, BigInt, BigUInt)):
+                    return Fraction(int(val))
+                if isinstance(val, float):
+                    return Fraction(val).limit_denominator()
+                raise RuntimeError(f"fraction() cannot convert {type(val).__name__}")
+            elif len(args) == 2:
+                num = self._unwrap_typed(args[0])
+                den = self._unwrap_typed(args[1])
+                num = int(num)
+                den = int(den)
+                if den == 0:
+                    raise RuntimeError("fraction() denominator cannot be zero")
+                return Fraction(num, den)
+            else:
+                raise RuntimeError("fraction() requires 1 or 2 arguments")
 
         # Type conversion functions: int8(), uint16(), float32(), etc.
         if name_lower in PRIMITIVE_TYPE_NAMES:
@@ -4055,6 +4144,8 @@ class QueryExecutor:
                             # C-style: ref is already an EnumValue
                             self._resolve_enum_associated_values(ref, field_base)
                             resolved[field.name] = ref
+                    elif isinstance(field_base, FractionTypeDefinition):
+                        resolved[field.name] = _fraction_decode(self.storage, ref[0], ref[1], ref[2], ref[3])
                     elif isinstance(field_base, DictionaryTypeDefinition):
                         start_index, length = ref
                         if length == 0:
@@ -4096,6 +4187,8 @@ class QueryExecutor:
                                 resolved[field.name] = SetValue(str_elements)
                             else:
                                 resolved[field.name] = SetValue(elements)
+                    elif isinstance(field_base, FractionTypeDefinition):
+                        resolved[field.name] = _fraction_decode(self.storage, ref[0], ref[1], ref[2], ref[3])
                     elif isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
                         start_index, length = ref
                         if length == 0:
@@ -4225,6 +4318,8 @@ class QueryExecutor:
                         else:
                             self._resolve_enum_associated_values(ref, field_base)
                             resolved[field.name] = ref
+                    elif isinstance(field_base, FractionTypeDefinition):
+                        resolved[field.name] = _fraction_decode(self.storage, ref[0], ref[1], ref[2], ref[3])
                     elif isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
                         start_index, length = ref
                         if length == 0:
@@ -4274,6 +4369,7 @@ class QueryExecutor:
             return
 
         is_string = isinstance(type_def.resolve_base_type(), StringTypeDefinition)
+        is_frac = isinstance(type_def.resolve_base_type(), FractionTypeDefinition)
         is_bi = isinstance(type_def.resolve_base_type(), BigIntTypeDefinition)
         is_bu = isinstance(type_def.resolve_base_type(), BigUIntTypeDefinition)
 
@@ -4290,7 +4386,9 @@ class QueryExecutor:
                 ref = record[field_name]
                 if ref is None:
                     continue
-                if is_bi or is_bu:
+                if is_frac:
+                    value = _fraction_decode(self.storage, ref[0], ref[1], ref[2], ref[3])
+                elif is_bi or is_bu:
                     start_index, length = ref
                     if length == 0:
                         value = BigInt(0) if is_bi else BigUInt(0)
@@ -4451,6 +4549,8 @@ class QueryExecutor:
                     else:
                         self._resolve_enum_associated_values(ref, field_base)
                         resolved[field.name] = ref
+                elif isinstance(field_base, FractionTypeDefinition):
+                    resolved[field.name] = _fraction_decode(self.storage, ref[0], ref[1], ref[2], ref[3])
                 elif isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
                     start_index, length = ref
                     if length == 0:
@@ -5277,7 +5377,9 @@ class QueryExecutor:
                 continue
 
             field_type_base = f.type_def.resolve_base_type()
-            if isinstance(field_type_base, ArrayTypeDefinition):
+            if isinstance(field_type_base, FractionTypeDefinition):
+                resolved[f.name] = _fraction_decode(self.storage, ref[0], ref[1], ref[2], ref[3])
+            elif isinstance(field_type_base, ArrayTypeDefinition):
                 start_index, length = ref
                 if is_bigint_type(f.type_def):
                     if length == 0:
@@ -5516,6 +5618,10 @@ class QueryExecutor:
                 else:
                     elem_strs.append(str(elem))
             return f"[{', '.join(elem_strs)}]"
+        if isinstance(value, Fraction):
+            if value.denominator == 1:
+                return f"fraction({value.numerator})"
+            return f"fraction({value.numerator}, {value.denominator})"
         if isinstance(value, (BigInt, BigUInt)):
             return str(int(value))
         base = type_def.resolve_base_type()
@@ -6165,6 +6271,12 @@ class QueryExecutor:
             if val is None:
                 return "null"
 
+            if is_fraction_type(field_type):
+                frac = _fraction_decode(self.storage, val[0], val[1], val[2], val[3])
+                if frac.denominator == 1:
+                    return str(frac.numerator)
+                return str(frac)
+
             if is_bigint_type(field_type) or is_biguint_type(field_type):
                 start_idx, length = val
                 if length == 0:
@@ -6337,6 +6449,10 @@ class QueryExecutor:
             if val is None:
                 return None
 
+            if is_fraction_type(field_type):
+                frac = _fraction_decode(self.storage, val[0], val[1], val[2], val[3])
+                return {"numerator": frac.numerator, "denominator": frac.denominator}
+
             if is_bigint_type(field_type) or is_biguint_type(field_type):
                 start_idx, length = val
                 if length == 0:
@@ -6485,6 +6601,10 @@ class QueryExecutor:
 
             if val is None:
                 return f"{ind}<{field_name} null=\"true\"/>"
+
+            if is_fraction_type(field_type):
+                frac = _fraction_decode(self.storage, val[0], val[1], val[2], val[3])
+                return f"{ind}<{field_name}>{frac}</{field_name}>"
 
             if is_bigint_type(field_type) or is_biguint_type(field_type):
                 start_idx, length = val
@@ -6864,6 +6984,12 @@ class QueryExecutor:
                 elem_strs = [self._format_ttq_value(e, elem_base) for e in elements]
             return "{" + ", ".join(elem_strs) + "}"
 
+        elif is_fraction_type(field.type_def):
+            frac = _fraction_decode(self.storage, ref[0], ref[1], ref[2], ref[3])
+            if frac.denominator == 1:
+                return f"fraction({frac.numerator})"
+            return f"fraction({frac.numerator}, {frac.denominator})"
+
         elif is_bigint_type(field.type_def) or is_biguint_type(field.type_def):
             start_index, length = ref
             if length == 0:
@@ -7065,6 +7191,15 @@ class QueryExecutor:
 
             if field_value is None:
                 field_references[field.name] = None
+                continue
+
+            if isinstance(field_base, FractionTypeDefinition):
+                if isinstance(field_value, Fraction):
+                    field_references[field.name] = _fraction_encode(field_value, self.storage)
+                elif isinstance(field_value, (int, BigInt, BigUInt)):
+                    field_references[field.name] = _fraction_encode(Fraction(int(field_value)), self.storage)
+                else:
+                    raise ValueError(f"Expected fraction value for field '{field.name}', got {type(field_value).__name__}")
                 continue
 
             if isinstance(field_base, (BigIntTypeDefinition, BigUIntTypeDefinition)):
@@ -7341,7 +7476,17 @@ class QueryExecutor:
                 if val is None:
                     continue
                 fld_base = fld.type_def.resolve_base_type()
-                if isinstance(fld_base, ArrayTypeDefinition):
+                if isinstance(fld_base, FractionTypeDefinition):
+                    num_start, num_len, den_start, den_len = val
+                    if num_len > 0:
+                        if "_frac_num" not in array_refs:
+                            array_refs["_frac_num"] = set()
+                        array_refs["_frac_num"].add((num_start, num_len))
+                    if den_len > 0:
+                        if "_frac_den" not in array_refs:
+                            array_refs["_frac_den"] = set()
+                        array_refs["_frac_den"].add((den_start, den_len))
+                elif isinstance(fld_base, ArrayTypeDefinition):
                     start_idx, length = val
                     if length > 0:
                         arr_type_name = fld.type_def.name
@@ -7418,6 +7563,18 @@ class QueryExecutor:
             # Phase 6: Write compacted array element tables
             for arr_type_name, ranges in array_refs.items():
                 sorted_ranges = sorted(ranges, key=lambda r: r[0])
+                # Special case: fraction byte tables (not in registry)
+                if arr_type_name in ("_frac_num", "_frac_den"):
+                    if arr_type_name == "_frac_num":
+                        src_array_table = self.storage.get_fraction_num_table()
+                        dst_array_table = out_storage.get_fraction_num_table()
+                    else:
+                        src_array_table = self.storage.get_fraction_den_table()
+                        dst_array_table = out_storage.get_fraction_den_table()
+                    for old_start, length in sorted_ranges:
+                        elements = src_array_table.get(old_start, length)
+                        dst_array_table.insert(elements)
+                    continue
                 type_def = self.registry.get(arr_type_name)
                 if type_def is None:
                     continue
@@ -7529,6 +7686,15 @@ class QueryExecutor:
                         remapped[fld.name] = None  # Dangling ref
                 else:
                     remapped[fld.name] = val
+            elif isinstance(fld_base, FractionTypeDefinition):
+                num_start, num_len, den_start, den_len = val
+                new_num_start = num_start
+                new_den_start = den_start
+                if num_len > 0 and "_frac_num" in array_start_map and num_start in array_start_map["_frac_num"]:
+                    new_num_start = array_start_map["_frac_num"][num_start]
+                if den_len > 0 and "_frac_den" in array_start_map and den_start in array_start_map["_frac_den"]:
+                    new_den_start = array_start_map["_frac_den"][den_start]
+                remapped[fld.name] = (new_num_start, num_len, new_den_start, den_len)
             elif isinstance(fld_base, ArrayTypeDefinition):
                 old_start, length = val
                 if length == 0:

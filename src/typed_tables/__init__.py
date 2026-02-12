@@ -13,6 +13,7 @@ from typed_tables.types import (
     EnumValue,
     EnumVariantDefinition,
     FieldDefinition,
+    FractionTypeDefinition,
     InterfaceTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
@@ -20,6 +21,7 @@ from typed_tables.types import (
     TypeDefinition,
     TypeRegistry,
     is_boolean_type,
+    is_fraction_type,
     is_string_type,
 )
 
@@ -38,6 +40,7 @@ __all__ = [
     "ArrayTypeDefinition",
     "StringTypeDefinition",
     "BooleanTypeDefinition",
+    "FractionTypeDefinition",
     "CompositeTypeDefinition",
     "InterfaceTypeDefinition",
     "EnumTypeDefinition",
@@ -47,6 +50,7 @@ __all__ = [
     "TypeRegistry",
     "is_string_type",
     "is_boolean_type",
+    "is_fraction_type",
 ]
 
 __version__ = "0.1.0"

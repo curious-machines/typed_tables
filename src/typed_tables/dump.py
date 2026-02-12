@@ -21,6 +21,7 @@ from typed_tables.types import (
     EnumValue,
     EnumVariantDefinition,
     FieldDefinition,
+    FractionTypeDefinition,
     InterfaceTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
@@ -30,6 +31,7 @@ from typed_tables.types import (
     TypeRegistry,
     is_boolean_type,
     is_dict_type,
+    is_fraction_type,
     is_set_type,
     is_string_type,
 )
@@ -136,6 +138,8 @@ def _create_type_from_spec(
         return StringTypeDefinition(name=name, element_type=element_type)
     elif kind == "boolean":
         return BooleanTypeDefinition(name=name, primitive=PrimitiveType.BIT)
+    elif kind == "fraction":
+        return FractionTypeDefinition(name=name)
     elif kind == "bigint":
         element_type = registry.get_or_raise(spec["element_type"])
         return BigIntTypeDefinition(name=name, element_type=element_type)
@@ -341,6 +345,13 @@ def format_value(value: Any, type_def: TypeDefinition) -> str:
             return f"{value:.6g}"
         else:
             return str(value)
+    elif isinstance(base, FractionTypeDefinition):
+        from fractions import Fraction
+        if isinstance(value, Fraction):
+            if value.denominator == 1:
+                return str(value.numerator)
+            return str(value)
+        return str(value)
     elif isinstance(base, SetTypeDefinition):
         if isinstance(value, tuple):
             start, length = value

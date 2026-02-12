@@ -1,0 +1,13 @@
+digraph types {
+    rankdir=LR;
+    node [style=filled];
+
+    "Person" [shape=box, fillcolor="#ADD8E6"];
+    "character" [shape=ellipse, fillcolor="#FFFFE0"];
+    "string" [shape=ellipse, fillcolor="#FFFFE0"];
+    "uint8" [shape=ellipse, fillcolor="#FFFFE0"];
+
+    "string" -> "character" [label="[]"];
+    "Person" -> "string" [label="name"];
+    "Person" -> "uint8" [label="age"];
+}

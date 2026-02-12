@@ -259,6 +259,26 @@ class BigUInt(int):
 
 
 @dataclass
+class FractionTypeDefinition(TypeDefinition):
+    """Built-in fraction type — exact rational, stored as numerator + denominator bytes."""
+
+    INLINE_SIZE: int = 16  # 4x uint32: num_start, num_len, den_start, den_len
+
+    @property
+    def size_bytes(self) -> int:
+        return self.INLINE_SIZE
+
+    @property
+    def reference_size(self) -> int:
+        return self.INLINE_SIZE
+
+
+def is_fraction_type(type_def: TypeDefinition) -> bool:
+    """Check if a type resolves to the built-in fraction type."""
+    return isinstance(type_def.resolve_base_type(), FractionTypeDefinition)
+
+
+@dataclass
 class SetTypeDefinition(ArrayTypeDefinition):
     """Set type — stored as array with uniqueness constraint."""
 
@@ -507,6 +527,8 @@ class EnumTypeDefinition(TypeDefinition):
 
 def _type_def_to_type_string(td: TypeDefinition) -> str:
     """Convert a TypeDefinition back to its TTQ type string representation."""
+    if isinstance(td, FractionTypeDefinition):
+        return td.name
     if isinstance(td, SetTypeDefinition):
         return "{" + _type_def_to_type_string(td.element_type) + "}"
     if isinstance(td, DictionaryTypeDefinition):
@@ -559,6 +581,8 @@ class TypeRegistry:
         uint8_prim = self._types["uint8"]
         self._types["bigint"] = BigIntTypeDefinition(name="bigint", element_type=uint8_prim)
         self._types["biguint"] = BigUIntTypeDefinition(name="biguint", element_type=uint8_prim)
+        # Register built-in fraction type (exact rational, stored as numerator + denominator bytes)
+        self._types["fraction"] = FractionTypeDefinition(name="fraction")
         # Register built-in path alias (alias for string)
         self._types["path"] = AliasTypeDefinition(name="path", base_type=self._types["string"])
 

@@ -14,6 +14,7 @@ from typed_tables.types import (
     DictionaryTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
+    FractionTypeDefinition,
     InterfaceTypeDefinition,
     NULL_REF,
     PrimitiveType,
@@ -274,6 +275,9 @@ class Table:
         base = type_def.resolve_base_type()
         if isinstance(base, EnumTypeDefinition):
             return self._serialize_enum_value(value, base)
+        elif isinstance(base, FractionTypeDefinition):
+            # Fraction: (num_start, num_len, den_start, den_len) = 16 bytes
+            return struct.pack("<IIII", value[0], value[1], value[2], value[3])
         elif isinstance(base, InterfaceTypeDefinition):
             # Tagged reference: (type_id, index) → uint16 + uint32 = 6 bytes
             type_id, index = value
@@ -398,6 +402,8 @@ class Table:
             field_base = field.type_def.resolve_base_type()
             if isinstance(field_base, EnumTypeDefinition):
                 result[field.name] = self._deserialize_enum_value(field_data, field_base)
+            elif isinstance(field_base, FractionTypeDefinition):
+                result[field.name] = struct.unpack("<IIII", field_data)
             elif isinstance(field_base, InterfaceTypeDefinition):
                 type_id, index = struct.unpack("<HI", field_data)
                 result[field.name] = (type_id, index)
