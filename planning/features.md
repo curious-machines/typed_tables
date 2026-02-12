@@ -4,14 +4,13 @@
 
 # Questions
 
-## Help Doc Alignment Bug
-
-- help database, describe <type>.<variant> has description on line below. Shift all desc to right by 2
-- help definitions is a mess
+Are you letting Ply store its generated parser tables? This speeds up parser creation.
 
 ---
 
 # For Consideration
+
+## Support Indexes
 
 ## Executor as a VM
 
@@ -21,11 +20,19 @@ We would need to figure out how information is passed between instructions. We c
 
 This would require turning a query into a sequence of instructions; a mini-compiler of sorts. This will be useful for debugging and could serve as a way to distribute queries between multiple running instances.
 
-## Add a Set Type
-
 ## More String Operations
 
-## Add a Dictionary Type
+what methods do we support?
+add methods for uppercase, lowercase, capitalize, etc.
+should we add others?
+can we remove "starts with" from language and rely on string methods instead?
+Maybe the same thing for "matches /regex/"?
+
+## Add Help Docs
+
+REPL help should include sections for arrays, sets, dictionaries, strings, listing all available functions and methods
+
+## Disable LSP
 
 ## Create Examples of Building Tree in Python and in TTQ
 
@@ -43,6 +50,14 @@ Would be great if we could import binary data (some file format) and be able to 
 - phase 7, bitwise operators
 
 # Completed
+
+## Add a Set Type
+
+## Add a Dictionary Type
+
+## Help Doc Alignment Bug
+
+- help database, describe <type>.<variant> has description on line below. Shift all desc to right by 2
 
 ## Slow Test
 

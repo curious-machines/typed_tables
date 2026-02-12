@@ -11,6 +11,32 @@ from typed_tables.parsing.query_lexer import QueryLexer
 
 
 @dataclass
+class ArrayTypeSpec:
+    """Structured type spec for prefix array syntax: [int32]."""
+
+    element_type: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
+
+
+@dataclass
+class SetTypeSpec:
+    """Structured type spec for set syntax: {int32}."""
+
+    element_type: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
+
+
+@dataclass
+class DictTypeSpec:
+    """Structured type spec for dict syntax: {string: int32}."""
+
+    key_type: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
+    value_type: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
+
+
+# Union type for all type specifications
+TypeSpec = str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
+
+
+@dataclass
 class ArraySlice:
     """Represents an array slice like 0:5 or :5 or 0:."""
 
@@ -162,7 +188,7 @@ class FieldDef:
     """A field definition for create type."""
 
     name: str
-    type_name: str
+    type_name: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
     default_value: Any = None
     overflow: str | None = None  # "saturating" or "wrapping"
 
@@ -196,7 +222,7 @@ class CreateAliasQuery:
     """A CREATE ALIAS query."""
 
     name: str
-    base_type: str
+    base_type: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
 
 
 @dataclass
@@ -454,6 +480,35 @@ class UnaryExpr:
     operand: Any
 
 
+@dataclass
+class SetLiteral:
+    """A set literal: {1, 2, 3}."""
+
+    elements: list
+
+
+@dataclass
+class DictEntry:
+    """A key-value pair in a dict literal."""
+
+    key: Any
+    value: Any
+
+
+@dataclass
+class DictLiteral:
+    """A dict literal: {"a": 1, "b": 2}."""
+
+    entries: list  # list of DictEntry
+
+
+@dataclass
+class EmptyBraces:
+    """Empty braces {} — resolved from field type context."""
+
+    pass
+
+
 Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | ImportQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
@@ -609,12 +664,8 @@ class QueryParser:
         p[0] = UseQuery(path=p[2], temporary=True)
 
     def p_query_create_alias(self, p: yacc.YaccProduction) -> None:
-        """query : ALIAS IDENTIFIER EQ IDENTIFIER
-                 | ALIAS IDENTIFIER EQ IDENTIFIER LBRACKET RBRACKET"""
-        if len(p) == 7:
-            p[0] = CreateAliasQuery(name=p[2], base_type=p[4] + "[]")
-        else:
-            p[0] = CreateAliasQuery(name=p[2], base_type=p[4])
+        """query : ALIAS IDENTIFIER EQ type_spec"""
+        p[0] = CreateAliasQuery(name=p[2], base_type=p[4])
 
     def p_query_create_type(self, p: yacc.YaccProduction) -> None:
         """query : TYPE IDENTIFIER type_field_list"""
@@ -914,37 +965,43 @@ class QueryParser:
         """type_field_items : type_field_items COMMA type_field_def"""
         p[0] = p[1] + [p[3]]
 
+    # --- type_spec: recursive type specification for fields and aliases ---
+
+    def p_type_spec_identifier(self, p: yacc.YaccProduction) -> None:
+        """type_spec : IDENTIFIER"""
+        p[0] = p[1]
+
+    def p_type_spec_postfix_array(self, p: yacc.YaccProduction) -> None:
+        """type_spec : IDENTIFIER LBRACKET RBRACKET"""
+        p[0] = p[1] + "[]"
+
+    def p_type_spec_prefix_array(self, p: yacc.YaccProduction) -> None:
+        """type_spec : LBRACKET type_spec RBRACKET"""
+        p[0] = ArrayTypeSpec(element_type=p[2])
+
+    def p_type_spec_set(self, p: yacc.YaccProduction) -> None:
+        """type_spec : LBRACE type_spec RBRACE"""
+        p[0] = SetTypeSpec(element_type=p[2])
+
+    def p_type_spec_dict(self, p: yacc.YaccProduction) -> None:
+        """type_spec : LBRACE type_spec COLON type_spec RBRACE"""
+        p[0] = DictTypeSpec(key_type=p[2], value_type=p[4])
+
     def p_type_field_def(self, p: yacc.YaccProduction) -> None:
-        """type_field_def : IDENTIFIER COLON IDENTIFIER
-                          | IDENTIFIER COLON IDENTIFIER LBRACKET RBRACKET"""
-        if len(p) == 6:  # Array type: name : type []
-            p[0] = FieldDef(name=p[1], type_name=p[3] + "[]")
-        else:
-            p[0] = FieldDef(name=p[1], type_name=p[3])
+        """type_field_def : IDENTIFIER COLON type_spec"""
+        p[0] = FieldDef(name=p[1], type_name=p[3])
 
     def p_type_field_def_default(self, p: yacc.YaccProduction) -> None:
-        """type_field_def : IDENTIFIER COLON IDENTIFIER EQ instance_value
-                          | IDENTIFIER COLON IDENTIFIER LBRACKET RBRACKET EQ instance_value"""
-        if len(p) == 6:
-            p[0] = FieldDef(name=p[1], type_name=p[3], default_value=p[5])
-        else:
-            p[0] = FieldDef(name=p[1], type_name=p[3] + "[]", default_value=p[7])
+        """type_field_def : IDENTIFIER COLON type_spec EQ instance_value"""
+        p[0] = FieldDef(name=p[1], type_name=p[3], default_value=p[5])
 
     def p_type_field_def_overflow(self, p: yacc.YaccProduction) -> None:
-        """type_field_def : IDENTIFIER COLON overflow_modifier IDENTIFIER
-                          | IDENTIFIER COLON overflow_modifier IDENTIFIER LBRACKET RBRACKET"""
-        if len(p) == 7:
-            p[0] = FieldDef(name=p[1], type_name=p[4] + "[]", overflow=p[3])
-        else:
-            p[0] = FieldDef(name=p[1], type_name=p[4], overflow=p[3])
+        """type_field_def : IDENTIFIER COLON overflow_modifier type_spec"""
+        p[0] = FieldDef(name=p[1], type_name=p[4], overflow=p[3])
 
     def p_type_field_def_overflow_default(self, p: yacc.YaccProduction) -> None:
-        """type_field_def : IDENTIFIER COLON overflow_modifier IDENTIFIER EQ instance_value
-                          | IDENTIFIER COLON overflow_modifier IDENTIFIER LBRACKET RBRACKET EQ instance_value"""
-        if len(p) == 7:
-            p[0] = FieldDef(name=p[1], type_name=p[4], default_value=p[6], overflow=p[3])
-        else:
-            p[0] = FieldDef(name=p[1], type_name=p[4] + "[]", default_value=p[8], overflow=p[3])
+        """type_field_def : IDENTIFIER COLON overflow_modifier type_spec EQ instance_value"""
+        p[0] = FieldDef(name=p[1], type_name=p[4], default_value=p[6], overflow=p[3])
 
     def p_overflow_modifier(self, p: yacc.YaccProduction) -> None:
         """overflow_modifier : SATURATING
@@ -1200,6 +1257,50 @@ class QueryParser:
             p[0] = p[2]
         else:
             p[0] = []
+
+    def p_instance_value_empty_braces(self, p: yacc.YaccProduction) -> None:
+        """instance_value : LBRACE RBRACE"""
+        p[0] = EmptyBraces()
+
+    def p_instance_value_empty_set(self, p: yacc.YaccProduction) -> None:
+        """instance_value : LBRACE COMMA RBRACE"""
+        p[0] = SetLiteral(elements=[])
+
+    def p_instance_value_empty_dict(self, p: yacc.YaccProduction) -> None:
+        """instance_value : LBRACE COLON RBRACE"""
+        p[0] = DictLiteral(entries=[])
+
+    def p_instance_value_set(self, p: yacc.YaccProduction) -> None:
+        """instance_value : LBRACE set_elements RBRACE"""
+        p[0] = SetLiteral(elements=p[2])
+
+    def p_instance_value_set_trailing(self, p: yacc.YaccProduction) -> None:
+        """instance_value : LBRACE set_elements COMMA RBRACE"""
+        p[0] = SetLiteral(elements=p[2])
+
+    def p_instance_value_dict(self, p: yacc.YaccProduction) -> None:
+        """instance_value : LBRACE dict_entries RBRACE"""
+        p[0] = DictLiteral(entries=p[2])
+
+    def p_instance_value_dict_trailing(self, p: yacc.YaccProduction) -> None:
+        """instance_value : LBRACE dict_entries COMMA RBRACE"""
+        p[0] = DictLiteral(entries=p[2])
+
+    def p_set_elements_single(self, p: yacc.YaccProduction) -> None:
+        """set_elements : instance_value"""
+        p[0] = [p[1]]
+
+    def p_set_elements_multiple(self, p: yacc.YaccProduction) -> None:
+        """set_elements : set_elements COMMA instance_value"""
+        p[0] = p[1] + [p[3]]
+
+    def p_dict_entries_single(self, p: yacc.YaccProduction) -> None:
+        """dict_entries : instance_value COLON instance_value"""
+        p[0] = [DictEntry(key=p[1], value=p[3])]
+
+    def p_dict_entries_multiple(self, p: yacc.YaccProduction) -> None:
+        """dict_entries : dict_entries COMMA instance_value COLON instance_value"""
+        p[0] = p[1] + [DictEntry(key=p[3], value=p[5])]
 
     def p_array_elements_single(self, p: yacc.YaccProduction) -> None:
         """array_elements : array_element"""

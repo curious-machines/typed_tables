@@ -13,6 +13,7 @@ from typed_tables.types import (
     ArrayTypeDefinition,
     BooleanTypeDefinition,
     CompositeTypeDefinition,
+    DictionaryTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
     EnumVariantDefinition,
@@ -20,9 +21,11 @@ from typed_tables.types import (
     InterfaceTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
+    SetTypeDefinition,
     StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
+    _type_def_to_type_string,
 )
 
 if TYPE_CHECKING:
@@ -97,6 +100,18 @@ class StorageManager:
             return {
                 "kind": "string",
                 "element_type": type_def.element_type.name,
+            }
+        elif isinstance(type_def, SetTypeDefinition):
+            return {
+                "kind": "set",
+                "element_type": _type_def_to_type_string(type_def.element_type),
+            }
+        elif isinstance(type_def, DictionaryTypeDefinition):
+            return {
+                "kind": "dictionary",
+                "key_type": _type_def_to_type_string(type_def.key_type),
+                "value_type": _type_def_to_type_string(type_def.value_type),
+                "entry_type": type_def.entry_type.name,
             }
         elif isinstance(type_def, ArrayTypeDefinition):
             return {
@@ -194,6 +209,7 @@ class StorageManager:
         """Get or create an array table for the given type definition.
 
         This handles both direct array types and aliases to array types.
+        For DictionaryTypeDefinition, creates a synthetic array of uint32 entry indices.
 
         Args:
             type_def: The type definition (may be an alias to an array type).
@@ -202,6 +218,21 @@ class StorageManager:
             ArrayTable for the type.
         """
         base = type_def.resolve_base_type()
+
+        # DictionaryTypeDefinition does not inherit from ArrayTypeDefinition,
+        # so we synthesize an array of uint32 (entry composite indices).
+        if isinstance(base, DictionaryTypeDefinition):
+            type_name = type_def.name
+            if type_name in self._array_tables:
+                return self._array_tables[type_name]
+            # Entry indices are uint32 — use uint32 primitive as element type
+            uint32_type = self.registry.get("uint32")
+            synth_array = ArrayTypeDefinition(
+                name=type_def.name, element_type=uint32_type,
+            )
+            array_table = create_array_table(synth_array, self.data_dir, type_name)
+            self._array_tables[type_name] = array_table
+            return array_table
 
         if not isinstance(base, ArrayTypeDefinition):
             raise ValueError(f"Type '{type_def.name}' does not resolve to an array type")

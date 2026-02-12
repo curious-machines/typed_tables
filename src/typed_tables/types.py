@@ -220,6 +220,53 @@ def is_string_type(type_def: TypeDefinition) -> bool:
 
 
 @dataclass
+class SetTypeDefinition(ArrayTypeDefinition):
+    """Set type — stored as array with uniqueness constraint."""
+
+    pass
+
+
+def is_set_type(type_def: TypeDefinition) -> bool:
+    """Check if a type resolves to a set type."""
+    return isinstance(type_def.resolve_base_type(), SetTypeDefinition)
+
+
+@dataclass
+class DictionaryTypeDefinition(TypeDefinition):
+    """Dictionary type — stored as array of synthetic entry composites."""
+
+    key_type: TypeDefinition
+    value_type: TypeDefinition
+    entry_type: CompositeTypeDefinition  # synthetic, e.g. Dict_string_int32
+
+    HEADER_SIZE: int = 8  # same as ArrayTypeDefinition
+
+    @property
+    def size_bytes(self) -> int:
+        return self.HEADER_SIZE
+
+    @property
+    def reference_size(self) -> int:
+        """Dicts store (start_index, length) inline = 8 bytes."""
+        return self.HEADER_SIZE
+
+    @property
+    def is_array(self) -> bool:
+        return True
+
+
+def is_dict_type(type_def: TypeDefinition) -> bool:
+    """Check if a type resolves to a dictionary type."""
+    return isinstance(type_def.resolve_base_type(), DictionaryTypeDefinition)
+
+
+class SetValue(list):
+    """Wrapper to distinguish set values from regular lists in display."""
+
+    pass
+
+
+@dataclass
 class BooleanTypeDefinition(PrimitiveTypeDefinition):
     """Built-in boolean type — stored as bit, displayed as true/false."""
 
@@ -419,6 +466,36 @@ class EnumTypeDefinition(TypeDefinition):
         return None
 
 
+def _type_def_to_type_string(td: TypeDefinition) -> str:
+    """Convert a TypeDefinition back to its TTQ type string representation."""
+    if isinstance(td, SetTypeDefinition):
+        return "{" + _type_def_to_type_string(td.element_type) + "}"
+    if isinstance(td, DictionaryTypeDefinition):
+        return "{" + _type_def_to_type_string(td.key_type) + ": " + _type_def_to_type_string(td.value_type) + "}"
+    if isinstance(td, StringTypeDefinition):
+        return td.name
+    if isinstance(td, ArrayTypeDefinition):
+        return td.name  # e.g. "int32[]"
+    return td.name
+
+
+def _make_dict_entry_type_name(key_td: TypeDefinition, val_td: TypeDefinition) -> str:
+    """Generate a dict entry type name like Dict_string_int32."""
+
+    def _td_component(td: TypeDefinition) -> str:
+        if isinstance(td, SetTypeDefinition):
+            return "Set_" + _td_component(td.element_type)
+        if isinstance(td, DictionaryTypeDefinition):
+            return "Dict_" + _td_component(td.key_type) + "_" + _td_component(td.value_type)
+        if isinstance(td, StringTypeDefinition):
+            return td.name  # "string", not "Array_character"
+        if isinstance(td, ArrayTypeDefinition):
+            return "Array_" + _td_component(td.element_type)
+        return td.name
+
+    return "Dict_" + _td_component(key_td) + "_" + _td_component(val_td)
+
+
 class TypeRegistry:
     """Registry of all defined types."""
 
@@ -470,6 +547,58 @@ class TypeRegistry:
         array_type = ArrayTypeDefinition(name=array_name, element_type=element_type)
         self._types[array_name] = array_type
         return array_type
+
+    def get_or_create_set_type(self, element_type: TypeDefinition) -> SetTypeDefinition:
+        """Get or create a set type for the given element type."""
+        set_name = "{" + _type_def_to_type_string(element_type) + "}"
+        existing = self._types.get(set_name)
+        if existing is not None:
+            if not isinstance(existing, SetTypeDefinition):
+                raise TypeError(f"Type '{set_name}' exists but is not a set type")
+            return existing
+
+        set_type = SetTypeDefinition(name=set_name, element_type=element_type)
+        self._types[set_name] = set_type
+        return set_type
+
+    def get_or_create_dict_type(
+        self,
+        key_type: TypeDefinition,
+        value_type: TypeDefinition,
+        name: str | None = None,
+    ) -> DictionaryTypeDefinition:
+        """Get or create a dictionary type for the given key/value types.
+
+        Also creates the synthetic entry composite if needed.
+        """
+        dict_name = name or ("{" + _type_def_to_type_string(key_type) + ": " + _type_def_to_type_string(value_type) + "}")
+        existing = self._types.get(dict_name)
+        if existing is not None:
+            if not isinstance(existing, DictionaryTypeDefinition):
+                raise TypeError(f"Type '{dict_name}' exists but is not a dictionary type")
+            return existing
+
+        # Create entry composite
+        entry_name = _make_dict_entry_type_name(key_type, value_type)
+        entry_type = self._types.get(entry_name)
+        if entry_type is None or not isinstance(entry_type, CompositeTypeDefinition):
+            entry_type = CompositeTypeDefinition(
+                name=entry_name,
+                fields=[
+                    FieldDefinition(name="key", type_def=key_type),
+                    FieldDefinition(name="value", type_def=value_type),
+                ],
+            )
+            self._types[entry_name] = entry_type
+
+        dict_type = DictionaryTypeDefinition(
+            name=dict_name,
+            key_type=key_type,
+            value_type=value_type,
+            entry_type=entry_type,
+        )
+        self._types[dict_name] = dict_type
+        return dict_type
 
     def register_enum_stub(self, name: str) -> EnumTypeDefinition:
         """Pre-register an empty enum for forward-declaration support.

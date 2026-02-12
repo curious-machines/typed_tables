@@ -14,6 +14,7 @@ from typed_tables.types import (
     ArrayTypeDefinition,
     BooleanTypeDefinition,
     CompositeTypeDefinition,
+    DictionaryTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
     EnumVariantDefinition,
@@ -21,10 +22,13 @@ from typed_tables.types import (
     InterfaceTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
+    SetTypeDefinition,
     StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
     is_boolean_type,
+    is_dict_type,
+    is_set_type,
     is_string_type,
 )
 
@@ -85,10 +89,14 @@ def load_registry_from_metadata(data_dir: Path) -> TypeRegistry:
                     _populate_interface_from_spec(name, spec, registry)
                     resolved_this_pass.append(name)
                 else:
-                    type_def = _create_type_from_spec(name, spec, registry)
-                    if type_def:
-                        registry.register(type_def)
+                    if registry.get(name) is not None:
+                        # Already created during field resolution
                         resolved_this_pass.append(name)
+                    else:
+                        type_def = _create_type_from_spec(name, spec, registry)
+                        if type_def:
+                            registry.register(type_def)
+                            resolved_this_pass.append(name)
             except KeyError:
                 # Dependency not yet resolved
                 pass
@@ -129,11 +137,71 @@ def _create_type_from_spec(
     elif kind == "array":
         element_type = registry.get_or_raise(spec["element_type"])
         return ArrayTypeDefinition(name=name, element_type=element_type)
+    elif kind == "set":
+        element_type = _resolve_type_string(spec["element_type"], registry)
+        return SetTypeDefinition(name=name, element_type=element_type)
+    elif kind == "dictionary":
+        key_type = _resolve_type_string(spec["key_type"], registry)
+        val_type = _resolve_type_string(spec["value_type"], registry)
+        entry_name = spec.get("entry_type")
+        entry_type = registry.get(entry_name) if entry_name else None
+        if entry_type is None or not isinstance(entry_type, CompositeTypeDefinition):
+            # Entry composite should already be registered in phase 1
+            raise KeyError(f"Dict entry type '{entry_name}' not found")
+        return DictionaryTypeDefinition(
+            name=name,
+            key_type=key_type,
+            value_type=val_type,
+            entry_type=entry_type,
+        )
     elif kind == "composite":
         # Composites are handled by _populate_composite_from_spec
         return None
 
     return None
+
+
+def _resolve_type_string(type_str: str, registry: TypeRegistry) -> TypeDefinition:
+    """Resolve a TTQ type string (possibly nested) to a TypeDefinition.
+
+    Handles: "int32", "int32[]", "{string}", "{string: int32}".
+    """
+    type_str = type_str.strip()
+    if type_str.startswith("{") and type_str.endswith("}"):
+        inner = type_str[1:-1].strip()
+        # Check if it's a dict (contains a colon at the top level)
+        colon_pos = _find_top_level_colon(inner)
+        if colon_pos >= 0:
+            key_str = inner[:colon_pos].strip()
+            val_str = inner[colon_pos + 1:].strip()
+            key_td = _resolve_type_string(key_str, registry)
+            val_td = _resolve_type_string(val_str, registry)
+            return registry.get_or_create_dict_type(key_td, val_td)
+        else:
+            elem_td = _resolve_type_string(inner, registry)
+            return registry.get_or_create_set_type(elem_td)
+    elif type_str.startswith("[") and type_str.endswith("]"):
+        inner = type_str[1:-1].strip()
+        elem_td = _resolve_type_string(inner, registry)
+        return registry.get_array_type(elem_td.name)
+    elif type_str.endswith("[]"):
+        base_name = type_str[:-2]
+        return registry.get_array_type(base_name)
+    else:
+        return registry.get_or_raise(type_str)
+
+
+def _find_top_level_colon(s: str) -> int:
+    """Find the position of a colon that is not nested inside brackets/braces."""
+    depth = 0
+    for i, ch in enumerate(s):
+        if ch in ("{", "["):
+            depth += 1
+        elif ch in ("}", "]"):
+            depth -= 1
+        elif ch == ":" and depth == 0:
+            return i
+    return -1
 
 
 def _deserialize_default_value(json_val: Any, type_def: TypeDefinition) -> Any:
@@ -180,7 +248,7 @@ def _populate_interface_from_spec(
 
     fields = []
     for field_spec in spec.get("fields", []):
-        field_type = registry.get_or_raise(field_spec["type"])
+        field_type = _resolve_type_string(field_spec["type"], registry)
         default = _deserialize_default_value(field_spec.get("default"), field_type)
         overflow = field_spec.get("overflow")
         fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type, default_value=default, overflow=overflow))
@@ -206,7 +274,7 @@ def _populate_composite_from_spec(
 
     fields = []
     for field_spec in spec["fields"]:
-        field_type = registry.get_or_raise(field_spec["type"])
+        field_type = _resolve_type_string(field_spec["type"], registry)
         default = _deserialize_default_value(field_spec.get("default"), field_type)
         overflow = field_spec.get("overflow")
         fields.append(FD(name=field_spec["name"], type_def=field_type, default_value=default, overflow=overflow))
@@ -233,7 +301,7 @@ def _populate_enum_from_spec(
     for vspec in spec["variants"]:
         vfields = []
         for fspec in vspec.get("fields", []):
-            ftype = registry.get_or_raise(fspec["type"])
+            ftype = _resolve_type_string(fspec["type"], registry)
             vfields.append(FieldDefinition(name=fspec["name"], type_def=ftype))
         variants.append(EnumVariantDefinition(
             name=vspec["name"],
@@ -264,6 +332,27 @@ def format_value(value: Any, type_def: TypeDefinition) -> str:
         elif base.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
             return f"{value:.6g}"
         else:
+            return str(value)
+    elif isinstance(base, SetTypeDefinition):
+        if isinstance(value, tuple):
+            start, length = value
+            return f"(start={start}, len={length})"
+        elif isinstance(value, (list, set)):
+            elem_base = base.element_type.resolve_base_type()
+            elem_strs = [format_value(v, base.element_type) for v in value]
+            if not elem_strs:
+                return "{,}"
+            return "{" + ", ".join(elem_strs) + "}"
+    elif isinstance(base, DictionaryTypeDefinition):
+        if isinstance(value, tuple):
+            start, length = value
+            return f"(start={start}, len={length})"
+        elif isinstance(value, dict):
+            if not value:
+                return "{:}"
+            entries = [f"{format_value(k, base.key_type)}: {format_value(v, base.value_type)}" for k, v in value.items()]
+            return "{" + ", ".join(entries) + "}"
+        elif isinstance(value, list):
             return str(value)
     elif isinstance(base, ArrayTypeDefinition):
         if isinstance(value, tuple):

@@ -11,6 +11,7 @@ from typing import Any
 from typed_tables.types import (
     ArrayTypeDefinition,
     CompositeTypeDefinition,
+    DictionaryTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
     InterfaceTypeDefinition,
@@ -276,6 +277,9 @@ class Table:
             # Tagged reference: (type_id, index) → uint16 + uint32 = 6 bytes
             type_id, index = value
             return struct.pack("<HI", type_id, index)
+        elif isinstance(base, DictionaryTypeDefinition):
+            # Dict stores (start_index, length) same as array
+            return struct.pack("<II", value[0], value[1])
         elif isinstance(base, ArrayTypeDefinition):
             return struct.pack("<II", value[0], value[1])
         elif isinstance(base, CompositeTypeDefinition):
@@ -395,6 +399,8 @@ class Table:
             elif isinstance(field_base, InterfaceTypeDefinition):
                 type_id, index = struct.unpack("<HI", field_data)
                 result[field.name] = (type_id, index)
+            elif isinstance(field_base, DictionaryTypeDefinition):
+                result[field.name] = struct.unpack("<II", field_data)
             elif isinstance(field_base, ArrayTypeDefinition):
                 result[field.name] = struct.unpack("<II", field_data)
             elif isinstance(field_base, CompositeTypeDefinition):

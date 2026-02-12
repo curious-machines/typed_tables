@@ -21,6 +21,7 @@ from typed_tables.types import (
     EnumTypeDefinition,
     EnumValue,
     InterfaceTypeDefinition,
+    SetValue,
     TypeRegistry,
 )
 
@@ -86,6 +87,32 @@ def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
             field_strs = [f"{k}={format_value(v, max_items, max_width)}" for k, v in value.fields.items()]
             return f"{value.variant_name}({', '.join(field_strs)})"
         return value.variant_name
+    elif isinstance(value, dict):
+        # Dictionary value
+        formatted = []
+        for i, (k, v) in enumerate(value.items()):
+            if i >= max_items:
+                remaining = len(value) - max_items
+                formatted.append(f"...+{remaining} more")
+                break
+            formatted.append(f"{format_value(k, max_items, max_width)}: {format_value(v, max_items, max_width)}")
+        result = "{" + ", ".join(formatted) + "}"
+        if len(result) > max_width:
+            return result[:max_width - 4] + "...}"
+        return result
+    elif isinstance(value, SetValue):
+        # Set value
+        formatted = []
+        for i, v in enumerate(value):
+            if i >= max_items:
+                remaining = len(value) - max_items
+                formatted.append(f"...+{remaining} more")
+                break
+            formatted.append(format_value(v, max_items, max_width))
+        result = "{" + ", ".join(formatted) + "}"
+        if len(result) > max_width:
+            return result[:max_width - 4] + "...}"
+        return result
     elif isinstance(value, list):
         # Format each element
         formatted = []

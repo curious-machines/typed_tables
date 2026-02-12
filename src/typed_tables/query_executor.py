@@ -18,6 +18,7 @@ from typed_tables.parsing.query_parser import (
     ArchiveQuery,
     ArrayIndex,
     ArraySlice,
+    ArrayTypeSpec,
     BinaryExpr,
     CollectQuery,
     CollectSource,
@@ -31,7 +32,11 @@ from typed_tables.parsing.query_parser import (
     CreateInterfaceQuery,
     CreateTypeQuery,
     DeleteQuery,
+    DictEntry,
+    DictLiteral,
+    DictTypeSpec,
     DumpGraphQuery,
+    EmptyBraces,
     EnumValueExpr,
     ExecuteQuery,
     ForwardTypeQuery,
@@ -48,6 +53,8 @@ from typed_tables.parsing.query_parser import (
     MethodCallExpr,
     MethodChainValue,
     NullValue,
+    SetLiteral,
+    SetTypeSpec,
     Query,
     QueryParser,
     RestoreQuery,
@@ -72,6 +79,7 @@ from typed_tables.types import (
     ArrayTypeDefinition,
     BooleanTypeDefinition,
     CompositeTypeDefinition,
+    DictionaryTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
     EnumVariantDefinition,
@@ -80,11 +88,16 @@ from typed_tables.types import (
     NULL_REF,
     PrimitiveType,
     PrimitiveTypeDefinition,
+    SetTypeDefinition,
+    SetValue,
     StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
     TypedValue,
+    _type_def_to_type_string,
     is_boolean_type,
+    is_dict_type,
+    is_set_type,
     is_string_type,
     type_range,
 )
@@ -491,6 +504,12 @@ class QueryExecutor:
                     continue
                 kind = "String"
                 count = None
+            elif isinstance(type_def, SetTypeDefinition):
+                kind = "Set"
+                count = None
+            elif isinstance(type_def, DictionaryTypeDefinition):
+                kind = "Dictionary"
+                count = None
             elif isinstance(type_def, ArrayTypeDefinition):
                 # Skip array internal types
                 continue
@@ -549,6 +568,11 @@ class QueryExecutor:
         elif isinstance(type_def, StringTypeDefinition):
             # String is a special array type — collect it like a primitive
             primitives.add(type_def.name)
+        elif isinstance(type_def, SetTypeDefinition):
+            self._collect_referenced_types(type_def.element_type, primitives, aliases)
+        elif isinstance(type_def, DictionaryTypeDefinition):
+            self._collect_referenced_types(type_def.key_type, primitives, aliases)
+            self._collect_referenced_types(type_def.value_type, primitives, aliases)
         elif isinstance(type_def, PrimitiveTypeDefinition):
             primitives.add(type_def.name)
         elif isinstance(type_def, ArrayTypeDefinition):
@@ -566,6 +590,10 @@ class QueryExecutor:
             return "String"
         if isinstance(type_def, BooleanTypeDefinition):
             return "Boolean"
+        if isinstance(type_def, SetTypeDefinition):
+            return "Set"
+        if isinstance(type_def, DictionaryTypeDefinition):
+            return "Dictionary"
         if isinstance(type_def, ArrayTypeDefinition):
             return "Array"
         if isinstance(type_def, CompositeTypeDefinition):
@@ -610,10 +638,20 @@ class QueryExecutor:
                 edges.append({"source": source, "kind": kind, "target": target, "field": field})
 
         def process_field_type(owner: str, kind: str, field_name: str, type_def: TypeDefinition) -> None:
-            """Add edge from owner to field's type, and handle array element edges."""
+            """Add edge from owner to field's type, and handle array/set/dict element edges."""
             add_edge(owner, kind, type_def.name, field_name)
             base = type_def.resolve_base_type()
-            if isinstance(base, ArrayTypeDefinition) and type_def.name not in visited_array_types:
+            if isinstance(base, SetTypeDefinition) and type_def.name not in visited_array_types:
+                visited_array_types.add(type_def.name)
+                set_kind = self._classify_type(self.registry.get(type_def.name) or base)
+                add_edge(type_def.name, set_kind, base.element_type.name, "{}")
+            elif isinstance(base, DictionaryTypeDefinition) and type_def.name not in visited_array_types:
+                visited_array_types.add(type_def.name)
+                dict_kind = self._classify_type(self.registry.get(type_def.name) or base)
+                add_edge(type_def.name, dict_kind, base.key_type.name, "{key}")
+                add_edge(type_def.name, dict_kind, base.value_type.name, "{value}")
+                add_edge(type_def.name, dict_kind, base.entry_type.name, "(entry)")
+            elif isinstance(base, ArrayTypeDefinition) and type_def.name not in visited_array_types:
                 visited_array_types.add(type_def.name)
                 arr_kind = self._classify_type(self.registry.get(type_def.name) or base)
                 add_edge(type_def.name, arr_kind, base.element_type.name, "[]")
@@ -637,6 +675,12 @@ class QueryExecutor:
             elif isinstance(type_def, InterfaceTypeDefinition):
                 for f in type_def.fields:
                     process_field_type(type_name, kind, f.name, f.type_def)
+            elif isinstance(type_def, SetTypeDefinition):
+                add_edge(type_name, kind, type_def.element_type.name, "{}")
+            elif isinstance(type_def, DictionaryTypeDefinition):
+                add_edge(type_name, kind, type_def.key_type.name, "{key}")
+                add_edge(type_name, kind, type_def.value_type.name, "{value}")
+                add_edge(type_name, kind, type_def.entry_type.name, "(entry)")
             elif isinstance(type_def, CompositeTypeDefinition):
                 for f in type_def.fields:
                     process_field_type(type_name, kind, f.name, f.type_def)
@@ -858,6 +902,28 @@ class QueryExecutor:
                         "size": 0,
                         "default": "",
                     })
+        elif isinstance(base, SetTypeDefinition):
+            rows.append({
+                "property": "(element_type)",
+                "type": base.element_type.name,
+                "size": base.element_type.size_bytes,
+            })
+        elif isinstance(base, DictionaryTypeDefinition):
+            rows.append({
+                "property": "(key_type)",
+                "type": base.key_type.name,
+                "size": base.key_type.size_bytes,
+            })
+            rows.append({
+                "property": "(value_type)",
+                "type": base.value_type.name,
+                "size": base.value_type.size_bytes,
+            })
+            rows.append({
+                "property": "(entry_type)",
+                "type": base.entry_type.name,
+                "size": base.entry_type.size_bytes,
+            })
         elif isinstance(base, ArrayTypeDefinition):
             rows.append({
                 "property": "(element_type)",
@@ -898,6 +964,46 @@ class QueryExecutor:
             message=f"Dropping database: {query.path}",
         )
 
+    def _resolve_type_spec(self, spec: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec) -> TypeDefinition | None:
+        """Resolve a type specification (string or structured TypeSpec) to a TypeDefinition.
+
+        Returns None if the type cannot be resolved.
+        """
+        if isinstance(spec, str):
+            if spec.endswith("[]"):
+                base_name = spec[:-2]
+                return self.registry.get_array_type(base_name)
+            return self.registry.get(spec)
+        elif isinstance(spec, ArrayTypeSpec):
+            element_td = self._resolve_type_spec(spec.element_type)
+            if element_td is None:
+                return None
+            return self.registry.get_array_type(element_td.name)
+        elif isinstance(spec, SetTypeSpec):
+            element_td = self._resolve_type_spec(spec.element_type)
+            if element_td is None:
+                return None
+            return self.registry.get_or_create_set_type(element_td)
+        elif isinstance(spec, DictTypeSpec):
+            key_td = self._resolve_type_spec(spec.key_type)
+            val_td = self._resolve_type_spec(spec.value_type)
+            if key_td is None or val_td is None:
+                return None
+            return self.registry.get_or_create_dict_type(key_td, val_td)
+        return None
+
+    def _type_spec_to_string(self, spec: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec) -> str:
+        """Convert a TypeSpec AST node back to a human-readable string."""
+        if isinstance(spec, str):
+            return spec
+        elif isinstance(spec, ArrayTypeSpec):
+            return "[" + self._type_spec_to_string(spec.element_type) + "]"
+        elif isinstance(spec, SetTypeSpec):
+            return "{" + self._type_spec_to_string(spec.element_type) + "}"
+        elif isinstance(spec, DictTypeSpec):
+            return "{" + self._type_spec_to_string(spec.key_type) + ": " + self._type_spec_to_string(spec.value_type) + "}"
+        return str(spec)
+
     def _execute_create_alias(self, query: CreateAliasQuery) -> CreateResult:
         """Execute CREATE ALIAS query."""
         if query.name.startswith("_"):
@@ -916,16 +1022,13 @@ class QueryExecutor:
             )
 
         # Get the base type
-        if query.base_type.endswith("[]"):
-            elem_name = query.base_type[:-2]
-            base_type = self.registry.get_array_type(elem_name)
-        else:
-            base_type = self.registry.get(query.base_type)
+        base_type = self._resolve_type_spec(query.base_type)
         if base_type is None:
+            type_str = self._type_spec_to_string(query.base_type)
             return CreateResult(
                 columns=[],
                 rows=[],
-                message=f"Unknown base type: {query.base_type}",
+                message=f"Unknown base type: {type_str}",
                 type_name=query.name,
             )
 
@@ -936,10 +1039,11 @@ class QueryExecutor:
         # Save updated metadata
         self.storage.save_metadata()
 
+        type_str = self._type_spec_to_string(query.base_type)
         return CreateResult(
             columns=["alias", "base_type"],
-            rows=[{"alias": query.name, "base_type": query.base_type}],
-            message=f"Created alias '{query.name}' as '{query.base_type}'",
+            rows=[{"alias": query.name, "base_type": type_str}],
+            message=f"Created alias '{query.name}' as '{type_str}'",
             type_name=query.name,
         )
 
@@ -971,19 +1075,15 @@ class QueryExecutor:
         # Build field definitions
         fields: list[FieldDefinition] = []
         for field_def in query.fields:
-            type_name = field_def.type_name
-            if type_name.endswith("[]"):
-                base_name = type_name[:-2]
-                field_type = self.registry.get_array_type(base_name)
-            else:
-                field_type = self.registry.get(type_name)
-                if field_type is None:
-                    return CreateResult(
-                        columns=[],
-                        rows=[],
-                        message=f"Unknown type: {type_name}",
-                        type_name=query.name,
-                    )
+            field_type = self._resolve_type_spec(field_def.type_name)
+            if field_type is None:
+                type_str = self._type_spec_to_string(field_def.type_name)
+                return CreateResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Unknown type: {type_str}",
+                    type_name=query.name,
+                )
 
             fd = FieldDefinition(name=field_def.name, type_def=field_type)
             if field_def.overflow is not None:
@@ -1130,20 +1230,15 @@ class QueryExecutor:
         # Build field definitions from query
         fields: list[FieldDefinition] = parent_fields.copy()
         for field_def in query.fields:
-            type_name = field_def.type_name
-            # Check if it's an array type (ends with [])
-            if type_name.endswith("[]"):
-                base_name = type_name[:-2]
-                field_type = self.registry.get_array_type(base_name)
-            else:
-                field_type = self.registry.get(type_name)
-                if field_type is None:
-                    return CreateResult(
-                        columns=[],
-                        rows=[],
-                        message=f"Unknown type: {type_name}",
-                        type_name=query.name,
-                    )
+            field_type = self._resolve_type_spec(field_def.type_name)
+            if field_type is None:
+                type_str = self._type_spec_to_string(field_def.type_name)
+                return CreateResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Unknown type: {type_str}",
+                    type_name=query.name,
+                )
 
             fd = FieldDefinition(name=field_def.name, type_def=field_type)
             if field_def.overflow is not None:
@@ -1251,19 +1346,15 @@ class QueryExecutor:
             fields: list[FieldDefinition] = []
             if vspec.fields:
                 for fdef in vspec.fields:
-                    type_name = fdef.type_name
-                    if type_name.endswith("[]"):
-                        base_name = type_name[:-2]
-                        field_type = self.registry.get_array_type(base_name)
-                    else:
-                        field_type = self.registry.get(type_name)
-                        if field_type is None:
-                            return CreateResult(
-                                columns=[],
-                                rows=[],
-                                message=f"Unknown type: {type_name}",
-                                type_name=query.name,
-                            )
+                    field_type = self._resolve_type_spec(fdef.type_name)
+                    if field_type is None:
+                        type_str = self._type_spec_to_string(fdef.type_name)
+                        return CreateResult(
+                            columns=[],
+                            rows=[],
+                            message=f"Unknown type: {type_str}",
+                            type_name=query.name,
+                        )
                     fields.append(FieldDefinition(name=fdef.name, type_def=field_type))
 
             variants.append(EVD(name=vspec.name, discriminant=disc, fields=fields))
@@ -1641,6 +1732,84 @@ class QueryExecutor:
                 raw_record[fv.name] = None
             elif isinstance(field_base, EnumTypeDefinition):
                 raw_record[fv.name] = resolved_value
+            elif isinstance(field_base, DictionaryTypeDefinition):
+                if isinstance(resolved_value, (EmptyBraces, DictLiteral)):
+                    # Re-use _create_instance logic by wrapping in a temp values dict
+                    temp_values = {fv.name: resolved_value}
+                    temp_refs: dict[str, Any] = {}
+                    # Inline the dict creation logic
+                    if isinstance(resolved_value, EmptyBraces) or (isinstance(resolved_value, DictLiteral) and not resolved_value.entries):
+                        array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                        raw_record[fv.name] = array_table.insert([])
+                    else:
+                        entries = resolved_value.entries
+                        keys_seen = []
+                        entry_indices = []
+                        entry_type = field_base.entry_type
+                        entry_base = entry_type.resolve_base_type()
+                        for entry in entries:
+                            key = entry.key
+                            key_check = key
+                            if key_check in keys_seen:
+                                return UpdateResult(
+                                    columns=[], rows=[],
+                                    message=f"Duplicate key in dictionary for field '{fv.name}': {key_check!r}",
+                                )
+                            keys_seen.append(key_check)
+                            entry_values = {"key": key, "value": entry.value}
+                            entry_index = self._create_instance(entry_type, entry_base, entry_values)
+                            entry_indices.append(entry_index)
+                        array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                        raw_record[fv.name] = array_table.insert(entry_indices)
+                else:
+                    return UpdateResult(
+                        columns=[], rows=[],
+                        message=f"Expected dict literal for field '{fv.name}'",
+                    )
+            elif isinstance(field_base, SetTypeDefinition):
+                if isinstance(resolved_value, (EmptyBraces, SetLiteral)):
+                    if isinstance(resolved_value, EmptyBraces) or (isinstance(resolved_value, SetLiteral) and not resolved_value.elements):
+                        array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                        raw_record[fv.name] = array_table.insert([])
+                    else:
+                        elements = resolved_value.elements
+                        seen = []
+                        for elem in elements:
+                            if elem in seen:
+                                return UpdateResult(
+                                    columns=[], rows=[],
+                                    message=f"Duplicate element in set for field '{fv.name}': {elem!r}",
+                                )
+                            seen.append(elem)
+                        if is_string_type(field_base.element_type):
+                            char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                            elements = [char_table.insert(list(e) if isinstance(e, str) else e) for e in elements]
+                        array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                        raw_record[fv.name] = array_table.insert(elements)
+                elif isinstance(resolved_value, list):
+                    # Plain list — treat as set elements
+                    seen = []
+                    for elem in resolved_value:
+                        if elem in seen:
+                            return UpdateResult(
+                                columns=[], rows=[],
+                                message=f"Duplicate element in set for field '{fv.name}': {elem!r}",
+                            )
+                        seen.append(elem)
+                    if is_string_type(field_base.element_type):
+                        char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                        resolved_value = [char_table.insert(list(e) if isinstance(e, str) else e) for e in resolved_value]
+                    array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                    raw_record[fv.name] = array_table.insert(resolved_value)
+                elif isinstance(resolved_value, str):
+                    resolved_value = list(resolved_value)
+                    array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                    raw_record[fv.name] = array_table.insert(resolved_value)
+                else:
+                    return UpdateResult(
+                        columns=[], rows=[],
+                        message=f"Expected set literal for field '{fv.name}'",
+                    )
             elif isinstance(field_base, ArrayTypeDefinition):
                 if isinstance(resolved_value, str):
                     resolved_value = list(resolved_value)
@@ -2332,6 +2501,15 @@ class QueryExecutor:
 
     def _resolve_instance_value(self, value: Any) -> Any:
         """Resolve a value from CREATE instance, handling function calls, composite refs, inline instances, variable refs, tag refs, and null."""
+        if isinstance(value, SetLiteral):
+            return SetLiteral(elements=[self._resolve_instance_value(e) for e in value.elements])
+        if isinstance(value, DictLiteral):
+            return DictLiteral(entries=[
+                DictEntry(key=self._resolve_instance_value(e.key), value=self._resolve_instance_value(e.value))
+                for e in value.entries
+            ])
+        if isinstance(value, EmptyBraces):
+            return value  # Pass through for context resolution in _create_instance
         if isinstance(value, TypedLiteral):
             return value.value  # Strip type info for storage
         if isinstance(value, list):
@@ -2657,10 +2835,78 @@ class QueryExecutor:
                 field_references[field.name] = None
                 continue
 
+            if isinstance(field_base, DictionaryTypeDefinition):
+                # Dictionary field
+                if isinstance(field_value, EmptyBraces) or isinstance(field_value, DictLiteral) and not field_value.entries:
+                    # Empty dict
+                    array_table = self.storage.get_array_table_for_type(field.type_def)
+                    field_references[field.name] = array_table.insert([])
+                    continue
+                if isinstance(field_value, DictLiteral):
+                    entries = field_value.entries
+                elif isinstance(field_value, list):
+                    # Already resolved list of (key, value) tuples (e.g. from defaults)
+                    entries = [DictEntry(key=k, value=v) for k, v in field_value]
+                else:
+                    raise ValueError(f"Expected dict literal for field '{field.name}', got {type(field_value).__name__}")
+                # Enforce key uniqueness
+                keys_seen = []
+                entry_indices = []
+                entry_type = field_base.entry_type
+                entry_base = entry_type.resolve_base_type()
+                for entry in entries:
+                    key = entry.key
+                    # Convert string key to char list for string keys
+                    if isinstance(key, str) and is_string_type(field_base.key_type):
+                        key_check = key
+                    else:
+                        key_check = key
+                    if key_check in keys_seen:
+                        raise ValueError(f"Duplicate key in dictionary for field '{field.name}': {key_check!r}")
+                    keys_seen.append(key_check)
+                    # Create entry composite instance
+                    entry_values = {"key": key, "value": entry.value}
+                    entry_index = self._create_instance(entry_type, entry_base, entry_values)
+                    entry_indices.append(entry_index)
+                array_table = self.storage.get_array_table_for_type(field.type_def)
+                field_references[field.name] = array_table.insert(entry_indices)
+                continue
+
+            if isinstance(field_base, SetTypeDefinition):
+                # Set field — like array but with uniqueness enforcement
+                if isinstance(field_value, EmptyBraces) or isinstance(field_value, SetLiteral) and not field_value.elements:
+                    array_table = self.storage.get_array_table_for_type(field.type_def)
+                    field_references[field.name] = array_table.insert([])
+                    continue
+                if isinstance(field_value, SetLiteral):
+                    elements = field_value.elements
+                elif isinstance(field_value, list):
+                    elements = field_value
+                elif isinstance(field_value, str):
+                    elements = list(field_value)
+                else:
+                    raise ValueError(f"Expected set literal for field '{field.name}', got {type(field_value).__name__}")
+                # Enforce uniqueness
+                seen = []
+                for elem in elements:
+                    if elem in seen:
+                        raise ValueError(f"Duplicate element in set for field '{field.name}': {elem!r}")
+                    seen.append(elem)
+                # For {string} sets: each string → chars stored in char table → (start, length) tuple
+                if is_string_type(field_base.element_type):
+                    char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                    elements = [char_table.insert(list(e) if isinstance(e, str) else e) for e in elements]
+                array_table = self.storage.get_array_table_for_type(field.type_def)
+                field_references[field.name] = array_table.insert(elements)
+                continue
+
             if isinstance(field_base, ArrayTypeDefinition):
                 # Convert string to character list if needed
                 if isinstance(field_value, str):
                     field_value = list(field_value)
+                # Handle EmptyBraces as empty array
+                if isinstance(field_value, EmptyBraces):
+                    field_value = []
                 # Handle composite array elements (InlineInstance or int refs)
                 elem_base = field_base.element_type.resolve_base_type()
                 if isinstance(elem_base, CompositeTypeDefinition):
@@ -3447,6 +3693,47 @@ class QueryExecutor:
                             # C-style: ref is already an EnumValue
                             self._resolve_enum_associated_values(ref, field_base)
                             resolved[field.name] = ref
+                    elif isinstance(field_base, DictionaryTypeDefinition):
+                        start_index, length = ref
+                        if length == 0:
+                            resolved[field.name] = {}
+                        else:
+                            arr_table = self.storage.get_array_table_for_type(field.type_def)
+                            entry_type = field_base.entry_type
+                            entry_base = entry_type.resolve_base_type()
+                            result_dict = {}
+                            for j in range(length):
+                                entry_idx = arr_table.element_table.get(start_index + j)
+                                entry_table = self.storage.get_table(entry_type.name)
+                                entry_record = entry_table.get(entry_idx)
+                                # Resolve key and value from entry record
+                                key_ref = entry_record["key"]
+                                val_ref = entry_record["value"]
+                                key_val = self._resolve_entry_field(key_ref, entry_base.get_field("key"))
+                                val_val = self._resolve_entry_field(val_ref, entry_base.get_field("value"))
+                                result_dict[key_val] = val_val
+                            resolved[field.name] = result_dict
+                    elif isinstance(field_base, SetTypeDefinition):
+                        start_index, length = ref
+                        if length == 0:
+                            resolved[field.name] = SetValue()
+                        else:
+                            arr_table = self.storage.get_array_table_for_type(field.type_def)
+                            elements = [
+                                arr_table.element_table.get(start_index + j)
+                                for j in range(length)
+                            ]
+                            if is_string_type(field_base.element_type):
+                                # String set elements: each element is (start, length) in char table
+                                char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                                str_elements = []
+                                for elem in elements:
+                                    cs, cl = elem
+                                    chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                                    str_elements.append("".join(chars))
+                                resolved[field.name] = SetValue(str_elements)
+                            else:
+                                resolved[field.name] = SetValue(elements)
                     elif isinstance(field_base, ArrayTypeDefinition):
                         start_index, length = ref
                         if length == 0:
@@ -3497,6 +3784,26 @@ class QueryExecutor:
         else:
             # Primitive/alias type — scan all composites that contain this field type
             yield from self._load_records_by_field_type(type_name, type_def)
+
+    def _resolve_entry_field(self, ref: Any, field_def: FieldDefinition) -> Any:
+        """Resolve a single field from a dict entry composite (key or value)."""
+        if ref is None:
+            return None
+        field_base = field_def.type_def.resolve_base_type()
+        if isinstance(field_base, ArrayTypeDefinition):
+            start_index, length = ref
+            if length == 0:
+                return [] if not is_string_type(field_def.type_def) else ""
+            arr_table = self.storage.get_array_table_for_type(field_def.type_def)
+            elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+            if is_string_type(field_def.type_def):
+                return "".join(elements)
+            return elements
+        if isinstance(field_base, CompositeTypeDefinition):
+            return f"<{field_def.type_def.name}[{ref}]>"
+        if is_boolean_type(field_def.type_def):
+            return bool(ref)
+        return ref
 
     def _load_records_by_interface(
         self, interface_name: str, interface_def: InterfaceTypeDefinition
@@ -4641,8 +4948,12 @@ class QueryExecutor:
                 continue
             if isinstance(type_def, PrimitiveTypeDefinition):
                 continue
+            if isinstance(type_def, DictionaryTypeDefinition):
+                continue  # auto-generated dict types
             if isinstance(type_def, ArrayTypeDefinition):
-                continue  # auto-generated array types
+                continue  # auto-generated array/set types
+            if type_name.startswith("Dict_"):
+                continue  # synthetic dict entry composites
             if isinstance(type_def, InterfaceTypeDefinition):
                 interfaces.append((type_name, type_def))
             elif isinstance(type_def, EnumTypeDefinition):
@@ -5822,6 +6133,54 @@ class QueryExecutor:
             if isinstance(ref, EnumValue):
                 return self._format_enum_value_ttq(ref, field_base)
             return str(ref)
+
+        elif isinstance(field_base, DictionaryTypeDefinition):
+            start_index, length = ref
+            if length == 0:
+                return "{:}"
+            arr_table = self.storage.get_array_table_for_type(field.type_def)
+            entry_type = field_base.entry_type
+            entry_base = entry_type.resolve_base_type()
+            key_field = entry_base.get_field("key")
+            val_field = entry_base.get_field("value")
+            key_base = key_field.type_def.resolve_base_type()
+            val_base = val_field.type_def.resolve_base_type()
+            entry_strs = []
+            for j in range(length):
+                entry_idx = arr_table.element_table.get(start_index + j)
+                entry_table = self.storage.get_table(entry_type.name)
+                entry_record = entry_table.get(entry_idx)
+                k_str = self._format_field_value(
+                    key_field, entry_record["key"], dump_vars, formatting,
+                    pretty=pretty, indent=indent,
+                    record_tags=record_tags, back_edge_tags=back_edge_tags,
+                )
+                v_str = self._format_field_value(
+                    val_field, entry_record["value"], dump_vars, formatting,
+                    pretty=pretty, indent=indent,
+                    record_tags=record_tags, back_edge_tags=back_edge_tags,
+                )
+                entry_strs.append(f"{k_str}: {v_str}")
+            return "{" + ", ".join(entry_strs) + "}"
+
+        elif isinstance(field_base, SetTypeDefinition):
+            start_index, length = ref
+            if length == 0:
+                return "{,}"
+            arr_table = self.storage.get_array_table_for_type(field.type_def)
+            elem_base = field_base.element_type.resolve_base_type()
+            elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+            if is_string_type(field_base.element_type):
+                # String set elements: each is (start, length) in char table
+                char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                elem_strs = []
+                for elem in elements:
+                    cs, cl = elem
+                    chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                    elem_strs.append(self._format_ttq_string("".join(chars)))
+            else:
+                elem_strs = [self._format_ttq_value(e, elem_base) for e in elements]
+            return "{" + ", ".join(elem_strs) + "}"
 
         elif isinstance(field_base, ArrayTypeDefinition):
             start_index, length = ref
