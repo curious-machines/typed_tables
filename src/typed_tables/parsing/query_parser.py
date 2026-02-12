@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
 import ply.yacc as yacc
 
 from typed_tables.parsing.query_lexer import QueryLexer
+
+# Directory containing this module — used for PLY table caching
+_PARSER_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 @dataclass
@@ -1830,12 +1834,14 @@ class QueryParser:
 
     def build(self, **kwargs: Any) -> None:
         """Build the parser."""
+        kwargs.setdefault("outputdir", _PARSER_DIR)
+        kwargs.setdefault("tabmodule", "typed_tables.parsing._parsetab")
         self.parser = yacc.yacc(module=self, start="program", **kwargs)
 
     def parse(self, data: str) -> Query:
         """Parse a single query string."""
         if self.parser is None:
-            self.build(debug=False, write_tables=False)
+            self.build(debug=False)
 
         results = self.parser.parse(data, lexer=self.lexer.lexer)
         if not results:
@@ -1847,7 +1853,7 @@ class QueryParser:
     def parse_program(self, data: str) -> list[Query]:
         """Parse multiple statements."""
         if self.parser is None:
-            self.build(debug=False, write_tables=False)
+            self.build(debug=False)
 
         results = self.parser.parse(data, lexer=self.lexer.lexer)
         return results if results else []

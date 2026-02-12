@@ -26,6 +26,7 @@ eggs/
 # PLY parser output
 parser.out
 parsetab.py
+_parsetab.py
 
 # Testing
 .pytest_cache/

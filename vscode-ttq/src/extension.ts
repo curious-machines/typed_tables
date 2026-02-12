@@ -8,6 +8,11 @@ import {
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
+  // LSP server disabled — the current parser doesn't work well in an editing
+  // context. Syntax highlighting and snippets still work. Uncomment the block
+  // below to re-enable when a better incremental parser is available.
+
+  /*
   const config = vscode.workspace.getConfiguration("ttq");
   const pythonPath = config.get<string>("pythonPath", "python3");
 
@@ -34,6 +39,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   client.start();
+  */
 }
 
 export function deactivate(): Thenable<void> | undefined {

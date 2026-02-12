@@ -4,8 +4,6 @@
 
 # Questions
 
-Are you letting Ply store its generated parser tables? This speeds up parser creation. We had an issue where creating a new parser for each test was slowing the tests down substantially. I'm wondering if we need this optimization in general
-
 I'm confused why compact shrinks files below the 4096 initial size. I thought that was a requirement. When the compacted table needs to expand, will it simply double or will it first jump to 4096 bytes?
 
 Is it possible to add support for float8 and float16? Also, could we support Fractions?
@@ -23,8 +21,6 @@ We should consider if we can approach the query executor as a type of vm. We wou
 We would need to figure out how information is passed between instructions. We could use a stack, which is pretty simple. We could have an notion of registers that store specific types of values.
 
 This would require turning a query into a sequence of instructions; a mini-compiler of sorts. This will be useful for debugging and could serve as a way to distribute queries between multiple running instances.
-
-## Disable LSP
 
 ## Create Examples of Building Tree in Python and in TTQ
 
@@ -44,6 +40,8 @@ Would be great if we could import binary data (some file format) and be able to 
 - Indexing
 
 # Completed
+
+## Disable LSP
 
 ## Add Help Docs
 
