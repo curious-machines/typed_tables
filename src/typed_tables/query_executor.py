@@ -70,6 +70,7 @@ from typed_tables.types import (
     PRIMITIVE_TYPE_NAMES,
     AliasTypeDefinition,
     ArrayTypeDefinition,
+    BooleanTypeDefinition,
     CompositeTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
@@ -83,6 +84,7 @@ from typed_tables.types import (
     TypeDefinition,
     TypeRegistry,
     TypedValue,
+    is_boolean_type,
     is_string_type,
     type_range,
 )
@@ -554,6 +556,8 @@ class QueryExecutor:
             return "Alias"
         if isinstance(type_def, StringTypeDefinition):
             return "String"
+        if isinstance(type_def, BooleanTypeDefinition):
+            return "Boolean"
         if isinstance(type_def, ArrayTypeDefinition):
             return "Array"
         if isinstance(type_def, CompositeTypeDefinition):
@@ -2985,6 +2989,18 @@ class QueryExecutor:
             raise RuntimeError(f"Value {raw} out of range for {type_name} ({min_val}..{max_val})")
         return TypedValue(value=raw, type_name=type_name)
 
+    def _convert_to_string(self, value: Any) -> str:
+        """Convert a value to its string representation."""
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, TypedValue):
+            return str(value.value)
+        if isinstance(value, EnumValue):
+            return value.variant_name
+        if isinstance(value, str):
+            return value
+        return str(value)
+
     _MATH_FUNCS_1 = {
         "sqrt": __import__("math").sqrt,
         "abs": abs,
@@ -3002,6 +3018,28 @@ class QueryExecutor:
     def _evaluate_math_func(self, name: str, args: list) -> Any:
         """Evaluate a math function call."""
         name_lower = name.lower()
+
+        # string() cast — convert value to string representation
+        if name_lower == "string":
+            if len(args) != 1:
+                raise RuntimeError("string() requires exactly 1 argument")
+            arg = args[0]
+            if isinstance(arg, list):
+                return [self._convert_to_string(elem) for elem in arg]
+            return self._convert_to_string(arg)
+
+        # boolean() cast — convert 0/1 to boolean
+        if name_lower == "boolean":
+            if len(args) != 1:
+                raise RuntimeError("boolean() requires exactly 1 argument")
+            arg = self._unwrap_typed(args[0])
+            if isinstance(arg, bool):
+                return arg
+            if isinstance(arg, int):
+                if arg not in (0, 1):
+                    raise RuntimeError(f"boolean() requires 0 or 1, got {arg}")
+                return bool(arg)
+            raise RuntimeError(f"boolean() requires an integer argument, got {type(arg).__name__}")
 
         # Type conversion functions: int8(), uint16(), float32(), etc.
         if name_lower in PRIMITIVE_TYPE_NAMES:
@@ -3427,7 +3465,7 @@ class QueryExecutor:
                         resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
                     else:
                         # Primitive — value is already inline
-                        resolved[field.name] = ref
+                        resolved[field.name] = bool(ref) if is_boolean_type(field.type_def) else ref
 
                 yield resolved
 
@@ -3507,7 +3545,7 @@ class QueryExecutor:
                     elif isinstance(field_base, CompositeTypeDefinition):
                         resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
                     else:
-                        resolved[field.name] = ref
+                        resolved[field.name] = bool(ref) if is_boolean_type(field.type_def) else ref
 
                 yield resolved
 
@@ -3613,7 +3651,7 @@ class QueryExecutor:
                                     else:
                                         row[vf.name] = elements
                             else:
-                                row[vf.name] = fval
+                                row[vf.name] = bool(fval) if is_boolean_type(vf.type_def) else fval
                     yield row
                 else:
                     # Overview query: formatted value string
@@ -3699,7 +3737,7 @@ class QueryExecutor:
                     resolved[field.name] = f"<{field.type_def.name}[{ref}]>"
                 else:
                     # Primitive — value is already inline
-                    resolved[field.name] = ref
+                    resolved[field.name] = bool(ref) if is_boolean_type(field.type_def) else ref
 
             yield resolved
 
@@ -4293,7 +4331,7 @@ class QueryExecutor:
                 resolved[f.name] = f"<{f.type_def.name}[{ref}]>"
             else:
                 # Primitive — value is already inline
-                resolved[f.name] = ref
+                resolved[f.name] = bool(ref) if is_boolean_type(f.type_def) else ref
         return resolved
 
     def _maybe_resolve_composite_array(
@@ -4466,6 +4504,8 @@ class QueryExecutor:
         """Format a default value for dump output."""
         if value is None:
             return "null"
+        if is_boolean_type(type_def):
+            return "true" if value else "false"
         if isinstance(value, EnumValue):
             base = type_def.resolve_base_type()
             enum_name = base.name if isinstance(base, EnumTypeDefinition) else type_def.name
@@ -5115,7 +5155,9 @@ class QueryExecutor:
 
         # Helper to format a primitive value
         def fmt_primitive(val: Any, prim_type: PrimitiveTypeDefinition) -> str:
-            if prim_type.primitive == PrimitiveType.CHARACTER:
+            if isinstance(prim_type, BooleanTypeDefinition):
+                return "true" if val else "false"
+            elif prim_type.primitive == PrimitiveType.CHARACTER:
                 return repr(chr(val)) if isinstance(val, int) else repr(val)
             elif prim_type.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
                 return str(val)
@@ -5272,7 +5314,9 @@ class QueryExecutor:
 
         # Helper to format a primitive value for JSON
         def fmt_primitive(val: Any, prim_type: PrimitiveTypeDefinition) -> Any:
-            if prim_type.primitive == PrimitiveType.CHARACTER:
+            if isinstance(prim_type, BooleanTypeDefinition):
+                return bool(val)
+            elif prim_type.primitive == PrimitiveType.CHARACTER:
                 return chr(val) if isinstance(val, int) else val
             elif prim_type.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
                 return float(val)
@@ -5407,7 +5451,9 @@ class QueryExecutor:
 
         # Helper to format a primitive value for XML
         def fmt_primitive(val: Any, prim_type: PrimitiveTypeDefinition) -> str:
-            if prim_type.primitive == PrimitiveType.CHARACTER:
+            if isinstance(prim_type, BooleanTypeDefinition):
+                return "true" if val else "false"
+            elif prim_type.primitive == PrimitiveType.CHARACTER:
                 ch = chr(val) if isinstance(val, int) else val
                 return escape(ch)
             elif prim_type.primitive in (PrimitiveType.FLOAT32, PrimitiveType.FLOAT64):
@@ -5905,6 +5951,8 @@ class QueryExecutor:
 
     def _format_ttq_value(self, value: Any, type_base: TypeDefinition) -> str:
         """Format a primitive value as a TTQ literal."""
+        if isinstance(type_base, BooleanTypeDefinition):
+            return "true" if value else "false"
         if isinstance(type_base, PrimitiveTypeDefinition):
             if type_base.primitive == PrimitiveType.BIT:
                 return "1" if value else "0"

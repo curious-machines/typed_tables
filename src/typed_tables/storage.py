@@ -11,6 +11,7 @@ from typed_tables.table import Table
 from typed_tables.types import (
     AliasTypeDefinition,
     ArrayTypeDefinition,
+    BooleanTypeDefinition,
     CompositeTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
@@ -80,7 +81,9 @@ class StorageManager:
 
     def _serialize_type_def(self, type_def: TypeDefinition) -> dict[str, Any]:
         """Serialize a single type definition."""
-        if isinstance(type_def, PrimitiveTypeDefinition):
+        if isinstance(type_def, BooleanTypeDefinition):
+            return {"kind": "boolean"}
+        elif isinstance(type_def, PrimitiveTypeDefinition):
             return {
                 "kind": "primitive",
                 "primitive": type_def.primitive.value,

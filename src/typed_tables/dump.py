@@ -12,6 +12,7 @@ from typed_tables.storage import StorageManager
 from typed_tables.types import (
     AliasTypeDefinition,
     ArrayTypeDefinition,
+    BooleanTypeDefinition,
     CompositeTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
@@ -23,6 +24,7 @@ from typed_tables.types import (
     StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
+    is_boolean_type,
     is_string_type,
 )
 
@@ -122,6 +124,8 @@ def _create_type_from_spec(
     elif kind == "string":
         element_type = registry.get_or_raise(spec["element_type"])
         return StringTypeDefinition(name=name, element_type=element_type)
+    elif kind == "boolean":
+        return BooleanTypeDefinition(name=name, primitive=PrimitiveType.BIT)
     elif kind == "array":
         element_type = registry.get_or_raise(spec["element_type"])
         return ArrayTypeDefinition(name=name, element_type=element_type)
@@ -248,7 +252,9 @@ def format_value(value: Any, type_def: TypeDefinition) -> str:
     """Format a value for display."""
     base = type_def.resolve_base_type()
 
-    if isinstance(base, PrimitiveTypeDefinition):
+    if is_boolean_type(type_def):
+        return "true" if value else "false"
+    elif isinstance(base, PrimitiveTypeDefinition):
         if base.primitive == PrimitiveType.CHARACTER:
             if isinstance(value, str):
                 return repr(value)

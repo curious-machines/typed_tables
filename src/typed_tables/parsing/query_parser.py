@@ -1059,6 +1059,11 @@ class QueryParser:
         value, type_name = p[2]
         p[0] = TypedLiteral(value=-value, type_name=type_name)
 
+    def p_instance_value_bool(self, p: yacc.YaccProduction) -> None:
+        """instance_value : TRUE
+                          | FALSE"""
+        p[0] = 1 if p[1].lower() == "true" else 0
+
     def p_instance_value_literal(self, p: yacc.YaccProduction) -> None:
         """instance_value : STRING
                           | INTEGER
@@ -1206,6 +1211,11 @@ class QueryParser:
         value, type_name = p[1]
         p[0] = TypedLiteral(value=value, type_name=type_name)
 
+    def p_array_element_bool(self, p: yacc.YaccProduction) -> None:
+        """array_element : TRUE
+                         | FALSE"""
+        p[0] = 1 if p[1].lower() == "true" else 0
+
     def p_array_element(self, p: yacc.YaccProduction) -> None:
         """array_element : STRING
                          | INTEGER
@@ -1259,6 +1269,11 @@ class QueryParser:
                      | TYPED_FLOAT"""
         value, type_name = p[1]
         p[0] = TypedLiteral(value=value, type_name=type_name)
+
+    def p_eval_expr_bool(self, p: yacc.YaccProduction) -> None:
+        """eval_expr : TRUE
+                     | FALSE"""
+        p[0] = 1 if p[1].lower() == "true" else 0
 
     def p_eval_expr_literal(self, p: yacc.YaccProduction) -> None:
         """eval_expr : STRING
@@ -1599,6 +1614,11 @@ class QueryParser:
                  | MINUS TYPED_FLOAT"""
         value, type_name = p[2]
         p[0] = TypedLiteral(value=-value, type_name=type_name)
+
+    def p_value_bool(self, p: yacc.YaccProduction) -> None:
+        """value : TRUE
+                 | FALSE"""
+        p[0] = 1 if p[1].lower() == "true" else 0
 
     def p_value_integer(self, p: yacc.YaccProduction) -> None:
         """value : INTEGER"""

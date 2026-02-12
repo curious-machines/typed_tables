@@ -7,6 +7,7 @@ from typed_tables.table import Table
 from typed_tables.types import (
     AliasTypeDefinition,
     ArrayTypeDefinition,
+    BooleanTypeDefinition,
     CompositeTypeDefinition,
     EnumTypeDefinition,
     EnumValue,
@@ -18,6 +19,7 @@ from typed_tables.types import (
     StringTypeDefinition,
     TypeDefinition,
     TypeRegistry,
+    is_boolean_type,
     is_string_type,
 )
 
@@ -35,6 +37,7 @@ __all__ = [
     "AliasTypeDefinition",
     "ArrayTypeDefinition",
     "StringTypeDefinition",
+    "BooleanTypeDefinition",
     "CompositeTypeDefinition",
     "InterfaceTypeDefinition",
     "EnumTypeDefinition",
@@ -43,6 +46,7 @@ __all__ = [
     "FieldDefinition",
     "TypeRegistry",
     "is_string_type",
+    "is_boolean_type",
 ]
 
 __version__ = "0.1.0"

@@ -220,6 +220,18 @@ def is_string_type(type_def: TypeDefinition) -> bool:
 
 
 @dataclass
+class BooleanTypeDefinition(PrimitiveTypeDefinition):
+    """Built-in boolean type — stored as bit, displayed as true/false."""
+
+    pass
+
+
+def is_boolean_type(type_def: TypeDefinition) -> bool:
+    """Check if a type resolves to the built-in boolean type."""
+    return isinstance(type_def.resolve_base_type(), BooleanTypeDefinition)
+
+
+@dataclass
 class TypedValue:
     """A value with a known primitive type, used for type-checked math expressions."""
 
@@ -423,6 +435,8 @@ class TypeRegistry:
         # Register built-in string type (stored as character[], displayed as string)
         char_prim = self._types["character"]
         self._types["string"] = StringTypeDefinition(name="string", element_type=char_prim)
+        # Register built-in boolean type (stored as bit, displayed as true/false)
+        self._types["boolean"] = BooleanTypeDefinition(name="boolean", primitive=PrimitiveType.BIT)
         # Register built-in path alias (alias for string)
         self._types["path"] = AliasTypeDefinition(name="path", base_type=self._types["string"])
 

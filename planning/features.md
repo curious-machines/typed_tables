@@ -12,13 +12,9 @@ I would like to expand the "status" command to report the following. If you thin
 
 # Questions
 
-Does it make sense to allow expr in casts? That way the cast can be implicitly performed on each item or each function result in the expr, before evaluating the expr.
+Change "as" to "named" to clarify what that construct it is doing.
 
-Should we have a string cast to convert values to strings. This would work with enums too: Color.red becomes "Color.red" or maybe just "red" to match what the enum cast expects; supports round-tripping.
-
-Change "as" to "named" to clarify
-
-Change "temp" to "temporary"?
+Change "temp" to "temporary" since temp is a common variable name. This uses the full word ehich we've consistantly done throughout the language.
 
 ---
 
@@ -42,6 +38,10 @@ This would require turning a query into a sequence of instructions; a mini-compi
 
 ## Add color space transformations?
 
+## Packed bits and bit arrays
+
+Would be great if we could import binary data (some file format) and be able to treat that as a stream of bits so that we can cross byte boundaries and grab bits from the middle of bytes and across byte boundaries.
+
 ---
 
 # Deferred
@@ -50,6 +50,10 @@ This would require turning a query into a sequence of instructions; a mini-compi
 - phase 7, bitwise operators
 
 # Completed
+
+## String Casts
+
+Should we have a string cast to convert values to strings. This would work with enums too: Color.red becomes "Color.red" or maybe just "red" to match what the enum cast expects; supports round-tripping.
 
 ## Typed Math Expressions
 
@@ -153,7 +157,11 @@ Removed `create` keyword from type/alias/enum/interface definitions (kept for in
 
 ---
 
-# Declined 
+# Declined
+
+## Casting Expressions
+
+Does it make sense to allow expr in casts? That way the cast can be implicitly performed on each item or each function result in the expr, before evaluating the expr.
 
 ## Data Integrity
 

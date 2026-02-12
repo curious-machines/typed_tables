@@ -67,6 +67,8 @@ class QueryLexer:
         "desc": "DESC",
         "saturating": "SATURATING",
         "wrapping": "WRAPPING",
+        "true": "TRUE",
+        "false": "FALSE",
     }
 
     # Token list
