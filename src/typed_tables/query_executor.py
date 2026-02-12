@@ -6494,10 +6494,14 @@ class QueryExecutor:
 
     def _execute_archive(self, query: ArchiveQuery) -> ArchiveResult:
         """Execute an ARCHIVE TO query: compact then bundle into a .ttar file."""
-        output_file = query.output_file
-        # Append .ttar if no extension
-        if not Path(output_file).suffix:
-            output_file += ".ttar"
+        if query.output_file is None:
+            # Derive from database name
+            output_file = self.storage.data_dir.name + ".ttar"
+        else:
+            output_file = query.output_file
+            # Append .ttar if no extension
+            if not Path(output_file).suffix:
+                output_file += ".ttar"
 
         output_path = Path(output_file)
         if output_path.exists():
@@ -6630,6 +6634,14 @@ def execute_restore(query: RestoreQuery) -> RestoreResult:
     This is a module-level function so it can be called without an executor instance.
     """
     archive_path = Path(query.archive_file)
+
+    # Auto-add .ttar or .ttar.gz extension if file not found
+    if not archive_path.exists() and not archive_path.suffix:
+        for ext in (".ttar", ".ttar.gz"):
+            candidate = Path(str(archive_path) + ext)
+            if candidate.exists():
+                archive_path = candidate
+                break
 
     if query.output_path is not None:
         output_path = Path(query.output_path)

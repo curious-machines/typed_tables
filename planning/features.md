@@ -9,12 +9,9 @@
 - help database, describe <type>.<variant> has description on line below. Shift all desc to right by 2
 - help definitions is a mess
 
-- "help types" shows path as an alias for string. I think we removed path
-- archive with no arguments should create a .ttar file using the database name as the base name.
-- restore should automatically add .ttar and .ttar.gz when no file extension is provided
-- restore should automatically use the restored database
+## Slow Test
 
-- lets speed up the file size growth test. Create what you need before growth, archive that, then load that for the start of your test
+You have a test that peforms thousands of inserts. Lets speed up that file size growth test. Create what you need before the growth step, archive that database. Do this outside of the tests. Now when you run the test, load the archive at the start of your test. This should speed that test up tremendously.
 
 ---
 
@@ -50,6 +47,13 @@ Would be great if we could import binary data (some file format) and be able to 
 - phase 7, bitwise operators
 
 # Completed
+
+## Some REPL Fixes and Updates
+
+- "help types" shows path as an alias for string. I think we removed path
+- archive with no arguments should create a .ttar file using the database name as the base name.
+- restore should automatically add .ttar and .ttar.gz when no file extension is provided
+- restore should automatically "use" the restored database
 
 ## Status Updates
 

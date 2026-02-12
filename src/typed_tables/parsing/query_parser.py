@@ -116,7 +116,7 @@ class CompactQuery:
 class ArchiveQuery:
     """An ARCHIVE TO query."""
 
-    output_file: str
+    output_file: str | None = None
 
 
 @dataclass
@@ -558,6 +558,10 @@ class QueryParser:
     def p_query_archive_to(self, p: yacc.YaccProduction) -> None:
         """query : ARCHIVE TO STRING"""
         p[0] = ArchiveQuery(output_file=p[3])
+
+    def p_query_archive(self, p: yacc.YaccProduction) -> None:
+        """query : ARCHIVE"""
+        p[0] = ArchiveQuery()
 
     def p_query_restore_to(self, p: yacc.YaccProduction) -> None:
         """query : RESTORE STRING TO STRING"""

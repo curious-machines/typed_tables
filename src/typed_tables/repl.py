@@ -659,6 +659,17 @@ def run_repl(data_dir: Path | None) -> int:
                 if isinstance(query, RestoreQuery):
                     result = execute_restore(query)
                     print_result(result)
+                    # Auto-use the restored database
+                    if result.output_path:
+                        new_path = Path(result.output_path)
+                        try:
+                            if storage:
+                                storage.close()
+                            registry, storage, executor, _ = load_database(new_path)
+                            data_dir = new_path
+                            print(f"Switched to database: {new_path}")
+                        except Exception as e:
+                            print(f"Error loading restored database: {e}")
                     print()
                     continue
 
@@ -1049,7 +1060,6 @@ TYPES:
   Special types:
     string                    Built-in (stored as character[], displayed as "Alice")
     boolean                   Built-in (stored as bit, displayed as true/false)
-    path                      Built-in alias for string
 
   Array types:
     Add [] suffix to any type: uint8[], string[], Person[]
@@ -1389,6 +1399,18 @@ def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> t
             if isinstance(query, RestoreQuery):
                 result = execute_restore(query)
                 print_result(result)
+                # Auto-use the restored database
+                if result.output_path:
+                    new_path = Path(result.output_path)
+                    try:
+                        if storage:
+                            storage.close()
+                        registry, storage, executor, _ = load_database(new_path)
+                        data_dir = new_path
+                        print(f"Switched to database: {new_path}")
+                    except Exception as e:
+                        print(f"Error loading restored database: {e}", file=sys.stderr)
+                        return 1, data_dir
                 continue
 
             # Handle DROP query specially
