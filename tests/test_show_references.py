@@ -106,22 +106,26 @@ class TestShowReferences:
         edges = _edges(result)
         # Alias edge
         assert ("myid", "Alias", "(alias)", "uint128") in edges
-        # Labelled interface edge
+        # Labelled interface edge — name belongs to Labelled, not Person
         assert ("Labelled", "Interface", "name", "string") in edges
-        # Person composite edges
+        # Person composite edges (own fields only, not inherited name)
         assert ("Person", "Composite", "id", "myid") in edges
         assert ("Person", "Composite", "age", "uint8") in edges
         assert ("Person", "Composite", "color", "Color") in edges
         assert ("Person", "Composite", "shape", "Shape") in edges
-        assert ("Person", "Composite", "name", "string") in edges
+        assert ("Person", "Composite", "(implements)", "Labelled") in edges
+        # Inherited field appears under the interface, not Person
+        assert ("Person", "Composite", "name", "string") not in edges
 
     def test_show_references_specific_type(self, executor, parser):
         self._setup_schema(executor, parser)
         result = _run(executor, parser, 'show references Person')
         edges = _edges(result)
-        # Should include outgoing edges from Person
+        # Should include outgoing edges from Person (own fields)
         assert ("Person", "Composite", "id", "myid") in edges
-        assert ("Person", "Composite", "name", "string") in edges
+        # Inherited name appears via Labelled (filter expansion)
+        assert ("Labelled", "Interface", "name", "string") in edges
+        assert ("Person", "Composite", "(implements)", "Labelled") in edges
         # Should NOT include edges unrelated to Person
         assert ("myid", "Alias", "(alias)", "uint128") not in edges
 
@@ -382,6 +386,62 @@ class TestInheritanceEdges:
         result = _run(executor, parser, 'show references Person')
         edges = _edges(result)
         assert ("Employee", "Composite", "(extends)", "Person") in edges
+
+    def test_inherited_fields_on_interface_not_composite(self, executor, parser):
+        """Inherited fields appear under the interface, not the composite."""
+        _run(executor, parser, 'interface Styled { fill: string, stroke: string }')
+        _run(executor, parser, 'type Circle from Styled { cx: float32, cy: float32, r: float32 }')
+        result = _run(executor, parser, 'show references')
+        edges = _edges(result)
+        # Own fields on Circle
+        assert ("Circle", "Composite", "cx", "float32") in edges
+        assert ("Circle", "Composite", "cy", "float32") in edges
+        assert ("Circle", "Composite", "r", "float32") in edges
+        # Inherited fields on Styled, not Circle
+        assert ("Styled", "Interface", "fill", "string") in edges
+        assert ("Styled", "Interface", "stroke", "string") in edges
+        assert ("Circle", "Composite", "fill", "string") not in edges
+        assert ("Circle", "Composite", "stroke", "string") not in edges
+
+    def test_filter_expands_to_interface_edges(self, executor, parser):
+        """Filtering by a type also shows outgoing edges from its interfaces."""
+        _run(executor, parser, 'interface Styled { fill: string }')
+        _run(executor, parser, 'type Circle from Styled { r: float32 }')
+        _run(executor, parser, 'type Square from Styled { side: float32 }')
+        result = _run(executor, parser, 'show references Circle')
+        edges = _edges(result)
+        # Circle's own edges
+        assert ("Circle", "Composite", "r", "float32") in edges
+        assert ("Circle", "Composite", "(implements)", "Styled") in edges
+        # Styled's edges included via expansion
+        assert ("Styled", "Interface", "fill", "string") in edges
+        # Square's edges NOT included (not related to Circle)
+        assert ("Square", "Composite", "(implements)", "Styled") not in edges
+        assert ("Square", "Composite", "side", "float32") not in edges
+
+    def test_filter_expands_to_parent_edges(self, executor, parser):
+        """Filtering by a type also shows outgoing edges from its concrete parent."""
+        _run(executor, parser, 'type Person { name: string, age: uint8 }')
+        _run(executor, parser, 'type Employee from Person { dept: string }')
+        result = _run(executor, parser, 'show references Employee')
+        edges = _edges(result)
+        # Employee's own edges
+        assert ("Employee", "Composite", "dept", "string") in edges
+        assert ("Employee", "Composite", "(extends)", "Person") in edges
+        # Person's edges included via expansion
+        assert ("Person", "Composite", "name", "string") in edges
+        assert ("Person", "Composite", "age", "uint8") in edges
+
+    def test_dump_graph_filter_expands_to_interface(self, executor, parser):
+        """dump graph <type> also includes interface field edges."""
+        _run(executor, parser, 'interface Styled { fill: string }')
+        _run(executor, parser, 'type Circle from Styled { r: float32 }')
+        result = _run(executor, parser, 'dump graph Circle')
+        assert isinstance(result, DumpResult)
+        script = result.script
+        assert 'name="Circle"' in script
+        assert 'name="Styled"' in script
+        assert 'name="string"' in script
 
 
 # ---- Parent tracking tests ----

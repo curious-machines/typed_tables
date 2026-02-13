@@ -1,13 +1,5 @@
 # TODO
 
-## REPL and References Updates
-
-- Some REPL commands, like dump, change their behavior based on file extensions; they write different file formats or compress results. Please find all commands that do this and update the help docs to explain all file extension options. Also, I don't see "dump graph". I can't tell that that is an option. it should show up under "format modifiers". Make sure all commands show all of their variants, ignoring recursion, of course.
-
-"show references" and "dump graph" are similar concepts outputted differently. However, I can show references for a type, but can't dump the graph for a type. These two commands should be in parity as to what they support, except that show prints to screen and dump can output to a file.
-
-If a type extends another type, should the parent type show as a reference from the child type? Same question for interfaces.
-
 ---
 
 # Questions
@@ -50,6 +42,14 @@ Would be great if we could import binary data (some file format) and be able to 
 - Indexing
 
 # Completed
+
+## REPL and References Updates
+
+- Some REPL commands, like dump, change their behavior based on file extensions; they write different file formats or compress results. Please find all commands that do this and update the help docs to explain all file extension options. Also, I don't see "dump graph". I can't tell that that is an option. it should show up under "format modifiers". Make sure all commands show all of their variants, ignoring recursion, of course.
+
+"show references" and "dump graph" are similar concepts outputted differently. However, I can show references for a type, but can't dump the graph for a type. These two commands should be in parity as to what they support, except that show prints to screen and dump can output to a file.
+
+If a type extends another type, should the parent type show as a reference from the child type? Same question for interfaces.
 
 ## Float16, BigInt, BigUInt, and Fractions
 

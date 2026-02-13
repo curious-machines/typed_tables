@@ -2,7 +2,7 @@
 -- Same scene as landscape.ttq, but style fields are inherited via interfaces
 -- instead of being stored in a separate Style composite.
 
-use ttq_svg_landscape_iface
+use svg_db
 
 -- Color: named SVG colors and hex values
 enum Color {

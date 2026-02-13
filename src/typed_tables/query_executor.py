@@ -757,8 +757,21 @@ class QueryExecutor:
                 add_edge(type_name, kind, type_def.value_type.name, "{value}")
                 add_edge(type_name, kind, type_def.entry_type.name, "(entry)")
             elif isinstance(type_def, CompositeTypeDefinition):
+                # Collect inherited field names so we only emit own-field edges
+                inherited_fields: set[str] = set()
+                if type_def.parent:
+                    parent_td = self.registry.get(type_def.parent)
+                    if parent_td and isinstance(parent_td, CompositeTypeDefinition):
+                        for f in parent_td.fields:
+                            inherited_fields.add(f.name)
+                for iface_name in type_def.interfaces:
+                    iface_td = self.registry.get(iface_name)
+                    if iface_td and isinstance(iface_td, InterfaceTypeDefinition):
+                        for f in iface_td.fields:
+                            inherited_fields.add(f.name)
                 for f in type_def.fields:
-                    process_field_type(type_name, kind, f.name, f.type_def)
+                    if f.name not in inherited_fields:
+                        process_field_type(type_name, kind, f.name, f.type_def)
                 # Inheritance edges
                 if type_def.parent:
                     add_edge(type_name, kind, type_def.parent, "(extends)")
@@ -775,14 +788,33 @@ class QueryExecutor:
 
         return edges
 
+    def _filter_edges_by_type(self, edges: list[dict[str, str]], type_name: str) -> list[dict[str, str]]:
+        """Filter edges to those involving a type, expanding to parent/interface edges.
+
+        Includes edges directly involving the type (or its array variant), plus
+        outgoing edges from any parent or interface the type extends/implements.
+        This provides field provenance: inherited fields appear under their
+        defining type, not the inheriting composite.
+        """
+        names = {type_name, type_name + "[]"}
+        filtered = [e for e in edges if e["source"] in names or e["target"] in names]
+        # Expand: include outgoing edges from parent/interface types
+        parent_names: set[str] = set()
+        for e in filtered:
+            if e["field"] in ("(extends)", "(implements)") and e["source"] in names:
+                parent_names.add(e["target"])
+                parent_names.add(e["target"] + "[]")
+        if parent_names:
+            for e in edges:
+                if e["source"] in parent_names and e not in filtered:
+                    filtered.append(e)
+        return filtered
+
     def _execute_show_references(self, query: ShowReferencesQuery) -> QueryResult:
         """Execute SHOW REFERENCES query."""
         edges = self._build_type_graph()
         if query.type_name:
-            # Include the array variant so e.g. "show references Point"
-            # also shows Polyline → Point[] (not just Point[] → Point)
-            names = {query.type_name, query.type_name + "[]"}
-            edges = [e for e in edges if e["source"] in names or e["target"] in names]
+            edges = self._filter_edges_by_type(edges, query.type_name)
         edges = self._sort_rows(edges, query.sort_by, defaults=["target", "source"])
         return QueryResult(columns=["kind", "source", "field", "target"], rows=edges)
 
@@ -792,8 +824,7 @@ class QueryExecutor:
 
         edges = self._build_type_graph()
         if query.type_name:
-            names = {query.type_name, query.type_name + "[]"}
-            edges = [e for e in edges if e["source"] in names or e["target"] in names]
+            edges = self._filter_edges_by_type(edges, query.type_name)
         nodes = self._collect_graph_nodes(edges)
 
         if query.output_file:

@@ -1,6 +1,6 @@
 -- SVG Landscape: Models the shapes and styles from landscape.svg
 
-use ttq_svg_landscape
+use svg_db
 
 -- Color: named SVG colors and hex values
 enum Color {
