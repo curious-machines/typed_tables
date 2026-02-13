@@ -1,0 +1,18 @@
+digraph types {
+    rankdir=LR;
+    node [style=filled];
+    label="graph NPC path to Positioned";
+    labelloc=t;
+    fontsize=18;
+
+    "Creature" [shape=box, fillcolor="#ADD8E6"];
+    "NPC" [shape=box, fillcolor="#ADD8E6", penwidth=3];
+    "Physical" [shape=box, fillcolor="#FFB347"];
+    "Positioned" [shape=box, fillcolor="#FFB347"];
+    "WorldObject" [shape=box, fillcolor="#FFB347"];
+
+    "NPC" -> "Creature" [label="(extends)", style=dashed];
+    "Creature" -> "WorldObject" [label="(implements)", style=dashed];
+    "WorldObject" -> "Physical" [label="(extends)", style=dashed];
+    "Physical" -> "Positioned" [label="(extends)", style=dashed];
+}

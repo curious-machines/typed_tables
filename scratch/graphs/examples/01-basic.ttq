@@ -1,0 +1,19 @@
+-- 01-basic.ttq — Basic graph command: full schema, focus type, file output
+--
+-- Demonstrates:
+--   graph                          table output (all edges)
+--   graph <type>                   table output (focus on one type)
+--   graph to "file.dot"            DOT file output
+--   graph to "file.ttq"            TTQ file output
+--   graph sort by <column>         sorted table output
+
+use "../entity_db"
+
+-- Full schema graph to DOT (all types and edges)
+graph to "01-full.dot"
+
+-- Full schema graph to TTQ script (includes NodeRole enum)
+graph to "01-full.ttq"
+
+-- Focus on a single type (Boss) — DOT output
+graph Boss to "01-boss-focus.dot"

@@ -1513,12 +1513,13 @@ class TestTitleOutput:
         assert 'label="My Schema"' in result.script
         assert "labelloc=t" in result.script
 
-    def test_dot_no_title(self, executor, parser, tmp_data_dir):
-        """No title when not specified."""
+    def test_dot_default_title(self, executor, parser, tmp_data_dir):
+        """Default title when not explicitly specified."""
         _run(executor, parser, 'type Foo { x: uint32 }')
         result = _run(executor, parser, 'graph to "out.dot"')
         assert isinstance(result, DumpResult)
-        assert "labelloc=t" not in result.script
+        assert "labelloc=t" in result.script
+        assert 'label="graph"' in result.script
 
     def test_ttq_title(self, executor, parser, tmp_data_dir):
         """Title appears as comment in TTQ output."""
@@ -1528,11 +1529,11 @@ class TestTitleOutput:
         assert result.script.startswith("-- My Schema")
 
     def test_ttq_default_comment(self, executor, parser, tmp_data_dir):
-        """Default TTQ comment when no title."""
+        """Default TTQ comment derived from query when no explicit title."""
         _run(executor, parser, 'type Foo { x: uint32 }')
         result = _run(executor, parser, 'graph to "out.ttq"')
         assert isinstance(result, DumpResult)
-        assert result.script.startswith("-- Type reference graph")
+        assert result.script.startswith("-- graph")
 
 
 class TestStyleOutput:
@@ -1541,7 +1542,7 @@ class TestStyleOutput:
     def test_style_direction(self, executor, parser, tmp_data_dir):
         """Style file can override graph direction."""
         style_path = tmp_data_dir / "styles.txt"
-        style_path.write_text("direction = TB\n")
+        style_path.write_text('{"direction": "TB"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
         result = _run(executor, parser, f'graph to "out.dot" style "{style_path}"')
         assert isinstance(result, DumpResult)
@@ -1550,7 +1551,7 @@ class TestStyleOutput:
     def test_style_kind_color(self, executor, parser, tmp_data_dir):
         """Style file can override kind colors."""
         style_path = tmp_data_dir / "styles.txt"
-        style_path.write_text("composite.color = #FF0000\n")
+        style_path.write_text('{"composite.color": "#FF0000"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
         result = _run(executor, parser, f'graph to "out.dot" style "{style_path}"')
         assert isinstance(result, DumpResult)
@@ -1559,16 +1560,16 @@ class TestStyleOutput:
     def test_style_focus_color(self, executor, parser, tmp_data_dir):
         """Style file can set focus node color."""
         style_path = tmp_data_dir / "styles.txt"
-        style_path.write_text("focus.color = #00FF00\n")
+        style_path.write_text('{"focus.color": "#00FF00"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
         result = _run(executor, parser, f'graph Foo to "out.dot" style "{style_path}"')
         assert isinstance(result, DumpResult)
         assert "#00FF00" in result.script
 
     def test_style_comments_ignored(self, executor, parser, tmp_data_dir):
-        """Comments and blank lines in style files are ignored."""
+        """Comments in style files are ignored."""
         style_path = tmp_data_dir / "styles.txt"
-        style_path.write_text("-- This is a comment\n# Also a comment\n\ndirection = TB\n")
+        style_path.write_text('-- This is a comment\n{"direction": "TB"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
         result = _run(executor, parser, f'graph to "out.dot" style "{style_path}"')
         assert isinstance(result, DumpResult)
@@ -1585,7 +1586,7 @@ class TestStyleOutput:
     def test_title_and_style_combined(self, executor, parser, tmp_data_dir):
         """Title and style work together."""
         style_path = tmp_data_dir / "styles.txt"
-        style_path.write_text("direction = TB\n")
+        style_path.write_text('{"direction": "TB"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
         result = _run(executor, parser, f'graph to "out.dot" title "My Graph" style "{style_path}"')
         assert isinstance(result, DumpResult)

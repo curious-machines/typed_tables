@@ -1,0 +1,24 @@
+kind        | source        | field          | target        
+-------------------------------------------------------------
+'Composite' | 'Boss'        | '(implements)' | 'Combatant'   
+'Composite' | 'Creature'    | '(implements)' | 'Combatant'   
+'Composite' | 'NPC'         | '(implements)' | 'Combatant'   
+'Composite' | 'NPC'         | '(extends)'    | 'Creature'    
+'Interface' | 'Combatant'   | '(extends)'    | 'Damageable'  
+'Interface' | 'GameEntity'  | '(extends)'    | 'Entity'      
+'Interface' | 'Combatant'   | '(extends)'    | 'GameEntity'  
+'Interface' | 'WorldObject' | '(extends)'    | 'GameEntity'  
+'Interface' | 'Entity'      | '(extends)'    | 'Identifiable'
+'Interface' | 'Trackable'   | '(extends)'    | 'Identifiable'
+'Composite' | 'Boss'        | '(extends)'    | 'NPC'         
+'Interface' | 'WorldObject' | '(extends)'    | 'Physical'    
+'Interface' | 'Entity'      | '(extends)'    | 'Positioned'  
+'Interface' | 'Physical'    | '(extends)'    | 'Positioned'  
+'Interface' | 'WorldObject' | '(extends)'    | 'Renderable'  
+'Interface' | 'Trackable'   | '(extends)'    | 'Timed'       
+'Interface' | 'GameEntity'  | '(extends)'    | 'Trackable'   
+'Composite' | 'Boss'        | '(implements)' | 'WorldObject' 
+'Composite' | 'Creature'    | '(implements)' | 'WorldObject' 
+'Composite' | 'NPC'         | '(implements)' | 'WorldObject' 
+
+(20 rows)

@@ -1,0 +1,43 @@
+digraph types {
+    rankdir=LR;
+    node [style=filled];
+    label="graph Boss structure";
+    labelloc=t;
+    fontsize=18;
+
+    "Boss" [shape=box, fillcolor="#ADD8E6", penwidth=3];
+    "Combatant" [shape=box, fillcolor="#FFB347"];
+    "Creature" [shape=box, fillcolor="#ADD8E6"];
+    "Damageable" [shape=box, fillcolor="#FFB347"];
+    "Entity" [shape=box, fillcolor="#FFB347"];
+    "GameEntity" [shape=box, fillcolor="#FFB347"];
+    "Identifiable" [shape=box, fillcolor="#FFB347"];
+    "NPC" [shape=box, fillcolor="#ADD8E6"];
+    "Physical" [shape=box, fillcolor="#FFB347"];
+    "Positioned" [shape=box, fillcolor="#FFB347"];
+    "Renderable" [shape=box, fillcolor="#FFB347"];
+    "Timed" [shape=box, fillcolor="#FFB347"];
+    "Trackable" [shape=box, fillcolor="#FFB347"];
+    "WorldObject" [shape=box, fillcolor="#FFB347"];
+
+    "Boss" -> "NPC" [label="(extends)", style=dashed];
+    "Boss" -> "Combatant" [label="(implements)", style=dashed];
+    "Boss" -> "WorldObject" [label="(implements)", style=dashed];
+    "Combatant" -> "GameEntity" [label="(extends)", style=dashed];
+    "Combatant" -> "Damageable" [label="(extends)", style=dashed];
+    "WorldObject" -> "GameEntity" [label="(extends)", style=dashed];
+    "WorldObject" -> "Renderable" [label="(extends)", style=dashed];
+    "WorldObject" -> "Physical" [label="(extends)", style=dashed];
+    "NPC" -> "Creature" [label="(extends)", style=dashed];
+    "NPC" -> "Combatant" [label="(implements)", style=dashed];
+    "NPC" -> "WorldObject" [label="(implements)", style=dashed];
+    "Physical" -> "Positioned" [label="(extends)", style=dashed];
+    "GameEntity" -> "Entity" [label="(extends)", style=dashed];
+    "GameEntity" -> "Trackable" [label="(extends)", style=dashed];
+    "Creature" -> "Combatant" [label="(implements)", style=dashed];
+    "Creature" -> "WorldObject" [label="(implements)", style=dashed];
+    "Trackable" -> "Identifiable" [label="(extends)", style=dashed];
+    "Trackable" -> "Timed" [label="(extends)", style=dashed];
+    "Entity" -> "Identifiable" [label="(extends)", style=dashed];
+    "Entity" -> "Positioned" [label="(extends)", style=dashed];
+}

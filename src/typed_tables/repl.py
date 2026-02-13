@@ -1472,11 +1472,11 @@ GRAPH (schema exploration):
     graph to "f.dot" style "custom.style"
     graph to "f.dot" title "Schema" style "dark.style"
 
-  Style files use key = value format:
-    direction = LR                   Graph direction (LR, TB, etc.)
-    composite.color = #4A90D9        Node color for composites
-    interface.color = #7B68EE        Node color for interfaces
-    focus.color = #FFD700            Highlight color for focus type
+  Style files use TTQ dictionary syntax:
+    { "direction": "LR",            Graph direction (LR, TB, etc.)
+      "composite.color": "#4A90D9", Node color for composites
+      "interface.color": "#7B68EE", Node color for interfaces
+      "focus.color": "#FFD700" }    Highlight color for focus type
 
   TTQ output includes: enum NodeRole { focus, context, endpoint, leaf },
   TypeNode with name/kind/role fields, and Edge with source/target/field_name.""",

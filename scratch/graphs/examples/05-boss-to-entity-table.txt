@@ -1,0 +1,9 @@
+kind        | source       | field          | target      
+----------------------------------------------------------
+'Composite' | 'Creature'   | '(implements)' | 'Combatant' 
+'Composite' | 'NPC'        | '(extends)'    | 'Creature'  
+'Interface' | 'GameEntity' | '(extends)'    | 'Entity'    
+'Interface' | 'Combatant'  | '(extends)'    | 'GameEntity'
+'Composite' | 'Boss'       | '(extends)'    | 'NPC'       
+
+(5 rows)

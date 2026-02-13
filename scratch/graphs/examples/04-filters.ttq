@@ -1,0 +1,37 @@
+-- 04-filters.ttq — Showing and excluding filters
+--
+-- Demonstrates:
+--   graph showing type <name>                 keep edges targeting a type
+--   graph showing field [f1, f2]              keep edges for specific fields
+--   graph showing kind <Kind>                 keep nodes of a classification
+--   graph excluding type [t1, t2]             hide specific types
+--   Combined: showing + excluding together
+
+use "../entity_db"
+
+-- Show only edges that target string — which types have string fields?
+graph showing type string to "04-showing-string.dot"
+
+-- Show only edges that target float32
+graph showing type float32 to "04-showing-float32.dot"
+
+-- Show only interface nodes and their relationships
+graph showing kind Interface to "04-showing-interfaces.dot"
+
+-- Show only specific fields across the whole schema
+graph showing field [name, hp] to "04-showing-name-hp.dot"
+
+-- Exclude common primitive types to reduce clutter
+graph excluding type [uint8, uint16, uint32, uint64, float32, int16, boolean] to "04-excluding-primitives.dot"
+
+-- Focus on Boss, show only float32 fields
+graph Boss showing type float32 to "04-boss-float32.dot"
+
+-- Focus on Boss, exclude primitives to see only composite/interface edges
+graph Boss excluding kind Primitive to "04-boss-no-primitives.dot"
+
+-- Combined: show string fields but exclude the Element enum
+graph showing type string excluding type Element to "04-string-no-element.dot"
+
+-- Depth + filter: Boss depth 1, showing only interfaces
+graph Boss depth 1 showing kind Interface to "04-boss-d1-interfaces.dot"

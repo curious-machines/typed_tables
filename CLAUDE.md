@@ -821,12 +821,15 @@ graph to "types.dot" style "custom.style"
 graph to "types.dot" title "Schema" style "dark.style"
 ```
 
-Style files use `key = value` format:
-```
-direction = LR
-composite.color = #4A90D9
-interface.color = #7B68EE
-focus.color = #FFD700
+Style files use TTQ dictionary syntax:
+```ttq
+-- Graph style (comments allowed)
+{
+    "direction": "LR",
+    "composite.color": "#4A90D9",
+    "interface.color": "#7B68EE",
+    "focus.color": "#FFD700"
+}
 ```
 
 The TTQ output defines `enum NodeRole { focus, context, endpoint, leaf }`, `type TypeNode { name: string, kind: string, role: NodeRole }`, and `type Edge { source: TypeNode, target: TypeNode, field_name: string }`.

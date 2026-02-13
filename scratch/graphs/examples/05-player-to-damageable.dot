@@ -1,0 +1,16 @@
+digraph types {
+    rankdir=LR;
+    node [style=filled];
+    label="graph Player path to Damageable";
+    labelloc=t;
+    fontsize=18;
+
+    "Combatant" [shape=box, fillcolor="#FFB347"];
+    "Creature" [shape=box, fillcolor="#ADD8E6"];
+    "Damageable" [shape=box, fillcolor="#FFB347"];
+    "Player" [shape=box, fillcolor="#ADD8E6", penwidth=3];
+
+    "Player" -> "Creature" [label="(extends)", style=dashed];
+    "Creature" -> "Combatant" [label="(implements)", style=dashed];
+    "Combatant" -> "Damageable" [label="(extends)", style=dashed];
+}

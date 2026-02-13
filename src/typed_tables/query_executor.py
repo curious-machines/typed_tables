@@ -1281,10 +1281,10 @@ class QueryExecutor:
                           query: GraphQuery | None = None) -> str:
         """Format type graph as a TTQ script."""
         lines: list[str] = []
-        if title:
-            lines.append(f"-- {title}")
-        else:
-            lines.append("-- Type reference graph")
+        effective_title = title
+        if not effective_title and query:
+            effective_title = self._build_graph_default_title(query)
+        lines.append(f"-- {effective_title or 'Type reference graph'}")
         lines.append("enum NodeRole { focus, context, endpoint, leaf }")
         lines.append("type TypeNode { name: string, kind: string, role: NodeRole }")
         lines.append("type Edge { source: TypeNode, target: TypeNode, field_name: string }")
@@ -1324,30 +1324,88 @@ class QueryExecutor:
         lines.append("")
         return "\n".join(lines)
 
-    def _load_style_file(self, style_path: str) -> dict[str, str]:
-        """Load a style file as key=value pairs.
+    def _build_graph_default_title(self, query: GraphQuery) -> str:
+        """Build a descriptive default title from query parameters."""
+        parts: list[str] = []
 
-        Style files are simple text files with lines like:
-            composite.color = #ADD8E6
-            interface.color = #FFB347
-            direction = TB
+        # Focus type
+        focus = query.focus_type
+        if focus:
+            parts.append(focus)
+
+        # Path-to
+        if query.path_to:
+            targets = ", ".join(query.path_to)
+            parts.append(f"path to {targets}")
+        # View mode
+        elif query.view_mode != "full":
+            mode = query.view_mode
+            if query.field_centric:
+                mode += " fields"
+            if query.show_origin:
+                mode += " origin"
+            if query.without_types:
+                mode += " without types"
+            parts.append(mode)
+
+        # Depth
+        if query.depth is not None:
+            parts.append(f"depth {query.depth}")
+
+        # Filters
+        for filt in query.showing:
+            vals = ", ".join(filt.values)
+            parts.append(f"showing {filt.dimension} {vals}")
+        for filt in query.excluding:
+            vals = ", ".join(filt.values)
+            parts.append(f"excluding {filt.dimension} {vals}")
+
+        if parts:
+            return "graph " + " ".join(parts)
+        return "graph"
+
+    def _load_style_file(self, style_path: str) -> dict[str, str]:
+        """Load a style file containing a TTQ dict literal.
+
+        Style files contain a single TTQ dictionary expression:
+            {
+                "direction": "LR",
+                "composite.color": "#4A90D9",
+                "interface.color": "#7B68EE",
+                "focus.color": "#FFD700"
+            }
+
+        Lines starting with -- are comments (standard TTQ comments).
         """
         import os
         styles: dict[str, str] = {}
-        # Resolve relative to data dir
+        # Resolve relative to calling script dir (if running from a script),
+        # otherwise relative to data dir
         if not os.path.isabs(style_path):
-            style_path = os.path.join(str(self.storage.data_dir), style_path)
+            if self._script_stack:
+                style_path = os.path.join(str(self._script_stack[-1]), style_path)
+            else:
+                style_path = os.path.join(str(self.storage.data_dir), style_path)
         try:
             with open(style_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("--") or line.startswith("#"):
-                        continue
-                    if "=" in line:
-                        key, _, value = line.partition("=")
-                        styles[key.strip()] = value.strip()
+                content = f.read()
         except FileNotFoundError:
-            pass  # Silently ignore missing style file
+            return styles
+        # Parse as TTQ dict literal by wrapping in a create expression
+        # (bare {…} is ambiguous with type body at top level)
+        try:
+            from typed_tables.parsing.query_parser import QueryParser, DictLiteral
+            parser = QueryParser()
+            parser.build()
+            wrapped = f"create _S(x={content})"
+            stmts = parser.parse_program(wrapped)
+            if stmts and len(stmts) == 1:
+                field_val = stmts[0].fields[0].value
+                if isinstance(field_val, DictLiteral):
+                    for entry in field_val.entries:
+                        styles[str(entry.key)] = str(entry.value)
+        except Exception:
+            pass  # Silently ignore parse errors in style files
         return styles
 
     def _format_graph_dot(self, nodes: dict[str, str], edges: list[dict[str, str]],
@@ -1364,12 +1422,17 @@ class QueryExecutor:
         lines.append(f"    rankdir={direction};")
         lines.append('    node [style=filled];')
 
-        # Title
-        title = query.title if query and query.title else None
+        # Title — always emit one; use explicit title or build from query
+        title = None
+        if query:
+            title = query.title
+            if not title:
+                title = self._build_graph_default_title(query)
         if title:
             escaped = title.replace('"', '\\"')
             lines.append(f'    label="{escaped}";')
             lines.append("    labelloc=t;")
+            lines.append("    fontsize=18;")
 
         lines.append("")
 

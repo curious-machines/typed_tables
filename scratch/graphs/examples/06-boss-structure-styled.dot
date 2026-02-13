@@ -1,0 +1,43 @@
+digraph types {
+    rankdir=TB;
+    node [style=filled];
+    label="Boss Inheritance Tree";
+    labelloc=t;
+    fontsize=18;
+
+    "Boss" [shape=box, fillcolor="#FFD700", penwidth=3];
+    "Combatant" [shape=box, fillcolor="#7B68EE"];
+    "Creature" [shape=box, fillcolor="#4A90D9"];
+    "Damageable" [shape=box, fillcolor="#7B68EE"];
+    "Entity" [shape=box, fillcolor="#7B68EE"];
+    "GameEntity" [shape=box, fillcolor="#7B68EE"];
+    "Identifiable" [shape=box, fillcolor="#7B68EE"];
+    "NPC" [shape=box, fillcolor="#4A90D9"];
+    "Physical" [shape=box, fillcolor="#7B68EE"];
+    "Positioned" [shape=box, fillcolor="#7B68EE"];
+    "Renderable" [shape=box, fillcolor="#7B68EE"];
+    "Timed" [shape=box, fillcolor="#7B68EE"];
+    "Trackable" [shape=box, fillcolor="#7B68EE"];
+    "WorldObject" [shape=box, fillcolor="#7B68EE"];
+
+    "Boss" -> "NPC" [label="(extends)", style=dashed];
+    "Boss" -> "Combatant" [label="(implements)", style=dashed];
+    "Boss" -> "WorldObject" [label="(implements)", style=dashed];
+    "WorldObject" -> "GameEntity" [label="(extends)", style=dashed];
+    "WorldObject" -> "Renderable" [label="(extends)", style=dashed];
+    "WorldObject" -> "Physical" [label="(extends)", style=dashed];
+    "NPC" -> "Creature" [label="(extends)", style=dashed];
+    "NPC" -> "Combatant" [label="(implements)", style=dashed];
+    "NPC" -> "WorldObject" [label="(implements)", style=dashed];
+    "Combatant" -> "GameEntity" [label="(extends)", style=dashed];
+    "Combatant" -> "Damageable" [label="(extends)", style=dashed];
+    "Creature" -> "Combatant" [label="(implements)", style=dashed];
+    "Creature" -> "WorldObject" [label="(implements)", style=dashed];
+    "GameEntity" -> "Entity" [label="(extends)", style=dashed];
+    "GameEntity" -> "Trackable" [label="(extends)", style=dashed];
+    "Physical" -> "Positioned" [label="(extends)", style=dashed];
+    "Trackable" -> "Identifiable" [label="(extends)", style=dashed];
+    "Trackable" -> "Timed" [label="(extends)", style=dashed];
+    "Entity" -> "Identifiable" [label="(extends)", style=dashed];
+    "Entity" -> "Positioned" [label="(extends)", style=dashed];
+}

@@ -1,0 +1,16 @@
+digraph types {
+    rankdir=LR;
+    node [style=filled];
+    label="graph Boss declared fields without types";
+    labelloc=t;
+    fontsize=18;
+
+    "Boss" [shape=box, fillcolor="#ADD8E6"];
+
+    "Boss.phase" [shape=plaintext, label="phase"];
+    "Boss" -> "Boss.phase";
+    "Boss.title" [shape=plaintext, label="title"];
+    "Boss" -> "Boss.title";
+    "Boss.reward_gold" [shape=plaintext, label="reward_gold"];
+    "Boss" -> "Boss.reward_gold";
+}

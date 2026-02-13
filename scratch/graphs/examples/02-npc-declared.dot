@@ -1,0 +1,14 @@
+digraph types {
+    rankdir=LR;
+    node [style=filled];
+    label="graph NPC declared";
+    labelloc=t;
+    fontsize=18;
+
+    "NPC" [shape=box, fillcolor="#ADD8E6", penwidth=3];
+    "boolean" [shape=ellipse, fillcolor="#FFFFE0"];
+    "string" [shape=ellipse, fillcolor="#FFFFE0"];
+
+    "NPC" -> "string" [label="greeting"];
+    "NPC" -> "boolean" [label="quest_giver"];
+}

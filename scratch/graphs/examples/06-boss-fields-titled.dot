@@ -1,0 +1,54 @@
+digraph types {
+    rankdir=LR;
+    node [style=filled];
+    label="Boss Record Layout (with field origins)";
+    labelloc=t;
+    fontsize=18;
+
+    "Boss" [shape=box, fillcolor="#ADD8E6"];
+
+    "Boss.name" [shape=plaintext, label="name: string\n(from Identifiable)"];
+    "Boss" -> "Boss.name";
+    "Boss.x" [shape=plaintext, label="x: float32\n(from Positioned)"];
+    "Boss" -> "Boss.x";
+    "Boss.y" [shape=plaintext, label="y: float32\n(from Positioned)"];
+    "Boss" -> "Boss.y";
+    "Boss.id" [shape=plaintext, label="id: uint32\n(from Entity)"];
+    "Boss" -> "Boss.id";
+    "Boss.created_at" [shape=plaintext, label="created_at: uint64\n(from Timed)"];
+    "Boss" -> "Boss.created_at";
+    "Boss.hp" [shape=plaintext, label="hp: int16\n(from Damageable)"];
+    "Boss" -> "Boss.hp";
+    "Boss.max_hp" [shape=plaintext, label="max_hp: int16\n(from Damageable)"];
+    "Boss" -> "Boss.max_hp";
+    "Boss.attack" [shape=plaintext, label="attack: uint16\n(from Combatant)"];
+    "Boss" -> "Boss.attack";
+    "Boss.defense" [shape=plaintext, label="defense: uint16\n(from Combatant)"];
+    "Boss" -> "Boss.defense";
+    "Boss.sprite" [shape=plaintext, label="sprite: string\n(from Renderable)"];
+    "Boss" -> "Boss.sprite";
+    "Boss.layer" [shape=plaintext, label="layer: uint8\n(from Renderable)"];
+    "Boss" -> "Boss.layer";
+    "Boss.width" [shape=plaintext, label="width: float32\n(from Physical)"];
+    "Boss" -> "Boss.width";
+    "Boss.height" [shape=plaintext, label="height: float32\n(from Physical)"];
+    "Boss" -> "Boss.height";
+    "Boss.solid" [shape=plaintext, label="solid: boolean\n(from Physical)"];
+    "Boss" -> "Boss.solid";
+    "Boss.speed" [shape=plaintext, label="speed: float32\n(from Creature)"];
+    "Boss" -> "Boss.speed";
+    "Boss.level" [shape=plaintext, label="level: uint8\n(from Creature)"];
+    "Boss" -> "Boss.level";
+    "Boss.faction" [shape=plaintext, label="faction: Faction\n(from Creature)"];
+    "Boss" -> "Boss.faction";
+    "Boss.greeting" [shape=plaintext, label="greeting: string\n(from NPC)"];
+    "Boss" -> "Boss.greeting";
+    "Boss.quest_giver" [shape=plaintext, label="quest_giver: boolean\n(from NPC)"];
+    "Boss" -> "Boss.quest_giver";
+    "Boss.phase" [shape=plaintext, label="phase: uint8"];
+    "Boss" -> "Boss.phase";
+    "Boss.title" [shape=plaintext, label="title: string"];
+    "Boss" -> "Boss.title";
+    "Boss.reward_gold" [shape=plaintext, label="reward_gold: uint32"];
+    "Boss" -> "Boss.reward_gold";
+}

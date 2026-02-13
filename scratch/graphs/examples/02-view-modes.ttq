@@ -1,0 +1,36 @@
+-- 02-view-modes.ttq — View modes: structure, declared, stored
+--
+-- Demonstrates:
+--   graph <type> structure                  only extends/implements edges
+--   graph <type> declared                   only fields the type defines
+--   graph <type> stored                     all fields on record (inherited + own)
+--   graph <type> declared fields            field-centric node layout
+--   graph <type> stored fields origin       annotate defining type per field
+--   graph <type> declared fields without types   field nodes without type labels
+
+use "../entity_db"
+
+-- Structure only — inheritance edges, no field→type edges
+graph Boss structure to "02-boss-structure.dot"
+
+-- Declared fields — only fields Boss itself defines
+graph Boss declared to "02-boss-declared.dot"
+
+-- Stored fields — all fields on the Boss record (inherited + own)
+graph Boss stored to "02-boss-stored.dot"
+
+-- Declared fields, field-centric — each field is its own node
+graph Boss declared fields to "02-boss-declared-fields.dot"
+
+-- Stored fields with origin — shows which interface/type defined each field
+graph Boss stored fields origin to "02-boss-stored-origin.dot"
+
+-- Declared fields without types — just field names as nodes
+graph Boss declared fields without types to "02-boss-declared-no-types.dot"
+
+-- Stored origin (type-centric, not field-centric) — shows origin annotations
+graph Boss stored origin to "02-boss-stored-type-origin.dot"
+
+-- Compare: NPC declared vs stored
+graph NPC declared to "02-npc-declared.dot"
+graph NPC stored to "02-npc-stored.dot"

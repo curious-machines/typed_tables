@@ -1,0 +1,7 @@
+-- Dark theme for DOT graph output
+{
+    "direction": "TB",
+    "composite.color": "#4A90D9",
+    "interface.color": "#7B68EE",
+    "focus.color": "#FFD700"
+}

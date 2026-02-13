@@ -1,0 +1,26 @@
+kind        | source | field         | target    | origin        
+-----------------------------------------------------------------
+'Composite' | 'Boss' | 'faction'     | 'Faction' | 'Creature'    
+'Composite' | 'Boss' | 'solid'       | 'boolean' | 'Physical'    
+'Composite' | 'Boss' | 'quest_giver' | 'boolean' | 'NPC'         
+'Composite' | 'Boss' | 'x'           | 'float32' | 'Positioned'  
+'Composite' | 'Boss' | 'y'           | 'float32' | 'Positioned'  
+'Composite' | 'Boss' | 'width'       | 'float32' | 'Physical'    
+'Composite' | 'Boss' | 'height'      | 'float32' | 'Physical'    
+'Composite' | 'Boss' | 'speed'       | 'float32' | 'Creature'    
+'Composite' | 'Boss' | 'hp'          | 'int16'   | 'Damageable'  
+'Composite' | 'Boss' | 'max_hp'      | 'int16'   | 'Damageable'  
+'Composite' | 'Boss' | 'name'        | 'string'  | 'Identifiable'
+'Composite' | 'Boss' | 'sprite'      | 'string'  | 'Renderable'  
+'Composite' | 'Boss' | 'greeting'    | 'string'  | 'NPC'         
+'Composite' | 'Boss' | 'title'       | 'string'  | 'Boss'        
+'Composite' | 'Boss' | 'attack'      | 'uint16'  | 'Combatant'   
+'Composite' | 'Boss' | 'defense'     | 'uint16'  | 'Combatant'   
+'Composite' | 'Boss' | 'id'          | 'uint32'  | 'Entity'      
+'Composite' | 'Boss' | 'reward_gold' | 'uint32'  | 'Boss'        
+'Composite' | 'Boss' | 'created_at'  | 'uint64'  | 'Timed'       
+'Composite' | 'Boss' | 'layer'       | 'uint8'   | 'Renderable'  
+'Composite' | 'Boss' | 'level'       | 'uint8'   | 'Creature'    
+'Composite' | 'Boss' | 'phase'       | 'uint8'   | 'Boss'        
+
+(22 rows)
