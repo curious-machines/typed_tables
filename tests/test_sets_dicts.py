@@ -598,34 +598,34 @@ class TestShowTypes:
 
 
 # ==============================================================
-# Show references tests
+# Graph tests
 # ==============================================================
 
-class TestShowReferences:
-    """Test show references includes set/dict edges."""
+class TestGraph:
+    """Test graph includes set/dict edges."""
 
-    def test_show_references_set_edges(self, tmp_db):
+    def test_graph_set_edges(self, tmp_db):
         executor, db_dir, registry, storage = tmp_db
         _run(executor, 'type Student { name: string, tags: {string} }')
-        result = _run(executor, 'show references')
+        result = _run(executor, 'graph')
         edges = result.rows
         # Student → {string} edge
         assert any(e["source"] == "Student" and e["target"] == "{string}" for e in edges)
         # {string} → string edge
         assert any(e["source"] == "{string}" and e["target"] == "string" for e in edges)
 
-    def test_show_references_dict_edges(self, tmp_db):
+    def test_graph_dict_edges(self, tmp_db):
         executor, db_dir, registry, storage = tmp_db
         _run(executor, 'type Student { scores: {string: float64} }')
-        result = _run(executor, 'show references')
+        result = _run(executor, 'graph')
         edges = result.rows
         # Student → {string: float64} edge
         assert any(e["source"] == "Student" and e["target"] == "{string: float64}" for e in edges)
 
-    def test_show_references_dict_type_edges(self, tmp_db):
+    def test_graph_dict_type_edges(self, tmp_db):
         executor, db_dir, registry, storage = tmp_db
         _run(executor, 'type Student { scores: {string: float64} }')
-        result = _run(executor, 'show references')
+        result = _run(executor, 'graph')
         edges = result.rows
         # {string: float64} → string edge
         assert any(e["source"] == "{string: float64}" and e["target"] == "string" and e["field"] == "{key}" for e in edges)

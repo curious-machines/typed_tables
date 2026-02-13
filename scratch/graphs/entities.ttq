@@ -238,7 +238,7 @@ create Prop(
 show types
 
 -- Full reference graph
-show references
+graph
 
 -- Interface hierarchy
 describe Identifiable
@@ -267,4 +267,4 @@ from Merchant select name, gold, specialty
 from MagicWeapon select name, spell_name, mana_cost, element
 
 -- Type graph to DOT (for visualization)
-dump graph to "entities.dot"
+graph to "entities.dot"

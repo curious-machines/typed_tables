@@ -35,7 +35,8 @@ from typed_tables.parsing.query_parser import (
     DictEntry,
     DictLiteral,
     DictTypeSpec,
-    DumpGraphQuery,
+    GraphFilter,
+    GraphQuery,
     EmptyBraces,
     EnumValueExpr,
     ExecuteQuery,
@@ -62,7 +63,6 @@ from typed_tables.parsing.query_parser import (
     SelectField,
     SortKeyExpr,
     SelectQuery,
-    ShowReferencesQuery,
     ShowTypesQuery,
     TagReference,
     TypedLiteral,
@@ -325,10 +325,8 @@ class QueryExecutor:
         """Execute a query and return results."""
         if isinstance(query, ShowTypesQuery):
             return self._execute_show_types(query)
-        elif isinstance(query, ShowReferencesQuery):
-            return self._execute_show_references(query)
-        elif isinstance(query, DumpGraphQuery):
-            return self._execute_dump_graph(query)
+        elif isinstance(query, GraphQuery):
+            return self._execute_graph(query)
         elif isinstance(query, DescribeQuery):
             return self._execute_describe(query)
         elif isinstance(query, SelectQuery):
@@ -799,16 +797,22 @@ class QueryExecutor:
 
         return edges
 
-    def _filter_edges_by_type(self, edges: list[dict[str, str]], type_name: str) -> list[dict[str, str]]:
+    def _filter_edges_by_type(self, edges: list[dict[str, str]], type_name: str,
+                              depth: int | None = None) -> list[dict[str, str]]:
         """Filter edges to those involving a type, expanding to parent/interface edges.
 
         Includes edges directly involving the type (or its array variant), plus
         outgoing edges from any parent or interface the type extends/implements.
         Expansion is recursive: if a parent itself extends/implements other types,
         those are followed too, giving the full inheritance chain.
+
+        If depth is specified, limits inheritance expansion to that many levels:
+        depth 0 = focus type only, depth 1 = focus + immediate parents, etc.
         """
         names = {type_name, type_name + "[]"}
         filtered = [e for e in edges if e["source"] in names or e["target"] in names]
+        if depth is not None and depth <= 0:
+            return filtered
         # Build a quick lookup: source → list of edges
         edges_by_source: dict[str, list[dict[str, str]]] = {}
         for e in edges:
@@ -819,7 +823,11 @@ class QueryExecutor:
         for e in filtered:
             if e["field"] in ("(extends)", "(implements)") and e["source"] in names:
                 frontier.add(e["target"])
+        current_depth = 0
         while frontier:
+            current_depth += 1
+            if depth is not None and current_depth > depth:
+                break
             next_frontier: set[str] = set()
             for parent_name in frontier:
                 if parent_name in expanded:
@@ -834,65 +842,426 @@ class QueryExecutor:
             frontier = next_frontier
         return filtered
 
-    def _execute_show_references(self, query: ShowReferencesQuery) -> QueryResult:
-        """Execute SHOW REFERENCES query."""
-        edges = self._build_type_graph()
-        if query.type_name:
-            edges = self._filter_edges_by_type(edges, query.type_name)
-        if query.where:
-            valid_columns = {"kind", "source", "field", "target"}
-            edges = [e for e in edges if self._match_row_condition(e, query.where, valid_columns)]
-        edges = self._sort_rows(edges, query.sort_by, defaults=["target", "source"])
-        return QueryResult(columns=["kind", "source", "field", "target"], rows=edges)
-
-    def _match_row_condition(
-        self, row: dict[str, str], condition: Any, valid_columns: set[str]
-    ) -> bool:
-        """Evaluate a simple condition against a row dict (string equality only)."""
-        from .parsing.query_parser import Condition, CompoundCondition
-
-        if isinstance(condition, CompoundCondition):
-            left = self._match_row_condition(row, condition.left, valid_columns)
-            right = self._match_row_condition(row, condition.right, valid_columns)
-            if condition.operator == "and":
-                return left and right
-            else:
-                return left or right
-
-        assert isinstance(condition, Condition)
-        col = condition.field
-        if col not in valid_columns:
-            raise RuntimeError(f"Unknown column '{col}' — valid columns: {', '.join(sorted(valid_columns))}")
-        if condition.operator not in ("eq", "neq"):
-            raise RuntimeError(f"Only = and != operators are supported for show references where clause")
-        row_val = row.get(col, "")
-        match_val = str(condition.value) if condition.value is not None else ""
-        if condition.operator == "eq":
-            return row_val == match_val
-        else:
-            return row_val != match_val
-
-    def _execute_dump_graph(self, query: DumpGraphQuery) -> DumpResult:
-        """Execute DUMP GRAPH query — export type graph as TTQ or DOT."""
+    def _execute_graph(self, query: GraphQuery) -> QueryResult | DumpResult:
+        """Execute GRAPH query — unified schema exploration."""
         from pathlib import Path
 
-        edges = self._build_type_graph()
-        if query.type_name:
-            edges = self._filter_edges_by_type(edges, query.type_name)
-        nodes = self._collect_graph_nodes(edges)
+        # Validate constraints
+        if query.view_mode in ("declared", "stored") and not query.focus_type:
+            return QueryResult(columns=[], rows=[],
+                               message=f"'{query.view_mode}' view requires a focus type (e.g., graph MyType {query.view_mode})")
+        if query.show_origin and query.view_mode != "stored":
+            return QueryResult(columns=[], rows=[],
+                               message="'origin' modifier is only valid with 'stored' view mode")
+        if query.without_types and not query.field_centric:
+            return QueryResult(columns=[], rows=[],
+                               message="'without types' modifier requires 'fields' (e.g., declared fields without types)")
+        if query.depth is not None and query.view_mode in ("declared", "stored"):
+            return QueryResult(columns=[], rows=[],
+                               message=f"'depth' cannot be used with '{query.view_mode}' view (no inheritance expansion)")
+
+        # Handle path-to queries
+        if query.path_to is not None:
+            if not query.focus_type:
+                return QueryResult(columns=[], rows=[],
+                                   message="'path to' requires a focus type (e.g., graph MyType path to Target)")
+            edges = self._build_path_to(query.focus_type, query.path_to)
+            if isinstance(edges, str):
+                return QueryResult(columns=[], rows=[], message=edges)
+        # Build the graph based on view mode
+        elif query.view_mode == "structure":
+            edges = self._build_structure_graph(query.focus_type, query.depth)
+        elif query.view_mode == "declared":
+            edges = self._build_declared_graph(query.focus_type, query.field_centric,
+                                                query.without_types)
+        elif query.view_mode == "stored":
+            edges = self._build_stored_graph(query.focus_type, query.field_centric,
+                                              query.show_origin, query.without_types)
+        else:
+            # full view (default)
+            edges = self._build_type_graph()
+            if query.focus_type:
+                edges = self._filter_edges_by_type(edges, query.focus_type, query.depth)
+
+        # Apply showing/excluding filters
+        if query.showing or query.excluding:
+            edges = self._apply_graph_filters(edges, query.showing, query.excluding,
+                                               query.field_centric)
 
         if query.output_file:
+            # File output: DOT or TTQ
+            nodes = {} if query.field_centric else self._collect_graph_nodes(edges)
             ext = Path(query.output_file).suffix.lower()
             if ext == ".dot":
-                script = self._format_graph_dot(nodes, edges)
+                script = self._format_graph_dot(nodes, edges, query)
             else:
                 if not ext:
                     query.output_file += ".ttq"
-                script = self._format_graph_ttq(nodes, edges)
+                script = self._format_graph_ttq(nodes, edges, title=query.title, query=query)
+            return DumpResult(columns=[], rows=[], script=script, output_file=query.output_file)
         else:
-            script = self._format_graph_ttq(nodes, edges)
+            # Table output
+            columns = self._graph_table_columns(query)
+            edges = self._sort_rows(edges, query.sort_by, defaults=self._graph_default_sort(query))
+            return QueryResult(columns=columns, rows=edges)
 
-        return DumpResult(columns=[], rows=[], script=script, output_file=query.output_file)
+    def _graph_table_columns(self, query: GraphQuery) -> list[str]:
+        """Determine table columns based on view mode."""
+        if query.field_centric:
+            cols = ["field"]
+            if not query.without_types:
+                cols.append("type")
+            if query.show_origin:
+                cols.append("origin")
+            return cols
+        if query.view_mode in ("declared", "stored") and query.show_origin:
+            return ["kind", "source", "field", "target", "origin"]
+        return ["kind", "source", "field", "target"]
+
+    def _graph_default_sort(self, query: GraphQuery) -> list[str]:
+        """Default sort keys based on view mode."""
+        if query.field_centric:
+            return ["field"]
+        return ["target", "source"]
+
+    def _apply_graph_filters(self, edges: list[dict[str, str]],
+                              showing: list[GraphFilter],
+                              excluding: list[GraphFilter],
+                              field_centric: bool) -> list[dict[str, str]]:
+        """Apply showing/excluding filters to graph edges.
+
+        showing narrows to matching edges (plus structural path).
+        excluding removes matching edges. showing applied first, then excluding.
+        """
+        if showing:
+            edges = self._apply_showing(edges, showing, field_centric)
+        if excluding:
+            edges = self._apply_excluding(edges, excluding, field_centric)
+        return edges
+
+    def _apply_showing(self, edges: list[dict[str, str]],
+                        filters: list[GraphFilter],
+                        field_centric: bool) -> list[dict[str, str]]:
+        """Keep only edges matching any showing filter, plus structural path."""
+        matched: list[dict[str, str]] = []
+        matched_sources: set[str] = set()
+
+        for e in edges:
+            if self._edge_matches_any_filter(e, filters, field_centric):
+                matched.append(e)
+                if not field_centric:
+                    matched_sources.add(e["source"])
+
+        if field_centric:
+            return matched
+
+        # Also keep structural edges (extends/implements) that connect to matched sources
+        structural = [e for e in edges if e["field"] in ("(extends)", "(implements)")]
+        # Walk backwards: if a source type has matched edges, keep structural edges to it
+        needed_types = set(matched_sources)
+        # Also need structural edges whose target is in needed_types
+        changed = True
+        while changed:
+            changed = False
+            for e in structural:
+                if e["target"] in needed_types and e["source"] not in needed_types:
+                    needed_types.add(e["source"])
+                    changed = True
+
+        # Add structural edges connecting needed types
+        for e in structural:
+            if e["source"] in needed_types and e not in matched:
+                matched.append(e)
+
+        return matched
+
+    def _apply_excluding(self, edges: list[dict[str, str]],
+                          filters: list[GraphFilter],
+                          field_centric: bool) -> list[dict[str, str]]:
+        """Remove edges matching any excluding filter."""
+        return [e for e in edges
+                if not self._edge_matches_any_filter(e, filters, field_centric)]
+
+    def _edge_matches_any_filter(self, edge: dict[str, str],
+                                  filters: list[GraphFilter],
+                                  field_centric: bool) -> bool:
+        """Check if an edge matches any of the given filters."""
+        for f in filters:
+            if self._edge_matches_filter(edge, f, field_centric):
+                return True
+        return False
+
+    def _edge_matches_filter(self, edge: dict[str, str],
+                              filt: GraphFilter,
+                              field_centric: bool) -> bool:
+        """Check if an edge matches a single filter."""
+        if filt.dimension == "type":
+            if field_centric:
+                # field-centric rows have "type" key
+                return edge.get("type", "") in filt.values
+            return edge.get("target", "") in filt.values
+        elif filt.dimension == "field":
+            return edge.get("field", "") in filt.values
+        elif filt.dimension == "kind":
+            # Case-insensitive match for kind values
+            edge_kind = edge.get("kind", "")
+            return any(edge_kind.lower() == v.lower() for v in filt.values)
+        return False
+
+    def _build_declared_structural_edges(self) -> list[dict[str, str]]:
+        """Build structural edges using only directly declared relationships.
+
+        For composites: only the direct parent (extends) and interfaces
+        explicitly listed in the type definition (not inherited from parent).
+        For interfaces: only directly listed parent interfaces.
+        """
+        edges: list[dict[str, str]] = []
+
+        for name in self.registry.list_types():
+            if name.startswith("_"):
+                continue
+            type_def = self.registry.get(name)
+            if type_def is None:
+                continue
+            kind = self._classify_type(type_def)
+            base = type_def.resolve_base_type() if hasattr(type_def, 'resolve_base_type') else type_def
+
+            if isinstance(base, CompositeTypeDefinition):
+                if base.parent:
+                    edges.append({"source": name, "kind": kind, "field": "(extends)", "target": base.parent})
+                # Compute directly declared interfaces (not inherited from parent)
+                parent_ifaces: set[str] = set()
+                if base.parent:
+                    parent_def = self.registry.get(base.parent)
+                    if parent_def:
+                        parent_base = parent_def.resolve_base_type() if hasattr(parent_def, 'resolve_base_type') else parent_def
+                        if isinstance(parent_base, CompositeTypeDefinition):
+                            parent_ifaces = set(parent_base.interfaces)
+                for iface in base.interfaces:
+                    if iface not in parent_ifaces:
+                        edges.append({"source": name, "kind": kind, "field": "(implements)", "target": iface})
+            elif isinstance(base, InterfaceTypeDefinition):
+                for iface in base.interfaces:
+                    edges.append({"source": name, "kind": kind, "field": "(extends)", "target": iface})
+
+        return edges
+
+    def _build_path_to(self, focus_type: str, targets: list[str]) -> list[dict[str, str]] | str:
+        """Build a path-to graph: declared structural edges between focus and targets.
+
+        Returns edges on success, or an error message string on failure.
+        Uses BFS on the declared inheritance graph (only direct parent/interface
+        relationships, not inherited ones) to find the path from focus type
+        to each target.
+        """
+        structural = self._build_declared_structural_edges()
+
+        # Build adjacency: source → list of (target, edge)
+        adj: dict[str, list[tuple[str, dict[str, str]]]] = {}
+        for e in structural:
+            adj.setdefault(e["source"], []).append((e["target"], e))
+
+        result_edges: list[dict[str, str]] = []
+        seen_edges: set[int] = set()  # Track by id to avoid duplicates
+
+        for target in targets:
+            if self.registry.get(target) is None:
+                return f"Unknown type '{target}'"
+
+            # BFS from focus to target
+            queue: list[tuple[str, list[dict[str, str]]]] = [(focus_type, [])]
+            visited: set[str] = {focus_type}
+            found = False
+
+            while queue:
+                current, path = queue.pop(0)
+                if current == target:
+                    for e in path:
+                        eid = id(e)
+                        if eid not in seen_edges:
+                            seen_edges.add(eid)
+                            result_edges.append(e)
+                    found = True
+                    break
+                for neighbor, edge in adj.get(current, []):
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append((neighbor, path + [edge]))
+
+            if not found:
+                return f"No inheritance path from '{focus_type}' to '{target}'"
+
+        return result_edges
+
+    def _build_structure_graph(self, focus_type: str | None, depth: int | None = None) -> list[dict[str, str]]:
+        """Build structure view: only inheritance edges, no field→type edges."""
+        all_edges = self._build_type_graph()
+        structural = [e for e in all_edges if e["field"] in ("(extends)", "(implements)")]
+        if focus_type:
+            structural = self._filter_edges_by_type_structure(structural, focus_type, depth)
+        return structural
+
+    def _filter_edges_by_type_structure(self, edges: list[dict[str, str]], type_name: str,
+                                         depth: int | None = None) -> list[dict[str, str]]:
+        """Filter structural edges to those reachable from a focus type."""
+        # Build adjacency: source → edges
+        edges_by_source: dict[str, list[dict[str, str]]] = {}
+        for e in edges:
+            edges_by_source.setdefault(e["source"], []).append(e)
+        # BFS from focus type through (extends)/(implements)
+        visited: set[str] = set()
+        frontier = {type_name}
+        result: list[dict[str, str]] = []
+        current_depth = 0
+        while frontier:
+            next_frontier: set[str] = set()
+            for name in frontier:
+                if name in visited:
+                    continue
+                visited.add(name)
+                for e in edges_by_source.get(name, []):
+                    result.append(e)
+                    if depth is None or current_depth + 1 < depth:
+                        next_frontier.add(e["target"])
+            frontier = next_frontier
+            current_depth += 1
+        return result
+
+    def _build_declared_graph(self, focus_type: str, field_centric: bool,
+                               without_types: bool) -> list[dict[str, str]]:
+        """Build declared view: only fields declared by the focus type itself."""
+        type_def = self.registry.get(focus_type)
+        if type_def is None:
+            return []
+        base = type_def.resolve_base_type()
+
+        # Determine which fields are inherited
+        inherited_fields: set[str] = set()
+        if isinstance(base, CompositeTypeDefinition):
+            if base.parent:
+                parent_td = self.registry.get(base.parent)
+                if parent_td and isinstance(parent_td, CompositeTypeDefinition):
+                    for f in parent_td.fields:
+                        inherited_fields.add(f.name)
+            for iface_name in base.interfaces:
+                iface_td = self.registry.get(iface_name)
+                if iface_td and isinstance(iface_td, InterfaceTypeDefinition):
+                    for f in iface_td.fields:
+                        inherited_fields.add(f.name)
+        elif isinstance(base, InterfaceTypeDefinition):
+            for iface_name in base.interfaces:
+                iface_td = self.registry.get(iface_name)
+                if iface_td and isinstance(iface_td, InterfaceTypeDefinition):
+                    for f in iface_td.fields:
+                        inherited_fields.add(f.name)
+
+        # Only own fields
+        own_fields = [f for f in base.fields if f.name not in inherited_fields] if hasattr(base, 'fields') else []
+
+        kind = self._classify_type(type_def)
+        if field_centric:
+            return self._build_field_centric_rows(own_fields, without_types)
+        else:
+            edges: list[dict[str, str]] = []
+            for f in own_fields:
+                edges.append({"kind": kind, "source": focus_type, "field": f.name, "target": f.type_def.name})
+            return edges
+
+    def _build_stored_graph(self, focus_type: str, field_centric: bool,
+                             show_origin: bool, without_types: bool) -> list[dict[str, str]]:
+        """Build stored view: all fields on the type's record (inherited + own)."""
+        type_def = self.registry.get(focus_type)
+        if type_def is None:
+            return []
+        base = type_def.resolve_base_type()
+        if not hasattr(base, 'fields'):
+            return []
+
+        kind = self._classify_type(type_def)
+
+        if field_centric:
+            rows = self._build_field_centric_rows(base.fields, without_types)
+            if show_origin:
+                origins = self._compute_field_origins(base, focus_type)
+                for row in rows:
+                    row["origin"] = origins.get(row["field"], focus_type)
+            return rows
+        else:
+            edges: list[dict[str, str]] = []
+            origins = self._compute_field_origins(base, focus_type) if show_origin else {}
+            for f in base.fields:
+                edge: dict[str, str] = {"kind": kind, "source": focus_type, "field": f.name, "target": f.type_def.name}
+                if show_origin:
+                    edge["origin"] = origins.get(f.name, focus_type)
+                edges.append(edge)
+            return edges
+
+    def _build_field_centric_rows(self, fields: list, without_types: bool) -> list[dict[str, str]]:
+        """Build field-centric rows (one row per field)."""
+        rows: list[dict[str, str]] = []
+        for f in fields:
+            row: dict[str, str] = {"field": f.name}
+            if not without_types:
+                row["type"] = f.type_def.name
+            rows.append(row)
+        return rows
+
+    def _compute_field_origins(self, base_type: Any, focus_name: str) -> dict[str, str]:
+        """Compute origin (defining type) for each field.
+
+        Recursively walks the parent/interface chain to find the type
+        that first declared each field.
+        """
+        origins: dict[str, str] = {}
+
+        if isinstance(base_type, CompositeTypeDefinition):
+            # Recursively walk parent chain
+            if base_type.parent:
+                parent_td = self.registry.get(base_type.parent)
+                if parent_td and isinstance(parent_td, CompositeTypeDefinition):
+                    parent_origins = self._compute_field_origins(parent_td, base_type.parent)
+                    origins.update(parent_origins)
+            # Walk interfaces
+            for iface_name in base_type.interfaces:
+                iface_td = self.registry.get(iface_name)
+                if iface_td and isinstance(iface_td, InterfaceTypeDefinition):
+                    iface_origins = self._compute_interface_field_origins(iface_td, iface_name)
+                    for fname, origin in iface_origins.items():
+                        if fname not in origins:
+                            origins[fname] = origin
+        elif isinstance(base_type, InterfaceTypeDefinition):
+            iface_origins = self._compute_interface_field_origins(base_type, focus_name)
+            origins.update(iface_origins)
+
+        # Own fields not yet in origins belong to the focus type
+        for f in base_type.fields:
+            if f.name not in origins:
+                origins[f.name] = focus_name
+
+        return origins
+
+    def _compute_interface_field_origins(self, iface: InterfaceTypeDefinition, iface_name: str) -> dict[str, str]:
+        """Trace field origins through interface inheritance chain."""
+        origins: dict[str, str] = {}
+        # Process parent interfaces first (depth-first)
+        for parent_name in iface.interfaces:
+            parent_td = self.registry.get(parent_name)
+            if parent_td and isinstance(parent_td, InterfaceTypeDefinition):
+                parent_origins = self._compute_interface_field_origins(parent_td, parent_name)
+                for fname, origin in parent_origins.items():
+                    if fname not in origins:
+                        origins[fname] = origin
+        # Own fields
+        inherited_set: set[str] = set()
+        for parent_name in iface.interfaces:
+            parent_td = self.registry.get(parent_name)
+            if parent_td and isinstance(parent_td, InterfaceTypeDefinition):
+                for f in parent_td.fields:
+                    inherited_set.add(f.name)
+        for f in iface.fields:
+            if f.name not in inherited_set:
+                origins.setdefault(f.name, iface_name)
+        return origins
 
     def _collect_graph_nodes(self, edges: list[dict[str, str]]) -> dict[str, str]:
         """Collect unique node names and their kinds from edges + registry."""
@@ -907,13 +1276,25 @@ class QueryExecutor:
             nodes[name] = self._classify_type(type_def) if type_def else "Unknown"
         return nodes
 
-    def _format_graph_ttq(self, nodes: dict[str, str], edges: list[dict[str, str]]) -> str:
+    def _format_graph_ttq(self, nodes: dict[str, str], edges: list[dict[str, str]],
+                          title: str | None = None,
+                          query: GraphQuery | None = None) -> str:
         """Format type graph as a TTQ script."""
         lines: list[str] = []
-        lines.append("-- Type reference graph")
-        lines.append("type TypeNode { name: string, kind: string }")
+        if title:
+            lines.append(f"-- {title}")
+        else:
+            lines.append("-- Type reference graph")
+        lines.append("enum NodeRole { focus, context, endpoint, leaf }")
+        lines.append("type TypeNode { name: string, kind: string, role: NodeRole }")
         lines.append("type Edge { source: TypeNode, target: TypeNode, field_name: string }")
         lines.append("")
+
+        # Compute node roles
+        focus_type = query.focus_type if query else None
+        path_targets = set(query.path_to) if query and query.path_to else set()
+        # Sources in the graph (non-leaf nodes)
+        source_names = {e["source"] for e in edges}
 
         # Assign indices to nodes
         node_list = list(nodes.keys())
@@ -921,7 +1302,15 @@ class QueryExecutor:
 
         for name in node_list:
             kind = nodes[name]
-            lines.append(f'create TypeNode(name="{name}", kind="{kind}")')
+            if name == focus_type:
+                role = "focus"
+            elif name in path_targets:
+                role = "endpoint"
+            elif name in source_names:
+                role = "context"
+            else:
+                role = "leaf"
+            lines.append(f'create TypeNode(name="{name}", kind="{kind}", role=.{role})')
 
         if node_list:
             lines.append("")
@@ -935,13 +1324,56 @@ class QueryExecutor:
         lines.append("")
         return "\n".join(lines)
 
-    def _format_graph_dot(self, nodes: dict[str, str], edges: list[dict[str, str]]) -> str:
+    def _load_style_file(self, style_path: str) -> dict[str, str]:
+        """Load a style file as key=value pairs.
+
+        Style files are simple text files with lines like:
+            composite.color = #ADD8E6
+            interface.color = #FFB347
+            direction = TB
+        """
+        import os
+        styles: dict[str, str] = {}
+        # Resolve relative to data dir
+        if not os.path.isabs(style_path):
+            style_path = os.path.join(str(self.storage.data_dir), style_path)
+        try:
+            with open(style_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("--") or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, _, value = line.partition("=")
+                        styles[key.strip()] = value.strip()
+        except FileNotFoundError:
+            pass  # Silently ignore missing style file
+        return styles
+
+    def _format_graph_dot(self, nodes: dict[str, str], edges: list[dict[str, str]],
+                          query: GraphQuery | None = None) -> str:
         """Format type graph as a DOT file for Graphviz."""
+        # Load style overrides
+        user_styles: dict[str, str] = {}
+        if query and query.style_file:
+            user_styles = self._load_style_file(query.style_file)
+
         lines: list[str] = []
         lines.append("digraph types {")
-        lines.append("    rankdir=LR;")
+        direction = user_styles.get("direction", "LR")
+        lines.append(f"    rankdir={direction};")
         lines.append('    node [style=filled];')
+
+        # Title
+        title = query.title if query and query.title else None
+        if title:
+            escaped = title.replace('"', '\\"')
+            lines.append(f'    label="{escaped}";')
+            lines.append("    labelloc=t;")
+
         lines.append("")
+
+        field_centric = query.field_centric if query else False
 
         kind_styles = {
             "Composite": ('box', '#ADD8E6'),
@@ -960,16 +1392,64 @@ class QueryExecutor:
             "Unknown": ('box', '#FFFFFF'),
         }
 
-        for name in nodes:
-            kind = nodes[name]
-            shape, color = kind_styles.get(kind, ('box', '#FFFFFF'))
-            lines.append(f'    "{name}" [shape={shape}, fillcolor="{color}"];')
+        # Apply style overrides for kind colors
+        style_key_map = {
+            "composite.color": "Composite",
+            "interface.color": "Interface",
+            "enum.color": "Enum",
+            "alias.color": "Alias",
+            "primitive.color": "Primitive",
+        }
+        for style_key, kind_name in style_key_map.items():
+            if style_key in user_styles and kind_name in kind_styles:
+                shape, _ = kind_styles[kind_name]
+                kind_styles[kind_name] = (shape, user_styles[style_key])
 
-        lines.append("")
+        # Focus type styling
+        focus_color = user_styles.get("focus.color")
 
-        for e in edges:
-            label = e["field"].replace('"', '\\"')
-            lines.append(f'    "{e["source"]}" -> "{e["target"]}" [label="{label}"];')
+        if field_centric:
+            # Field-centric: each row is a field node
+            focus = query.focus_type or ""
+            focus_kind = self._classify_type(self.registry.get(focus)) if focus else "Composite"
+            shape, color = kind_styles.get(focus_kind, ('box', '#ADD8E6'))
+            lines.append(f'    "{focus}" [shape={shape}, fillcolor="{color}"];')
+            lines.append("")
+            for e in edges:
+                fname = e["field"]
+                ftype = e.get("type", "")
+                origin = e.get("origin", "")
+                label_parts = [fname]
+                if ftype:
+                    label_parts.append(f": {ftype}")
+                if origin and origin != focus:
+                    label_parts.append(f"\\n(from {origin})")
+                node_label = "".join(label_parts)
+                node_id = f"{focus}.{fname}"
+                lines.append(f'    "{node_id}" [shape=plaintext, label="{node_label}"];')
+                lines.append(f'    "{focus}" -> "{node_id}";')
+        else:
+            for name in nodes:
+                kind = nodes[name]
+                shape, color = kind_styles.get(kind, ('box', '#FFFFFF'))
+                extra = ""
+                if query and query.focus_type and name == query.focus_type:
+                    if focus_color:
+                        color = focus_color
+                    extra = ', penwidth=3'
+                lines.append(f'    "{name}" [shape={shape}, fillcolor="{color}"{extra}];')
+
+            lines.append("")
+
+            for e in edges:
+                label = e["field"].replace('"', '\\"')
+                style = ""
+                if e["field"] in ("(extends)", "(implements)"):
+                    style = ", style=dashed"
+                origin_suffix = ""
+                if "origin" in e and e["origin"] != e.get("source", ""):
+                    origin_suffix = f"\\n(from {e['origin']})"
+                lines.append(f'    "{e["source"]}" -> "{e["target"]}" [label="{label}{origin_suffix}"{style}];')
 
         lines.append("}")
         lines.append("")

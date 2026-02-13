@@ -750,34 +750,86 @@ describe Person
 
 This shows the type and all of its properties along with their types
 
-### Show References
+### Graph
 
-Display the type reference graph as a table of edges with columns: `kind`, `source`, `field`, `target`. The `kind` column shows the source type's classification (Composite, Interface, Enum, Alias, Array, Primitive, String). Arrow direction is referrer → referent (e.g., Person → float32 means "Person depends on float32").
+Explore the type reference graph. The `graph` command is a unified tool for viewing schema structure as a table, DOT file, or TTQ script.
 
-```ttq
-show references           -- show all type edges
-show references Person    -- show edges involving Person (as source or target)
-```
-
-Fields point to aliases (not resolved types); aliases also point to their base type. Enum variants contribute edges for their associated value types. Array types contribute element type edges.
-
-### Dump Graph
-
-Export the type reference graph as a TTQ script or DOT file. The graph contains `TypeNode` and `Edge` types.
+**Basic usage** — table output with columns `kind`, `source`, `field`, `target`:
 
 ```ttq
-dump graph                       -- TTQ script to stdout
-dump graph to "types.dot"        -- DOT format (for Graphviz)
-dump graph to "types.ttq"        -- TTQ format to file
-dump graph to "types"            -- no extension → assumes TTQ, appends .ttq
+graph                            -- all type edges
+graph Person                     -- edges involving Person (as source or target)
+graph sort by source             -- sort by column
 ```
 
-The file extension determines the format: `.dot` produces Graphviz DOT output; anything else (or no extension) produces TTQ. The generated TTQ script defines `TypeNode { name: string, kind: string }` and `Edge { source: TypeNode, target: TypeNode, field_name: string }` types and creates instances for all nodes and edges.
+**File output** — DOT or TTQ format determined by extension:
+
+```ttq
+graph to "types.dot"             -- DOT format (for Graphviz)
+graph to "types.ttq"             -- TTQ format
+graph to "types"                 -- no extension → assumes TTQ, appends .ttq
+graph Person to "person.dot"     -- focus type to file
+```
 
 DOT output can be rendered with Graphviz:
 ```sh
 dot -Tsvg types.dot -o types.svg
 ```
+
+**View modes** — control which edges are included:
+
+```ttq
+graph Person structure           -- only extends/implements edges (no field→type)
+graph Person declared            -- only fields Person itself defines
+graph Person stored              -- all fields on Person (inherited + own)
+graph Person declared fields     -- field-centric: each field as its own node
+graph Person stored fields origin  -- annotate each field's defining type
+```
+
+**Depth control** — limit inheritance expansion:
+
+```ttq
+graph Person depth 0             -- focus type only
+graph Person depth 1             -- focus + immediate parents/interfaces
+graph Person structure depth 2   -- structure view, 2 levels deep
+```
+
+**Filters** — include or exclude by type, field, or kind:
+
+```ttq
+graph showing type string                    -- only edges targeting string
+graph showing field [name, age]              -- only edges for name/age fields
+graph showing kind Interface                 -- only interface nodes
+graph excluding type [uint8, uint16]         -- hide specific types
+graph Person showing type float32 excluding field speed
+graph Person depth 2 showing kind Composite
+```
+
+**Path-to queries** — find inheritance paths between types:
+
+```ttq
+graph Boss path to Entity                    -- shortest path Boss → Entity
+graph Boss path to [Entity, Combatant]       -- paths to multiple targets
+graph Boss path to Entity to "path.dot"      -- output path as DOT
+```
+
+**Titles and styles** — customize DOT output:
+
+```ttq
+graph to "types.dot" title "My Schema"
+graph to "types.dot" style "custom.style"
+graph to "types.dot" title "Schema" style "dark.style"
+```
+
+Style files use `key = value` format:
+```
+direction = LR
+composite.color = #4A90D9
+interface.color = #7B68EE
+focus.color = #FFD700
+```
+
+The TTQ output defines `enum NodeRole { focus, context, endpoint, leaf }`, `type TypeNode { name: string, kind: string, role: NodeRole }`, and `type Edge { source: TypeNode, target: TypeNode, field_name: string }`.
 
 ### Execute Script
 

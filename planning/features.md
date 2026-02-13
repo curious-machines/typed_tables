@@ -10,6 +10,15 @@ I'm confused why compact shrinks files below the 4096 initial size. It makes sen
 
 # For Consideration
 
+## Reduce shift/reduce Conflicts
+
+## Create Examples for Graph Command
+
+- export ttq, dot, and table output to .txt file.
+- render dot files
+
+## Reduce Keyword Count
+
 ## Complete Set of Trig Functions
 
 ## Support Indexes

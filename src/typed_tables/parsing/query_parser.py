@@ -121,20 +121,30 @@ class ShowTypesQuery:
 
 
 @dataclass
-class ShowReferencesQuery:
-    """A SHOW REFERENCES query."""
+class GraphFilter:
+    """A filter for graph queries: type/field/kind with values."""
 
-    type_name: str | None = None  # None = show all edges
-    where: Condition | CompoundCondition | None = None
-    sort_by: list[str] = field(default_factory=list)
+    dimension: str  # "type" | "field" | "kind"
+    values: list[str]
 
 
 @dataclass
-class DumpGraphQuery:
-    """A DUMP GRAPH query."""
+class GraphQuery:
+    """A GRAPH query — unified schema exploration command."""
 
-    output_file: str | None = None  # None = TTQ to stdout
-    type_name: str | None = None  # None = show all types
+    focus_type: str | None = None
+    output_file: str | None = None  # None=table, .dot=DOT, else=TTQ
+    sort_by: list[str] = field(default_factory=list)
+    view_mode: str = "full"  # "full" | "structure" | "declared" | "stored"
+    field_centric: bool = False  # "declared fields" / "stored fields"
+    show_origin: bool = False  # "stored origin" / "stored fields origin"
+    without_types: bool = False  # "fields without types"
+    depth: int | None = None  # None = unlimited
+    showing: list[GraphFilter] = field(default_factory=list)
+    excluding: list[GraphFilter] = field(default_factory=list)
+    style_file: str | None = None  # External style file for DOT output
+    title: str | None = None  # Graph title (default = query string)
+    path_to: list[str] | None = None  # Path-to targets
 
 
 @dataclass
@@ -516,7 +526,7 @@ class EmptyBraces:
     pass
 
 
-Query = SelectQuery | ShowTypesQuery | ShowReferencesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | DumpGraphQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | ImportQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
+Query = SelectQuery | ShowTypesQuery | GraphQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | ImportQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock
 
 
 class QueryParser:
@@ -597,29 +607,270 @@ class QueryParser:
         """query : SHOW ALIASES sort_clause"""
         p[0] = ShowTypesQuery(filter="aliases", sort_by=p[3])
 
-    def p_query_show_references(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW REFERENCES where_clause sort_clause"""
-        p[0] = ShowReferencesQuery(where=p[3], sort_by=p[4])
+    # ---- Graph command grammar ----
+    # 8 top-level rules: with/without focus type × 4 view modes (full/structure/declared/stored)
+    # Each ends with graph_output (sort_clause | TO STRING | empty)
 
-    def p_query_show_references_type(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW REFERENCES IDENTIFIER where_clause sort_clause"""
-        p[0] = ShowReferencesQuery(type_name=p[3], where=p[4], sort_by=p[5])
+    def _make_graph(self, focus: str | None, view: dict, output: dict) -> GraphQuery:
+        return GraphQuery(
+            focus_type=focus,
+            output_file=output.get("output_file"),
+            sort_by=output.get("sort_by", []),
+            view_mode=view.get("view_mode", "full"),
+            field_centric=view.get("field_centric", False),
+            show_origin=view.get("show_origin", False),
+            without_types=view.get("without_types", False),
+            depth=output.get("depth"),
+            showing=output.get("showing", []),
+            excluding=output.get("excluding", []),
+            style_file=output.get("style_file"),
+            title=output.get("title"),
+            path_to=output.get("path_to"),
+        )
 
-    def p_query_dump_graph(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP GRAPH"""
-        p[0] = DumpGraphQuery()
+    def p_query_graph(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH graph_output"""
+        p[0] = self._make_graph(None, {}, p[2])
 
-    def p_query_dump_graph_to(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP GRAPH TO STRING"""
-        p[0] = DumpGraphQuery(output_file=p[4])
+    def p_query_graph_structure(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH STRUCTURE graph_output"""
+        p[0] = self._make_graph(None, {"view_mode": "structure"}, p[3])
 
-    def p_query_dump_graph_type(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP GRAPH IDENTIFIER"""
-        p[0] = DumpGraphQuery(type_name=p[3])
+    def p_query_graph_declared(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH DECLARED graph_declared_mods graph_output"""
+        p[0] = self._make_graph(None, {"view_mode": "declared", **p[3]}, p[4])
 
-    def p_query_dump_graph_type_to(self, p: yacc.YaccProduction) -> None:
-        """query : DUMP GRAPH IDENTIFIER TO STRING"""
-        p[0] = DumpGraphQuery(type_name=p[3], output_file=p[5])
+    def p_query_graph_stored(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH STORED graph_stored_mods graph_output"""
+        p[0] = self._make_graph(None, {"view_mode": "stored", **p[3]}, p[4])
+
+    def p_query_graph_type(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH IDENTIFIER graph_output"""
+        p[0] = self._make_graph(p[2], {}, p[3])
+
+    def p_query_graph_type_structure(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH IDENTIFIER STRUCTURE graph_output"""
+        p[0] = self._make_graph(p[2], {"view_mode": "structure"}, p[4])
+
+    def p_query_graph_type_declared(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH IDENTIFIER DECLARED graph_declared_mods graph_output"""
+        p[0] = self._make_graph(p[2], {"view_mode": "declared", **p[4]}, p[5])
+
+    def p_query_graph_type_stored(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH IDENTIFIER STORED graph_stored_mods graph_output"""
+        p[0] = self._make_graph(p[2], {"view_mode": "stored", **p[4]}, p[5])
+
+    # ---- Graph output: sort clause, file output, or empty ----
+
+    def p_graph_output_empty(self, p: yacc.YaccProduction) -> None:
+        """graph_output : """
+        p[0] = {}
+
+    def p_graph_output_sort(self, p: yacc.YaccProduction) -> None:
+        """graph_output : SORT BY identifier_list"""
+        p[0] = {"sort_by": p[3]}
+
+    def p_graph_output_to(self, p: yacc.YaccProduction) -> None:
+        """graph_output : graph_to"""
+        p[0] = p[1]
+
+    def p_graph_output_depth(self, p: yacc.YaccProduction) -> None:
+        """graph_output : DEPTH INTEGER"""
+        p[0] = {"depth": p[2]}
+
+    def p_graph_output_depth_to(self, p: yacc.YaccProduction) -> None:
+        """graph_output : DEPTH INTEGER graph_to"""
+        p[0] = {"depth": p[2], **p[3]}
+
+    def p_graph_output_depth_sort(self, p: yacc.YaccProduction) -> None:
+        """graph_output : DEPTH INTEGER SORT BY identifier_list"""
+        p[0] = {"depth": p[2], "sort_by": p[5]}
+
+    # ---- Graph output: path to ----
+
+    def p_graph_output_path_to(self, p: yacc.YaccProduction) -> None:
+        """graph_output : IDENTIFIER TO graph_path_targets graph_final"""
+        if p[1] != "path":
+            raise SyntaxError(f"Expected 'path' before 'to', got '{p[1]}' (position {p.lexpos(1)})")
+        p[0] = {"path_to": p[3], **p[4]}
+
+    def p_graph_path_targets_single(self, p: yacc.YaccProduction) -> None:
+        """graph_path_targets : IDENTIFIER"""
+        p[0] = [p[1]]
+
+    def p_graph_path_targets_list(self, p: yacc.YaccProduction) -> None:
+        """graph_path_targets : LBRACKET graph_filter_value_list RBRACKET"""
+        p[0] = p[2]
+
+    # ---- Graph output with filters: showing/excluding ----
+
+    def p_graph_output_showing(self, p: yacc.YaccProduction) -> None:
+        """graph_output : SHOWING graph_filter_list graph_final"""
+        p[0] = {"showing": p[2], **p[3]}
+
+    def p_graph_output_excluding(self, p: yacc.YaccProduction) -> None:
+        """graph_output : EXCLUDING graph_filter_list graph_final"""
+        p[0] = {"excluding": p[2], **p[3]}
+
+    def p_graph_output_showing_excluding(self, p: yacc.YaccProduction) -> None:
+        """graph_output : SHOWING graph_filter_list EXCLUDING graph_filter_list graph_final"""
+        p[0] = {"showing": p[2], "excluding": p[4], **p[5]}
+
+    def p_graph_output_depth_showing(self, p: yacc.YaccProduction) -> None:
+        """graph_output : DEPTH INTEGER SHOWING graph_filter_list graph_final"""
+        p[0] = {"depth": p[2], "showing": p[4], **p[5]}
+
+    def p_graph_output_depth_excluding(self, p: yacc.YaccProduction) -> None:
+        """graph_output : DEPTH INTEGER EXCLUDING graph_filter_list graph_final"""
+        p[0] = {"depth": p[2], "excluding": p[4], **p[5]}
+
+    def p_graph_output_depth_showing_excluding(self, p: yacc.YaccProduction) -> None:
+        """graph_output : DEPTH INTEGER SHOWING graph_filter_list EXCLUDING graph_filter_list graph_final"""
+        p[0] = {"depth": p[2], "showing": p[4], "excluding": p[6], **p[7]}
+
+    # ---- Graph final: trailing sort/to/empty after filters ----
+
+    def p_graph_final_empty(self, p: yacc.YaccProduction) -> None:
+        """graph_final : """
+        p[0] = {}
+
+    def p_graph_final_sort(self, p: yacc.YaccProduction) -> None:
+        """graph_final : SORT BY identifier_list"""
+        p[0] = {"sort_by": p[3]}
+
+    def p_graph_final_to(self, p: yacc.YaccProduction) -> None:
+        """graph_final : graph_to"""
+        p[0] = p[1]
+
+    # ---- Graph TO clause (with optional title/style) ----
+
+    def p_graph_to_plain(self, p: yacc.YaccProduction) -> None:
+        """graph_to : TO STRING"""
+        p[0] = {"output_file": p[2]}
+
+    def p_graph_to_one_mod(self, p: yacc.YaccProduction) -> None:
+        """graph_to : TO STRING IDENTIFIER STRING"""
+        if p[3] == "title":
+            p[0] = {"output_file": p[2], "title": p[4]}
+        elif p[3] == "style":
+            p[0] = {"output_file": p[2], "style_file": p[4]}
+        else:
+            raise SyntaxError(f"Expected 'title' or 'style' after output file, got '{p[3]}' (position {p.lexpos(3)})")
+
+    def p_graph_to_two_mods(self, p: yacc.YaccProduction) -> None:
+        """graph_to : TO STRING IDENTIFIER STRING IDENTIFIER STRING"""
+        if p[3] == "title" and p[5] == "style":
+            p[0] = {"output_file": p[2], "title": p[4], "style_file": p[6]}
+        elif p[3] == "style" and p[5] == "title":
+            p[0] = {"output_file": p[2], "style_file": p[4], "title": p[6]}
+        else:
+            raise SyntaxError(f"Expected 'title' and 'style' modifiers, got '{p[3]}' and '{p[5]}' (position {p.lexpos(3)})")
+
+    # ---- Graph filter list ----
+
+    def p_graph_filter_list_single(self, p: yacc.YaccProduction) -> None:
+        """graph_filter_list : graph_filter"""
+        p[0] = [p[1]]
+
+    def p_graph_filter_list_multi(self, p: yacc.YaccProduction) -> None:
+        """graph_filter_list : graph_filter_list graph_filter"""
+        p[0] = p[1] + [p[2]]
+
+    def p_graph_filter_type(self, p: yacc.YaccProduction) -> None:
+        """graph_filter : TYPE graph_filter_values"""
+        p[0] = GraphFilter(dimension="type", values=p[2])
+
+    def p_graph_filter_ident(self, p: yacc.YaccProduction) -> None:
+        """graph_filter : IDENTIFIER graph_filter_values"""
+        dim = p[1]
+        if dim not in ("field", "kind"):
+            raise SyntaxError(f"Expected 'type', 'field', or 'kind' after showing/excluding, got '{dim}' (position {p.lexpos(1)})")
+        p[0] = GraphFilter(dimension=dim, values=p[2])
+
+    def p_graph_filter_values_single(self, p: yacc.YaccProduction) -> None:
+        """graph_filter_values : graph_filter_value"""
+        p[0] = [p[1]]
+
+    def p_graph_filter_values_list(self, p: yacc.YaccProduction) -> None:
+        """graph_filter_values : LBRACKET graph_filter_value_list RBRACKET"""
+        p[0] = p[2]
+
+    def p_graph_filter_value_list_single(self, p: yacc.YaccProduction) -> None:
+        """graph_filter_value_list : graph_filter_value"""
+        p[0] = [p[1]]
+
+    def p_graph_filter_value_list_multi(self, p: yacc.YaccProduction) -> None:
+        """graph_filter_value_list : graph_filter_value_list COMMA graph_filter_value"""
+        p[0] = p[1] + [p[3]]
+
+    def p_graph_filter_value_ident(self, p: yacc.YaccProduction) -> None:
+        """graph_filter_value : IDENTIFIER"""
+        p[0] = p[1]
+
+    def p_graph_filter_value_keyword(self, p: yacc.YaccProduction) -> None:
+        """graph_filter_value : TYPE
+                              | INTERFACE
+                              | ENUM
+                              | ALIAS
+                              | SET"""
+        # Allow reserved keywords as filter values (e.g., showing kind Interface)
+        p[0] = p[1]
+
+    # ---- Declared modifiers: [fields [without types]] ----
+
+    def p_graph_declared_mods_empty(self, p: yacc.YaccProduction) -> None:
+        """graph_declared_mods : """
+        p[0] = {}
+
+    def p_graph_declared_mods_one(self, p: yacc.YaccProduction) -> None:
+        """graph_declared_mods : IDENTIFIER"""
+        if p[1] != "fields":
+            raise SyntaxError(f"Expected 'fields' after 'declared', got '{p[1]}' (position {p.lexpos(1)})")
+        p[0] = {"field_centric": True}
+
+    def p_graph_declared_mods_without_types(self, p: yacc.YaccProduction) -> None:
+        """graph_declared_mods : IDENTIFIER IDENTIFIER TYPES"""
+        if p[1] != "fields":
+            raise SyntaxError(f"Expected 'fields' after 'declared', got '{p[1]}' (position {p.lexpos(1)})")
+        if p[2] != "without":
+            raise SyntaxError(f"Expected 'without' after 'fields', got '{p[2]}' (position {p.lexpos(2)})")
+        p[0] = {"field_centric": True, "without_types": True}
+
+    # ---- Stored modifiers: [fields] [origin] [without types] ----
+
+    def p_graph_stored_mods_empty(self, p: yacc.YaccProduction) -> None:
+        """graph_stored_mods : """
+        p[0] = {}
+
+    def p_graph_stored_mods_one(self, p: yacc.YaccProduction) -> None:
+        """graph_stored_mods : IDENTIFIER"""
+        if p[1] == "fields":
+            p[0] = {"field_centric": True}
+        elif p[1] == "origin":
+            p[0] = {"show_origin": True}
+        else:
+            raise SyntaxError(f"Expected 'fields' or 'origin' after 'stored', got '{p[1]}' (position {p.lexpos(1)})")
+
+    def p_graph_stored_mods_two(self, p: yacc.YaccProduction) -> None:
+        """graph_stored_mods : IDENTIFIER IDENTIFIER"""
+        if p[1] == "fields" and p[2] == "origin":
+            p[0] = {"field_centric": True, "show_origin": True}
+        else:
+            raise SyntaxError(f"Invalid stored modifiers: '{p[1]} {p[2]}' (position {p.lexpos(1)})")
+
+    def p_graph_stored_mods_two_types(self, p: yacc.YaccProduction) -> None:
+        """graph_stored_mods : IDENTIFIER IDENTIFIER TYPES"""
+        if p[1] == "fields" and p[2] == "without":
+            p[0] = {"field_centric": True, "without_types": True}
+        else:
+            raise SyntaxError(f"Invalid stored modifiers (position {p.lexpos(1)})")
+
+    def p_graph_stored_mods_three_types(self, p: yacc.YaccProduction) -> None:
+        """graph_stored_mods : IDENTIFIER IDENTIFIER IDENTIFIER TYPES"""
+        if p[1] == "fields" and p[2] == "origin" and p[3] == "without":
+            p[0] = {"field_centric": True, "show_origin": True, "without_types": True}
+        else:
+            raise SyntaxError(f"Invalid stored modifiers (position {p.lexpos(1)})")
 
     def p_query_compact_to(self, p: yacc.YaccProduction) -> None:
         """query : COMPACT TO STRING"""

@@ -266,26 +266,26 @@ class TestSystemTypes:
         assert query.force is True
         assert query.where is not None
 
-    def test_show_references_excludes_unreferenced_path(self, executor):
-        """path alias should not appear in show references when unused."""
-        result = _run(executor, 'show references')
+    def test_graph_excludes_unreferenced_path(self, executor):
+        """path alias should not appear in graph when unused."""
+        result = _run(executor, 'graph')
         sources = {row["source"] for row in result.rows}
         assert "path" not in sources
 
-    def test_show_references_includes_path_when_used(self, executor):
-        """path alias should appear in show references when a user type uses it."""
+    def test_graph_includes_path_when_used(self, executor):
+        """path alias should appear in graph when a user type uses it."""
         _run(executor, 'type Config { file: path }')
-        result = _run(executor, 'show references')
+        result = _run(executor, 'graph')
         sources = {row["source"] for row in result.rows}
         assert "path" in sources
 
-    def test_show_references_excludes_system_types(self, executor, db_dir):
-        """_ImportRecord should not appear in show references."""
+    def test_graph_excludes_system_types(self, executor, db_dir):
+        """_ImportRecord should not appear in graph."""
         script = db_dir / "setup.ttq"
         script.write_text('type Foo { x: uint8 }')
         _run(executor, f'import "{script}"')
 
-        result = _run(executor, 'show references')
+        result = _run(executor, 'graph')
         sources = {row["source"] for row in result.rows}
         targets = {row["target"] for row in result.rows}
         assert "_ImportRecord" not in sources

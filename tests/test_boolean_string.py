@@ -271,10 +271,10 @@ class TestBooleanClassify:
         bool_def = executor.registry.get("boolean")
         assert executor._classify_type(bool_def) == "Boolean"
 
-    def test_show_references_boolean(self, executor):
-        """show references includes boolean type when used by a composite."""
+    def test_graph_boolean(self, executor):
+        """graph includes boolean type when used by a composite."""
         _run(executor, 'type Toggle { active: boolean }')
-        result = _run(executor, 'show references Toggle')
+        result = _run(executor, 'graph Toggle')
         assert isinstance(result, QueryResult)
         targets = [row["target"] for row in result.rows]
         assert "boolean" in targets

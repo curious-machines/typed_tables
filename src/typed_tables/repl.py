@@ -850,16 +850,13 @@ SHOW & DESCRIBE:
   show aliases             List alias types only
   show primitives          List built-in primitive types
   show system types        List internal system types (_-prefixed)
-  show references          Show the type reference graph (all edges)
-  show references <type>   Show edges involving a specific type
-
   describe <type>          Show type structure and fields
   describe <type>.<variant>
                            Show fields of an enum variant
 
   All show commands support: sort by <field>
 
-  See also: dump graph (exports the reference graph to a file)""",
+  See also: graph (unified schema exploration command)""",
 
     "definitions": """\
 DEFINITIONS:
@@ -1417,20 +1414,72 @@ DUMP:
     dump archive              Include system types (full database state)
     dump archive yaml         Combinable with format modifiers
 
-  Graph (export the type reference graph):
-    dump graph                  Export type reference graph as TTQ
-    dump graph to "file.ttq"    TTQ format to file
-    dump graph to "file.dot"    Graphviz DOT format (.dot extension)
-    dump graph to "file"        No extension -> appends .ttq
-    dump graph <type>           Graph filtered to a specific type
-    dump graph <type> to "file" Filtered graph to file
-
   File extension behavior:
     dump to "file"              Auto-appends .ttq (or .yaml/.json/.xml)
     dump to "file.ttq.gz"       Gzip-compressed output (.gz on any format)
 
   Shared references are automatically emitted as $var bindings.
   The dump command is cycle-aware and emits scope/tag syntax for cycles.""",
+
+    "graph": """\
+GRAPH (schema exploration):
+  Explore the type reference graph. Output as a table, DOT file, or TTQ script.
+  Columns: kind, source, field, target. Arrow direction: referrer → referent.
+
+  Basic:
+    graph                            All type edges as table
+    graph <type>                     Edges involving a specific type
+    graph sort by source             Sort table output
+
+  File output (extension determines format):
+    graph to "file.dot"              Graphviz DOT format
+    graph to "file.ttq"              TTQ script format
+    graph to "file"                  No extension → assumes .ttq
+    graph <type> to "file.dot"       Focus type to file
+
+  View modes (control which edges appear):
+    graph <type> structure           Only extends/implements edges (no field→type)
+    graph <type> declared            Only fields the type itself defines
+    graph <type> stored              All fields on the record (inherited + own)
+    graph <type> declared fields     Field-centric: each field as its own node
+    graph <type> stored fields       Field-centric for all stored fields
+    graph <type> stored origin       Annotate each field's defining type
+    graph <type> stored fields origin
+                                     Field-centric with origin annotations
+    graph <type> declared fields without types
+                                     Field nodes without type labels
+
+  Depth control (limit inheritance expansion):
+    graph <type> depth 0             Focus type only (no expansion)
+    graph <type> depth 1             Focus + immediate parents/interfaces
+    graph <type> structure depth 2   Structure view, 2 levels deep
+
+  Filters (include or exclude by type, field, or kind):
+    graph showing type string                  Only edges targeting string
+    graph showing field [name, age]            Only name/age field edges
+    graph showing kind Interface               Only interface nodes
+    graph excluding type [uint8, uint16]       Hide specific types
+    graph <type> showing type float32 excluding field speed
+    graph <type> depth 2 showing kind Composite
+
+  Path-to queries (find inheritance paths):
+    graph <type> path to <target>              Shortest inheritance path
+    graph <type> path to [<t1>, <t2>]          Paths to multiple targets
+    graph <type> path to <target> to "p.dot"   Output path as DOT
+
+  Titles and styles (DOT output only):
+    graph to "f.dot" title "My Schema"
+    graph to "f.dot" style "custom.style"
+    graph to "f.dot" title "Schema" style "dark.style"
+
+  Style files use key = value format:
+    direction = LR                   Graph direction (LR, TB, etc.)
+    composite.color = #4A90D9        Node color for composites
+    interface.color = #7B68EE        Node color for interfaces
+    focus.color = #FFD700            Highlight color for focus type
+
+  TTQ output includes: enum NodeRole { focus, context, endpoint, leaf },
+  TypeNode with name/kind/role fields, and Edge with source/target/field_name.""",
 
     "archive": """\
 ARCHIVE, RESTORE & COMPACT:
@@ -1529,8 +1578,13 @@ _HELP_ALIASES: dict[str, str] = {
     "group": "queries",
     "limit": "queries",
     "offset": "queries",
-    "graph": "dump",
-    "references": "show",
+    "showing": "graph",
+    "excluding": "graph",
+    "depth": "graph",
+    "structure": "graph",
+    "declared": "graph",
+    "stored": "graph",
+    "path": "graph",
     "yaml": "dump",
     "json": "dump",
     "xml": "dump",
@@ -1574,6 +1628,7 @@ TTQ - Typed Tables Query Language
   variables     $var bindings, usage in create/update/select
   collect       collect records into variables
   dump          dump database (TTQ, YAML, JSON, XML)
+  graph         schema exploration: view modes, filters, path-to
   archive       archive, restore, compact
   cyclic        scope blocks, tags for cyclic references
   scripts       execute, import
