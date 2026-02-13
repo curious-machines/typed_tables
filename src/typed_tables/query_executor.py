@@ -839,8 +839,38 @@ class QueryExecutor:
         edges = self._build_type_graph()
         if query.type_name:
             edges = self._filter_edges_by_type(edges, query.type_name)
+        if query.where:
+            valid_columns = {"kind", "source", "field", "target"}
+            edges = [e for e in edges if self._match_row_condition(e, query.where, valid_columns)]
         edges = self._sort_rows(edges, query.sort_by, defaults=["target", "source"])
         return QueryResult(columns=["kind", "source", "field", "target"], rows=edges)
+
+    def _match_row_condition(
+        self, row: dict[str, str], condition: Any, valid_columns: set[str]
+    ) -> bool:
+        """Evaluate a simple condition against a row dict (string equality only)."""
+        from .parsing.query_parser import Condition, CompoundCondition
+
+        if isinstance(condition, CompoundCondition):
+            left = self._match_row_condition(row, condition.left, valid_columns)
+            right = self._match_row_condition(row, condition.right, valid_columns)
+            if condition.operator == "and":
+                return left and right
+            else:
+                return left or right
+
+        assert isinstance(condition, Condition)
+        col = condition.field
+        if col not in valid_columns:
+            raise RuntimeError(f"Unknown column '{col}' — valid columns: {', '.join(sorted(valid_columns))}")
+        if condition.operator not in ("eq", "neq"):
+            raise RuntimeError(f"Only = and != operators are supported for show references where clause")
+        row_val = row.get(col, "")
+        match_val = str(condition.value) if condition.value is not None else ""
+        if condition.operator == "eq":
+            return row_val == match_val
+        else:
+            return row_val != match_val
 
     def _execute_dump_graph(self, query: DumpGraphQuery) -> DumpResult:
         """Execute DUMP GRAPH query — export type graph as TTQ or DOT."""

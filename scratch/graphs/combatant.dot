@@ -1,0 +1,47 @@
+digraph types {
+    rankdir=LR;
+    node [style=filled];
+
+    "Boss" [shape=box, fillcolor="#ADD8E6"];
+    "Combatant" [shape=box, fillcolor="#FFB347"];
+    "Creature" [shape=box, fillcolor="#ADD8E6"];
+    "Damageable" [shape=box, fillcolor="#FFB347"];
+    "Entity" [shape=box, fillcolor="#FFB347"];
+    "GameEntity" [shape=box, fillcolor="#FFB347"];
+    "Identifiable" [shape=box, fillcolor="#FFB347"];
+    "Merchant" [shape=box, fillcolor="#ADD8E6"];
+    "NPC" [shape=box, fillcolor="#ADD8E6"];
+    "Player" [shape=box, fillcolor="#ADD8E6"];
+    "Positioned" [shape=box, fillcolor="#FFB347"];
+    "Timed" [shape=box, fillcolor="#FFB347"];
+    "Trackable" [shape=box, fillcolor="#FFB347"];
+    "float32" [shape=ellipse, fillcolor="#FFFFE0"];
+    "int16" [shape=ellipse, fillcolor="#FFFFE0"];
+    "string" [shape=ellipse, fillcolor="#FFFFE0"];
+    "uint16" [shape=ellipse, fillcolor="#FFFFE0"];
+    "uint32" [shape=ellipse, fillcolor="#FFFFE0"];
+    "uint64" [shape=ellipse, fillcolor="#FFFFE0"];
+
+    "Combatant" -> "uint16" [label="attack"];
+    "Combatant" -> "uint16" [label="defense"];
+    "Combatant" -> "GameEntity" [label="(extends)"];
+    "Combatant" -> "Damageable" [label="(extends)"];
+    "Creature" -> "Combatant" [label="(implements)"];
+    "NPC" -> "Combatant" [label="(implements)"];
+    "Player" -> "Combatant" [label="(implements)"];
+    "Boss" -> "Combatant" [label="(implements)"];
+    "Merchant" -> "Combatant" [label="(implements)"];
+    "GameEntity" -> "Entity" [label="(extends)"];
+    "GameEntity" -> "Trackable" [label="(extends)"];
+    "Damageable" -> "int16" [label="hp"];
+    "Damageable" -> "int16" [label="max_hp"];
+    "Entity" -> "uint32" [label="id"];
+    "Entity" -> "Identifiable" [label="(extends)"];
+    "Entity" -> "Positioned" [label="(extends)"];
+    "Trackable" -> "Identifiable" [label="(extends)"];
+    "Trackable" -> "Timed" [label="(extends)"];
+    "Identifiable" -> "string" [label="name"];
+    "Timed" -> "uint64" [label="created_at"];
+    "Positioned" -> "float32" [label="x"];
+    "Positioned" -> "float32" [label="y"];
+}

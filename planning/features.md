@@ -1,7 +1,5 @@
 # TODO
 
-Make interfaces a different color than composites in dot files.
-
 ---
 
 # Questions
@@ -44,6 +42,10 @@ Would be great if we could import binary data (some file format) and be able to 
 - Indexing
 
 # Completed
+
+## Interface Color in Dot Files
+
+Make interfaces a different color than composites in dot files.
 
 ## Interface Inheritance
 

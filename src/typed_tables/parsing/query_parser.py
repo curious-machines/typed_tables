@@ -125,6 +125,7 @@ class ShowReferencesQuery:
     """A SHOW REFERENCES query."""
 
     type_name: str | None = None  # None = show all edges
+    where: Condition | CompoundCondition | None = None
     sort_by: list[str] = field(default_factory=list)
 
 
@@ -597,12 +598,12 @@ class QueryParser:
         p[0] = ShowTypesQuery(filter="aliases", sort_by=p[3])
 
     def p_query_show_references(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW REFERENCES sort_clause"""
-        p[0] = ShowReferencesQuery(sort_by=p[3])
+        """query : SHOW REFERENCES where_clause sort_clause"""
+        p[0] = ShowReferencesQuery(where=p[3], sort_by=p[4])
 
     def p_query_show_references_type(self, p: yacc.YaccProduction) -> None:
-        """query : SHOW REFERENCES IDENTIFIER sort_clause"""
-        p[0] = ShowReferencesQuery(type_name=p[3], sort_by=p[4])
+        """query : SHOW REFERENCES IDENTIFIER where_clause sort_clause"""
+        p[0] = ShowReferencesQuery(type_name=p[3], where=p[4], sort_by=p[5])
 
     def p_query_dump_graph(self, p: yacc.YaccProduction) -> None:
         """query : DUMP GRAPH"""
