@@ -213,6 +213,7 @@ class CreateInterfaceQuery:
 
     name: str
     fields: list[FieldDef] = field(default_factory=list)
+    parents: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -709,6 +710,14 @@ class QueryParser:
     def p_query_create_interface(self, p: yacc.YaccProduction) -> None:
         """query : INTERFACE IDENTIFIER type_field_list"""
         p[0] = CreateInterfaceQuery(name=p[2], fields=p[3])
+
+    def p_query_create_interface_inherit(self, p: yacc.YaccProduction) -> None:
+        """query : INTERFACE IDENTIFIER FROM parent_list type_field_list"""
+        p[0] = CreateInterfaceQuery(name=p[2], fields=p[5], parents=p[4])
+
+    def p_query_create_interface_inherit_empty(self, p: yacc.YaccProduction) -> None:
+        """query : INTERFACE IDENTIFIER FROM parent_list"""
+        p[0] = CreateInterfaceQuery(name=p[2], fields=[], parents=p[4])
 
     def p_query_create_interface_empty(self, p: yacc.YaccProduction) -> None:
         """query : INTERFACE IDENTIFIER"""

@@ -149,10 +149,13 @@ class StorageManager:
                 result_enum["backing_type"] = type_def.backing_type.value
             return result_enum
         elif isinstance(type_def, InterfaceTypeDefinition):
-            return {
+            result_iface: dict[str, Any] = {
                 "kind": "interface",
                 "fields": [self._serialize_field_def(f) for f in type_def.fields],
             }
+            if type_def.interfaces:
+                result_iface["interfaces"] = type_def.interfaces
+            return result_iface
         elif isinstance(type_def, CompositeTypeDefinition):
             result: dict[str, Any] = {
                 "kind": "composite",

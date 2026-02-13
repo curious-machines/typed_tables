@@ -748,8 +748,19 @@ class QueryExecutor:
                     for f in variant.fields:
                         process_field_type(type_name, kind, f"{variant.name}.{f.name}", f.type_def)
             elif isinstance(type_def, InterfaceTypeDefinition):
+                # Skip inherited fields — they belong to parent interfaces
+                inherited_fields: set[str] = set()
+                for iface_name in type_def.interfaces:
+                    iface_td = self.registry.get(iface_name)
+                    if iface_td and isinstance(iface_td, InterfaceTypeDefinition):
+                        for f in iface_td.fields:
+                            inherited_fields.add(f.name)
                 for f in type_def.fields:
-                    process_field_type(type_name, kind, f.name, f.type_def)
+                    if f.name not in inherited_fields:
+                        process_field_type(type_name, kind, f.name, f.type_def)
+                # Inheritance edges
+                for iface_name in type_def.interfaces:
+                    add_edge(type_name, kind, iface_name, "(extends)")
             elif isinstance(type_def, SetTypeDefinition):
                 add_edge(type_name, kind, type_def.element_type.name, "{}")
             elif isinstance(type_def, DictionaryTypeDefinition):
@@ -1010,6 +1021,16 @@ class QueryExecutor:
                     "default": default_val,
                     "overflow": field.overflow or "",
                 })
+            # List parent interfaces
+            if base.interfaces:
+                for iface_name in base.interfaces:
+                    rows.append({
+                        "property": "(extends)",
+                        "type": iface_name,
+                        "size": 0,
+                        "default": "",
+                        "overflow": "",
+                    })
             # List implementing types
             impl_types = self.registry.find_implementing_types(query.table)
             if impl_types:
@@ -1217,7 +1238,7 @@ class QueryExecutor:
         existing = self.registry.get(query.name)
 
         if existing is not None:
-            if isinstance(existing, InterfaceTypeDefinition) and not existing.fields and query.fields:
+            if isinstance(existing, InterfaceTypeDefinition) and not existing.fields and (query.fields or query.parents):
                 pass  # populate stub
             else:
                 return CreateResult(
@@ -1231,8 +1252,52 @@ class QueryExecutor:
         if existing is None:
             self.registry.register_interface_stub(query.name)
 
-        # Build field definitions
-        fields: list[FieldDefinition] = []
+        # Handle interface inheritance
+        parent_fields: list[FieldDefinition] = []
+        interface_names: list[str] = []
+
+        for parent_name in query.parents:
+            if parent_name == query.name:
+                return CreateResult(
+                    columns=[], rows=[],
+                    message=f"Circular inheritance: '{query.name}' cannot inherit from itself",
+                    type_name=query.name,
+                )
+
+            parent_type = self.registry.get(parent_name)
+            if parent_type is None:
+                return CreateResult(
+                    columns=[], rows=[],
+                    message=f"Unknown parent type: {parent_name}",
+                    type_name=query.name,
+                )
+
+            parent_base = parent_type.resolve_base_type()
+            if not isinstance(parent_base, InterfaceTypeDefinition):
+                return CreateResult(
+                    columns=[], rows=[],
+                    message=f"Interfaces can only inherit from other interfaces, not '{parent_name}'",
+                    type_name=query.name,
+                )
+
+            # Merge fields with diamond-merge conflict detection
+            interface_names.append(parent_name)
+            for f in parent_base.fields:
+                existing_field = next((pf for pf in parent_fields if pf.name == f.name), None)
+                if existing_field is not None:
+                    # Same name: must be same type (diamond merge)
+                    if existing_field.type_def.name != f.type_def.name:
+                        return CreateResult(
+                            columns=[], rows=[],
+                            message=f"Field conflict: '{f.name}' has type '{existing_field.type_def.name}' from one parent but '{f.type_def.name}' from '{parent_name}'",
+                            type_name=query.name,
+                        )
+                    # Same name + same type → merge (skip duplicate)
+                else:
+                    parent_fields.append(f)
+
+        # Build field definitions from query
+        fields: list[FieldDefinition] = parent_fields.copy()
         for field_def in query.fields:
             field_type = self._resolve_type_spec(field_def.type_name)
             if field_type is None:
@@ -1265,6 +1330,7 @@ class QueryExecutor:
         # Populate the stub
         stub = self.registry.get(query.name)
         stub.fields = fields
+        stub.interfaces = list(dict.fromkeys(interface_names))
 
         self.storage.save_metadata()
 
@@ -5855,10 +5921,23 @@ class QueryExecutor:
             else:
                 lines.append(f"enum {name}{backing_clause} {{ {', '.join(variant_strs)} }}")
 
+        # Sort interfaces in dependency order (parents before children)
+        interfaces = self._sort_interfaces_by_dependency(interfaces)
+
         # Emit interface definitions
         for name, iface_def in interfaces:
+            # Compute inherited field names to skip
+            inherited_fields: set[str] = set()
+            for parent_name in iface_def.interfaces:
+                parent_td = self.registry.get(parent_name)
+                if parent_td and isinstance(parent_td, InterfaceTypeDefinition):
+                    for f in parent_td.fields:
+                        inherited_fields.add(f.name)
+
             field_strs = []
             for f in iface_def.fields:
+                if f.name in inherited_fields:
+                    continue
                 field_type_name = f.type_def.name
                 if field_type_name.endswith("[]"):
                     base_elem = field_type_name[:-2]
@@ -5868,8 +5947,11 @@ class QueryExecutor:
                 if f.default_value is not None:
                     fs += f" = {self._format_default_for_dump(f.default_value, f.type_def)}"
                 field_strs.append(fs)
+
+            from_clause = f" from {', '.join(iface_def.interfaces)}" if iface_def.interfaces else ""
+
             if pretty:
-                lines.append(f"interface {name} {{")
+                lines.append(f"interface {name}{from_clause} {{")
                 for i, fs in enumerate(field_strs):
                     comma = "," if i < len(field_strs) - 1 else ""
                     lines.append(f"    {fs}{comma}")
@@ -5877,7 +5959,7 @@ class QueryExecutor:
                 lines.append("")
             else:
                 fields_part = ", ".join(field_strs)
-                lines.append(f"interface {name} {{ {fields_part} }}")
+                lines.append(f"interface {name}{from_clause} {{ {fields_part} }}")
 
         # Determine which cycle types need forward declarations
         # Only types referenced before they're defined need forwarding
@@ -6831,6 +6913,34 @@ class QueryExecutor:
 
         return result, cycle_types
 
+    def _sort_interfaces_by_dependency(
+        self, interfaces: list[tuple[str, InterfaceTypeDefinition]]
+    ) -> list[tuple[str, InterfaceTypeDefinition]]:
+        """Sort interfaces so parent interfaces come before children."""
+        remaining = dict(interfaces)
+        result: list[tuple[str, InterfaceTypeDefinition]] = []
+        emitted: set[str] = set()
+
+        max_iterations = len(remaining) + 1
+        for _ in range(max_iterations):
+            if not remaining:
+                break
+            emitted_this_pass = []
+            for name, iface_def in remaining.items():
+                # All parent interfaces must be emitted first
+                if all(p in emitted or p not in remaining for p in iface_def.interfaces):
+                    result.append((name, iface_def))
+                    emitted.add(name)
+                    emitted_this_pass.append(name)
+            for name in emitted_this_pass:
+                del remaining[name]
+            if not emitted_this_pass:
+                # Shouldn't happen for interfaces (no cycles), but append remainder
+                result.extend(remaining.items())
+                break
+
+        return result
+
     def _transitive_type_closure(self, table_name: str) -> set[str]:
         """Compute transitive closure of type dependencies for a table."""
         needed: set[str] = set()
@@ -6858,6 +6968,9 @@ class QueryExecutor:
                     fb = f.type_def.resolve_base_type()
                     if isinstance(fb, ArrayTypeDefinition):
                         stack.append(fb.element_type.name)
+                # Include parent interfaces in the closure
+                for iface_name in type_def.interfaces:
+                    stack.append(iface_name)
             elif isinstance(type_def, CompositeTypeDefinition):
                 for f in type_def.fields:
                     stack.append(f.type_def.name)

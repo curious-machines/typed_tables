@@ -876,6 +876,10 @@ DEFINITIONS:
                            Define an enum with a backing type (enables arithmetic)
   interface <Name> { ... }
                            Define an interface (inherited by types via "from")
+  interface <Name> from <Parent> { ... }
+                           Inherit fields from another interface
+  interface <Name> from <A>, <B> { ... }
+                           Multiple interface parents (diamond merge allowed)
   forward <Name>           Forward-declare a type (for mutual references)
 
   Default values:

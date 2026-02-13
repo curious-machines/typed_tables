@@ -43,6 +43,12 @@ Would be great if we could import binary data (some file format) and be able to 
 
 # Completed
 
+## Interface Inheritance
+
+Allow interfaces to inherit other interfaces
+
+Make an fairly complex example ttq script in scratch/graphs that shows various combinations for inheritance and interface implementation at multiple levels with some interfaces implementing other interfaces. Maybe go only 3 levels deep with composite inheritance, but let each level have a mix of interfaces, some that have ancestors
+
 ## REPL and References Updates
 
 - Some REPL commands, like dump, change their behavior based on file extensions; they write different file formats or compress results. Please find all commands that do this and update the help docs to explain all file extension options. Also, I don't see "dump graph". I can't tell that that is an option. it should show up under "format modifiers". Make sure all commands show all of their variants, ignoring recursion, of course.

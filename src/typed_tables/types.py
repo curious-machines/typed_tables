@@ -418,6 +418,7 @@ class InterfaceTypeDefinition(TypeDefinition):
     """
 
     fields: list[FieldDefinition] = field(default_factory=list)
+    interfaces: list[str] = field(default_factory=list)  # Parent interface names
 
     @property
     def null_bitmap_size(self) -> int:

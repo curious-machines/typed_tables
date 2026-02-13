@@ -265,6 +265,7 @@ def _populate_interface_from_spec(
         overflow = field_spec.get("overflow")
         fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type, default_value=default, overflow=overflow))
     stub.fields = fields
+    stub.interfaces = spec.get("interfaces", [])
 
 
 def _populate_composite_from_spec(

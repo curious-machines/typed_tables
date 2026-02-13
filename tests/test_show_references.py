@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from typed_tables.parsing.query_parser import (
+    CreateInterfaceQuery,
     DumpGraphQuery,
     QueryParser,
     ShowReferencesQuery,
@@ -545,3 +546,273 @@ class TestParentTracking:
         assert isinstance(result, DumpResult)
         # Should have "from Base, Labelled" in the output
         assert "from Base, Labelled" in result.script
+
+
+# ---- Interface Inheritance tests ----
+
+
+class TestInterfaceInheritanceParser:
+    """Test parser produces correct CreateInterfaceQuery with parents."""
+
+    def test_parse_interface_from_single_parent(self, parser):
+        q = parser.parse("interface B from A { y: uint8 }")
+        assert isinstance(q, CreateInterfaceQuery)
+        assert q.name == "B"
+        assert q.parents == ["A"]
+        assert len(q.fields) == 1
+        assert q.fields[0].name == "y"
+
+    def test_parse_interface_from_multiple_parents(self, parser):
+        q = parser.parse("interface C from A, B { z: uint8 }")
+        assert isinstance(q, CreateInterfaceQuery)
+        assert q.name == "C"
+        assert q.parents == ["A", "B"]
+        assert len(q.fields) == 1
+
+    def test_parse_interface_from_parent_no_fields(self, parser):
+        q = parser.parse("interface B from A")
+        assert isinstance(q, CreateInterfaceQuery)
+        assert q.name == "B"
+        assert q.parents == ["A"]
+        assert q.fields == []
+
+    def test_parse_interface_no_parents(self, parser):
+        q = parser.parse("interface A { x: uint8 }")
+        assert isinstance(q, CreateInterfaceQuery)
+        assert q.parents == []
+
+
+class TestInterfaceInheritanceExecution:
+    """Test interface inheritance execution."""
+
+    def test_single_parent_merges_fields(self, executor, parser):
+        _run(executor, parser, "interface A { x: uint8 }")
+        result = _run(executor, parser, "interface B from A { y: uint16 }")
+        assert "Created interface" in result.message
+        # B should have both x and y
+        desc = _run(executor, parser, "describe B")
+        props = [r["property"] for r in desc.rows]
+        assert "x" in props
+        assert "y" in props
+
+    def test_multi_parent_merges_fields(self, executor, parser):
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B { y: uint16 }")
+        result = _run(executor, parser, "interface C from A, B { z: float32 }")
+        assert "Created interface" in result.message
+        desc = _run(executor, parser, "describe C")
+        props = [r["property"] for r in desc.rows]
+        assert "x" in props
+        assert "y" in props
+        assert "z" in props
+
+    def test_diamond_merge_same_type_ok(self, executor, parser):
+        """Diamond: A has x, B from A, C from A, D from B, C — x merges."""
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+        _run(executor, parser, "interface C from A { z: float32 }")
+        result = _run(executor, parser, "interface D from B, C { w: string }")
+        assert "Created interface" in result.message
+        desc = _run(executor, parser, "describe D")
+        props = [r["property"] for r in desc.rows]
+        assert "x" in props
+        assert "y" in props
+        assert "z" in props
+        assert "w" in props
+
+    def test_diamond_merge_conflict_error(self, executor, parser):
+        """Same field name with different types → error."""
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B { x: uint16 }")
+        result = _run(executor, parser, "interface C from A, B { }")
+        assert "Field conflict" in result.message
+
+    def test_non_interface_parent_error(self, executor, parser):
+        """Cannot inherit from a composite type."""
+        _run(executor, parser, "type Foo { x: uint8 }")
+        result = _run(executor, parser, "interface Bar from Foo { y: uint8 }")
+        assert "Interfaces can only inherit from other interfaces" in result.message
+
+    def test_unknown_parent_error(self, executor, parser):
+        result = _run(executor, parser, "interface Bar from Unknown { y: uint8 }")
+        assert "Unknown parent type" in result.message
+
+    def test_self_inheritance_error(self, executor, parser):
+        result = _run(executor, parser, "interface A from A { x: uint8 }")
+        assert "Circular inheritance" in result.message
+
+    def test_inherit_from_parent_no_own_fields(self, executor, parser):
+        """interface B from A — inherits all fields, adds none."""
+        _run(executor, parser, "interface A { x: uint8, y: uint16 }")
+        result = _run(executor, parser, "interface B from A")
+        assert "Created interface" in result.message
+        desc = _run(executor, parser, "describe B")
+        props = [r["property"] for r in desc.rows]
+        assert "x" in props
+        assert "y" in props
+
+
+class TestInterfaceInheritanceDescribe:
+    """Test describe shows (extends) rows for parent interfaces."""
+
+    def test_describe_shows_extends(self, executor, parser):
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+        desc = _run(executor, parser, "describe B")
+        extends_rows = [r for r in desc.rows if r["property"] == "(extends)"]
+        assert len(extends_rows) == 1
+        assert extends_rows[0]["type"] == "A"
+
+    def test_describe_shows_multiple_extends(self, executor, parser):
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B { y: uint16 }")
+        _run(executor, parser, "interface C from A, B { z: float32 }")
+        desc = _run(executor, parser, "describe C")
+        extends_rows = [r for r in desc.rows if r["property"] == "(extends)"]
+        assert len(extends_rows) == 2
+        extends_types = {r["type"] for r in extends_rows}
+        assert extends_types == {"A", "B"}
+
+
+class TestInterfaceInheritanceReferences:
+    """Test show references for interface inheritance."""
+
+    def test_show_references_extends_edge(self, executor, parser):
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+        result = _run(executor, parser, "show references B")
+        edges = _edges(result)
+        # B→A with (extends)
+        assert ("B", "Interface", "(extends)", "A") in edges
+        # B's own field y→uint16
+        assert ("B", "Interface", "y", "uint16") in edges
+        # x should NOT appear under B (it's inherited)
+        assert not any(e for e in edges if e[0] == "B" and e[2] == "x")
+
+    def test_show_references_inherited_fields_on_parent(self, executor, parser):
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+        result = _run(executor, parser, "show references A")
+        edges = _edges(result)
+        # A has x→uint8
+        assert ("A", "Interface", "x", "uint8") in edges
+
+    def test_show_references_chain(self, executor, parser):
+        """C from B from A — should recursively expand."""
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+        _run(executor, parser, "interface C from B { z: float32 }")
+        result = _run(executor, parser, "show references C")
+        edges = _edges(result)
+        # C→B extends
+        assert ("C", "Interface", "(extends)", "B") in edges
+        # C's own field z→float32
+        assert ("C", "Interface", "z", "float32") in edges
+        # x and y should NOT appear under C
+        assert not any(e for e in edges if e[0] == "C" and e[2] == "x")
+        assert not any(e for e in edges if e[0] == "C" and e[2] == "y")
+
+
+class TestInterfaceInheritanceDump:
+    """Test dump round-trips interface inheritance."""
+
+    def test_dump_includes_from_clause(self, executor, parser):
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+        result = _run(executor, parser, "dump")
+        assert isinstance(result, DumpResult)
+        assert "interface B from A" in result.script
+        # B's dump should not include x (inherited)
+        # Find the B interface line
+        for line in result.script.split("\n"):
+            if "interface B" in line:
+                assert "x:" not in line
+                assert "y:" in line
+                break
+
+    def test_dump_multi_parent_from_clause(self, executor, parser):
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B { y: uint16 }")
+        _run(executor, parser, "interface C from A, B { z: float32 }")
+        result = _run(executor, parser, "dump")
+        assert isinstance(result, DumpResult)
+        assert "interface C from A, B" in result.script
+
+    def test_dump_roundtrip(self, tmp_data_dir, parser):
+        """Dump and re-execute should produce identical types."""
+        registry = TypeRegistry()
+        storage = StorageManager(tmp_data_dir, registry)
+        executor = QueryExecutor(storage, registry)
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+        _run(executor, parser, "type Widget from B { w: float32 }")
+        result = _run(executor, parser, "dump")
+
+        # Re-execute the dump in a fresh environment
+        import tempfile
+        tmp2 = Path(tempfile.mkdtemp())
+        try:
+            registry2 = TypeRegistry()
+            storage2 = StorageManager(tmp2, registry2)
+            executor2 = QueryExecutor(storage2, registry2)
+            for q in parser.parse_program(result.script):
+                executor2.execute(q)
+
+            # Verify B has correct parents
+            desc = _run(executor2, parser, "describe B")
+            props = [r["property"] for r in desc.rows]
+            assert "x" in props
+            assert "y" in props
+            extends = [r for r in desc.rows if r["property"] == "(extends)"]
+            assert len(extends) == 1
+            assert extends[0]["type"] == "A"
+        finally:
+            shutil.rmtree(tmp2, ignore_errors=True)
+
+    def test_dump_dependency_order(self, executor, parser):
+        """Parent interfaces emitted before children."""
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+        result = _run(executor, parser, "dump")
+        assert isinstance(result, DumpResult)
+        lines = result.script.split("\n")
+        a_idx = next(i for i, l in enumerate(lines) if "interface A" in l)
+        b_idx = next(i for i, l in enumerate(lines) if "interface B" in l)
+        assert a_idx < b_idx
+
+
+class TestInterfaceInheritanceMetadata:
+    """Test metadata persistence."""
+
+    def test_metadata_survives_save_load(self, executor, parser, tmp_data_dir):
+        from typed_tables.dump import load_registry_from_metadata
+        from typed_tables.types import InterfaceTypeDefinition
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+
+        # Save and reload from metadata
+        executor.storage.save_metadata()
+        registry2 = load_registry_from_metadata(tmp_data_dir)
+        b_def = registry2.get("B")
+        assert isinstance(b_def, InterfaceTypeDefinition)
+        assert b_def.interfaces == ["A"]
+        assert len(b_def.fields) == 2
+        field_names = [f.name for f in b_def.fields]
+        assert "x" in field_names
+        assert "y" in field_names
+
+
+class TestInterfaceInheritanceWithComposites:
+    """Test composites implementing inherited interfaces."""
+
+    def test_composite_from_inherited_interface(self, executor, parser):
+        """A composite implementing an interface that itself inherits from another."""
+        _run(executor, parser, "interface A { x: uint8 }")
+        _run(executor, parser, "interface B from A { y: uint16 }")
+        result = _run(executor, parser, "type Widget from B { w: float32 }")
+        assert "Created type" in result.message
+        desc = _run(executor, parser, "describe Widget")
+        props = [r["property"] for r in desc.rows]
+        assert "x" in props
+        assert "y" in props
+        assert "w" in props
