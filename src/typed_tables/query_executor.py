@@ -915,7 +915,7 @@ class QueryExecutor:
 
         kind_styles = {
             "Composite": ('box', '#ADD8E6'),
-            "Interface": ('box', '#ADD8E6'),
+            "Interface": ('box', '#FFB347'),
             "Enum": ('box', '#90EE90'),
             "Alias": ('box', '#D3D3D3'),
             "Primitive": ('ellipse', '#FFFFE0'),

@@ -568,6 +568,7 @@ class TypeRegistry:
         self._types: dict[str, TypeDefinition] = {}
         self._type_ids: dict[str, int] = {}
         self._next_type_id: int = 1  # 0 reserved for "no type"
+        self._interface_descendant_cache: dict[str, set[str]] | None = None
         self._register_primitives()
 
     def _register_primitives(self) -> None:
@@ -588,11 +589,16 @@ class TypeRegistry:
         # Register built-in path alias (alias for string)
         self._types["path"] = AliasTypeDefinition(name="path", base_type=self._types["string"])
 
+    def _invalidate_caches(self) -> None:
+        """Invalidate lazily-computed caches (e.g. after type registration)."""
+        self._interface_descendant_cache = None
+
     def register(self, type_def: TypeDefinition) -> None:
         """Register a type definition."""
         if type_def.name in self._types:
             raise ValueError(f"Type '{type_def.name}' is already defined")
         self._types[type_def.name] = type_def
+        self._invalidate_caches()
 
     def get(self, name: str) -> TypeDefinition | None:
         """Get a type by name."""
@@ -617,6 +623,7 @@ class TypeRegistry:
         element_type = self.get_or_raise(element_type_name)
         array_type = ArrayTypeDefinition(name=array_name, element_type=element_type)
         self._types[array_name] = array_type
+        self._invalidate_caches()
         return array_type
 
     def get_or_create_set_type(self, element_type: TypeDefinition) -> SetTypeDefinition:
@@ -630,6 +637,7 @@ class TypeRegistry:
 
         set_type = SetTypeDefinition(name=set_name, element_type=element_type)
         self._types[set_name] = set_type
+        self._invalidate_caches()
         return set_type
 
     def get_or_create_dict_type(
@@ -669,6 +677,7 @@ class TypeRegistry:
             entry_type=entry_type,
         )
         self._types[dict_name] = dict_type
+        self._invalidate_caches()
         return dict_type
 
     def register_enum_stub(self, name: str) -> EnumTypeDefinition:
@@ -684,6 +693,7 @@ class TypeRegistry:
             raise ValueError(f"Type '{name}' is already defined")
         stub = EnumTypeDefinition(name=name, variants=[])
         self._types[name] = stub
+        self._invalidate_caches()
         return stub
 
     def is_enum_stub(self, name: str) -> bool:
@@ -704,6 +714,7 @@ class TypeRegistry:
             raise ValueError(f"Type '{name}' is already defined")
         stub = CompositeTypeDefinition(name=name, fields=[])
         self._types[name] = stub
+        self._invalidate_caches()
         return stub
 
     def is_stub(self, name: str) -> bool:
@@ -724,6 +735,7 @@ class TypeRegistry:
             raise ValueError(f"Type '{name}' is already defined")
         stub = InterfaceTypeDefinition(name=name, fields=[])
         self._types[name] = stub
+        self._invalidate_caches()
         return stub
 
     def is_interface_stub(self, name: str) -> bool:
@@ -731,15 +743,65 @@ class TypeRegistry:
         td = self._types.get(name)
         return isinstance(td, InterfaceTypeDefinition) and not td.fields
 
+    def _build_interface_descendant_cache(self) -> dict[str, set[str]]:
+        """Build a mapping from each interface to all its descendant interfaces (including itself).
+
+        Uses the `interfaces` list on InterfaceTypeDefinition to traverse the
+        parent→child relationships in reverse: if interface B lists A in its
+        `interfaces`, then B is a child (descendant) of A.
+        """
+        # Collect parent→children edges
+        children: dict[str, list[str]] = {}
+        for name, td in self._types.items():
+            if isinstance(td, InterfaceTypeDefinition):
+                for parent_name in td.interfaces:
+                    children.setdefault(parent_name, []).append(name)
+
+        # For each interface, BFS/DFS to collect all transitive descendants
+        cache: dict[str, set[str]] = {}
+        for name, td in self._types.items():
+            if not isinstance(td, InterfaceTypeDefinition):
+                continue
+            if name in cache:
+                continue
+            # BFS from this interface
+            descendants: set[str] = {name}
+            queue = [name]
+            while queue:
+                current = queue.pop()
+                for child in children.get(current, []):
+                    if child not in descendants:
+                        descendants.add(child)
+                        queue.append(child)
+            cache[name] = descendants
+        return cache
+
+    def _get_descendant_interfaces(self, interface_name: str) -> set[str]:
+        """Get all descendant interfaces of the given interface (including itself).
+
+        Uses a lazily-built cache that is invalidated on type registration.
+        """
+        if self._interface_descendant_cache is None:
+            self._interface_descendant_cache = self._build_interface_descendant_cache()
+        return self._interface_descendant_cache.get(interface_name, {interface_name})
+
     def find_implementing_types(self, interface_name: str) -> list[tuple[str, "CompositeTypeDefinition"]]:
         """Find all composite types that implement the given interface.
 
+        Traverses interface inheritance: if Creature implements Combatant
+        which extends Entity which extends Identifiable, then querying
+        Identifiable will find Creature.
+
         Returns list of (type_name, composite_def) tuples.
         """
+        # Get all descendant interfaces (including interface_name itself)
+        target_interfaces = self._get_descendant_interfaces(interface_name)
+
         results: list[tuple[str, CompositeTypeDefinition]] = []
         for name, td in self._types.items():
-            if isinstance(td, CompositeTypeDefinition) and interface_name in td.interfaces:
-                results.append((name, td))
+            if isinstance(td, CompositeTypeDefinition):
+                if target_interfaces.intersection(td.interfaces):
+                    results.append((name, td))
         return results
 
     def get_type_id(self, type_name: str) -> int:
