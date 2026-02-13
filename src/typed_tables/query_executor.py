@@ -2196,6 +2196,19 @@ class QueryExecutor:
         if is_string_type(field_def.type_def):
             return "".join(elements)
 
+        # String array (string[]) — resolve each (start, length) to a string
+        if is_string_type(field_base.element_type):
+            char_table = self.storage.get_array_table_for_type(field_base.element_type)
+            str_elements = []
+            for elem in elements:
+                if isinstance(elem, tuple):
+                    cs, cl = elem
+                    chars = char_table.get(cs, cl) if cl > 0 else []
+                    str_elements.append("".join(chars))
+                else:
+                    str_elements.append(elem)
+            return str_elements
+
         # Set: resolve string elements, wrap in SetValue
         if isinstance(field_base, SetTypeDefinition):
             elem_type = field_base.element_type
@@ -3471,6 +3484,10 @@ class QueryExecutor:
                             elem = ref_table.get(elem)
                         resolved.append(elem)
                     field_value = resolved
+                # For string[] (array of strings): each string → chars stored in char table → (start, length) tuple
+                if is_string_type(field_base.element_type):
+                    char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                    field_value = [char_table.insert(list(e) if isinstance(e, str) else e) for e in field_value]
                 # Store array elements and get (start_index, length) tuple
                 array_table = self.storage.get_array_table_for_type(field.type_def)
                 field_references[field.name] = array_table.insert(field_value)
@@ -4353,6 +4370,14 @@ class QueryExecutor:
                             ]
                             if is_string_type(field.type_def):
                                 resolved[field.name] = "".join(elements)
+                            elif is_string_type(field_base.element_type):
+                                char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                                str_elements = []
+                                for elem in elements:
+                                    cs, cl = elem
+                                    chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                                    str_elements.append("".join(chars))
+                                resolved[field.name] = str_elements
                             else:
                                 resolved[field.name] = elements
                     elif isinstance(field_base, InterfaceTypeDefinition):
@@ -4405,6 +4430,14 @@ class QueryExecutor:
             elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
             if is_string_type(field_def.type_def):
                 return "".join(elements)
+            if is_string_type(field_base.element_type):
+                char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                str_elements = []
+                for elem in elements:
+                    cs, cl = elem
+                    chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                    str_elements.append("".join(chars))
+                return str_elements
             return elements
         if isinstance(field_base, CompositeTypeDefinition):
             return f"<{field_def.type_def.name}[{ref}]>"
@@ -4484,6 +4517,14 @@ class QueryExecutor:
                             ]
                             if is_string_type(field.type_def):
                                 resolved[field.name] = "".join(elements)
+                            elif is_string_type(field_base.element_type):
+                                char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                                str_elements = []
+                                for elem in elements:
+                                    cs, cl = elem
+                                    chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                                    str_elements.append("".join(chars))
+                                resolved[field.name] = str_elements
                             else:
                                 resolved[field.name] = elements
                     elif isinstance(field_base, CompositeTypeDefinition):
@@ -4715,6 +4756,14 @@ class QueryExecutor:
                         ]
                         if is_string_type(field.type_def):
                             resolved[field.name] = "".join(elements)
+                        elif is_string_type(field_base.element_type):
+                            char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                            str_elements = []
+                            for elem in elements:
+                                cs, cl = elem
+                                chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                                str_elements.append("".join(chars))
+                            resolved[field.name] = str_elements
                         else:
                             resolved[field.name] = elements
                 elif isinstance(field_base, InterfaceTypeDefinition):
@@ -6466,6 +6515,22 @@ class QueryExecutor:
 
                 elements = [arr_table.element_table.get(start_idx + j) for j in range(length)]
 
+                # String array (string[]) — resolve each (start, length) to a string
+                if is_string_type(base.element_type):
+                    char_table = self.storage.get_array_table_for_type(base.element_type)
+                    elem_strs = []
+                    for elem in elements:
+                        cs, cl = elem
+                        chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                        s = "".join(chars)
+                        escaped = s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+                        elem_strs.append(f'"{escaped}"')
+                    if pretty and len(elem_strs) > 5:
+                        elem_lines = "\n".join(f"{ind_inner}- {e}" for e in elem_strs)
+                        return f"\n{elem_lines}"
+                    else:
+                        return "[" + ", ".join(elem_strs) + "]"
+
                 if isinstance(elem_base, CompositeTypeDefinition):
                     # Composite array - always use alias references
                     elem_strs = []
@@ -6639,6 +6704,16 @@ class QueryExecutor:
 
                 elements = [arr_table.element_table.get(start_idx + j) for j in range(length)]
 
+                # String array (string[]) — resolve each (start, length) to a string
+                if is_string_type(base.element_type):
+                    char_table = self.storage.get_array_table_for_type(base.element_type)
+                    str_elements = []
+                    for elem in elements:
+                        cs, cl = elem
+                        chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                        str_elements.append("".join(chars))
+                    return str_elements
+
                 if isinstance(elem_base, CompositeTypeDefinition):
                     # Composite array - return references
                     result = []
@@ -6791,6 +6866,21 @@ class QueryExecutor:
                     chars = [arr_table.element_table.get(start_idx + j) for j in range(length)]
                     text = escape("".join(chars))
                     return f"{ind}<{field_name}>{text}</{field_name}>"
+
+                # String array (string[]) — resolve each (start, length) to a string
+                if is_string_type(base.element_type):
+                    char_table = self.storage.get_array_table_for_type(base.element_type)
+                    elements_xml = []
+                    for j in range(length):
+                        cs, cl = arr_table.element_table.get(start_idx + j)
+                        chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                        text = escape("".join(chars))
+                        elements_xml.append(f"{ind_inner}<item>{text}</item>")
+                    if pretty:
+                        inner = newline + newline.join(elements_xml) + newline + ind
+                    else:
+                        inner = "".join(elements_xml)
+                    return f"{ind}<{field_name}>{inner}</{field_name}>"
 
                 # Build array elements
                 elements_xml = []
@@ -7207,6 +7297,17 @@ class QueryExecutor:
                 return self._format_ttq_string(s)
 
             elements = [arr_table.element_table.get(start_index + j) for j in range(length)]
+
+            # String array (string[]) — resolve each (start, length) to a string
+            if is_string_type(field_base.element_type):
+                char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                elem_strs = []
+                for elem in elements:
+                    cs, cl = elem
+                    chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                    s = "".join(chars)
+                    elem_strs.append(self._format_ttq_string(s))
+                return f"[{', '.join(elem_strs)}]"
 
             if isinstance(elem_base, CompositeTypeDefinition):
                 # Array of composites — format each as inline instance

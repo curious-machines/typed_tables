@@ -1,5 +1,7 @@
 # TODO
 
+Make interfaces a different color than composites in dot files.
+
 ---
 
 # Questions
