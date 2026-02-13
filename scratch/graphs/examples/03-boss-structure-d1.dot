@@ -6,11 +6,7 @@ digraph types {
     fontsize=18;
 
     "Boss" [shape=box, fillcolor="#ADD8E6", penwidth=3];
-    "Combatant" [shape=box, fillcolor="#FFB347"];
     "NPC" [shape=box, fillcolor="#ADD8E6"];
-    "WorldObject" [shape=box, fillcolor="#FFB347"];
 
     "Boss" -> "NPC" [label="(extends)", style=dashed];
-    "Boss" -> "Combatant" [label="(implements)", style=dashed];
-    "Boss" -> "WorldObject" [label="(implements)", style=dashed];
 }

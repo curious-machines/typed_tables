@@ -373,6 +373,7 @@ class CompositeTypeDefinition(TypeDefinition):
     fields: list[FieldDefinition] = field(default_factory=list)
     interfaces: list[str] = field(default_factory=list)
     parent: str | None = None  # Concrete parent type name (from ... syntax)
+    declared_interfaces: list[str] = field(default_factory=list)  # Interfaces explicitly in from clause
 
     @property
     def null_bitmap_size(self) -> int:

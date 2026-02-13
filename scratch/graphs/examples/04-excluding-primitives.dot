@@ -53,27 +53,16 @@ digraph types {
     "Prop" -> "WorldObject" [label="(implements)", style=dashed];
     "Weapon" -> "Element" [label="element"];
     "Weapon" -> "Item" [label="(extends)", style=dashed];
-    "Weapon" -> "WorldObject" [label="(implements)", style=dashed];
     "Armor" -> "string" [label="slot"];
     "Armor" -> "Item" [label="(extends)", style=dashed];
-    "Armor" -> "WorldObject" [label="(implements)", style=dashed];
     "NPC" -> "string" [label="greeting"];
     "NPC" -> "Creature" [label="(extends)", style=dashed];
-    "NPC" -> "Combatant" [label="(implements)", style=dashed];
-    "NPC" -> "WorldObject" [label="(implements)", style=dashed];
     "Player" -> "string" [label="class_name"];
     "Player" -> "Creature" [label="(extends)", style=dashed];
-    "Player" -> "Combatant" [label="(implements)", style=dashed];
-    "Player" -> "WorldObject" [label="(implements)", style=dashed];
     "MagicWeapon" -> "string" [label="spell_name"];
     "MagicWeapon" -> "Weapon" [label="(extends)", style=dashed];
-    "MagicWeapon" -> "WorldObject" [label="(implements)", style=dashed];
     "Boss" -> "string" [label="title"];
     "Boss" -> "NPC" [label="(extends)", style=dashed];
-    "Boss" -> "Combatant" [label="(implements)", style=dashed];
-    "Boss" -> "WorldObject" [label="(implements)", style=dashed];
     "Merchant" -> "string" [label="specialty"];
     "Merchant" -> "NPC" [label="(extends)", style=dashed];
-    "Merchant" -> "Combatant" [label="(implements)", style=dashed];
-    "Merchant" -> "WorldObject" [label="(implements)", style=dashed];
 }

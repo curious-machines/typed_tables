@@ -66,21 +66,10 @@ digraph types {
     "Creature" -> "WorldObject" [label="(implements)", style=dashed];
     "Prop" -> "WorldObject" [label="(implements)", style=dashed];
     "Weapon" -> "Item" [label="(extends)", style=dashed];
-    "Weapon" -> "WorldObject" [label="(implements)", style=dashed];
     "Armor" -> "Item" [label="(extends)", style=dashed];
-    "Armor" -> "WorldObject" [label="(implements)", style=dashed];
     "NPC" -> "Creature" [label="(extends)", style=dashed];
-    "NPC" -> "Combatant" [label="(implements)", style=dashed];
-    "NPC" -> "WorldObject" [label="(implements)", style=dashed];
     "Player" -> "Creature" [label="(extends)", style=dashed];
-    "Player" -> "Combatant" [label="(implements)", style=dashed];
-    "Player" -> "WorldObject" [label="(implements)", style=dashed];
     "MagicWeapon" -> "Weapon" [label="(extends)", style=dashed];
-    "MagicWeapon" -> "WorldObject" [label="(implements)", style=dashed];
     "Boss" -> "NPC" [label="(extends)", style=dashed];
-    "Boss" -> "Combatant" [label="(implements)", style=dashed];
-    "Boss" -> "WorldObject" [label="(implements)", style=dashed];
     "Merchant" -> "NPC" [label="(extends)", style=dashed];
-    "Merchant" -> "Combatant" [label="(implements)", style=dashed];
-    "Merchant" -> "WorldObject" [label="(implements)", style=dashed];
 }

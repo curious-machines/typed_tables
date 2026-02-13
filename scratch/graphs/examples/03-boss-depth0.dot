@@ -6,9 +6,7 @@ digraph types {
     fontsize=18;
 
     "Boss" [shape=box, fillcolor="#ADD8E6", penwidth=3];
-    "Combatant" [shape=box, fillcolor="#FFB347"];
     "NPC" [shape=box, fillcolor="#ADD8E6"];
-    "WorldObject" [shape=box, fillcolor="#FFB347"];
     "string" [shape=ellipse, fillcolor="#FFFFE0"];
     "uint32" [shape=ellipse, fillcolor="#FFFFE0"];
     "uint8" [shape=ellipse, fillcolor="#FFFFE0"];
@@ -17,6 +15,4 @@ digraph types {
     "Boss" -> "string" [label="title"];
     "Boss" -> "uint32" [label="reward_gold"];
     "Boss" -> "NPC" [label="(extends)", style=dashed];
-    "Boss" -> "Combatant" [label="(implements)", style=dashed];
-    "Boss" -> "WorldObject" [label="(implements)", style=dashed];
 }

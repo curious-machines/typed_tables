@@ -2,7 +2,7 @@
 -- Demonstrates interface inheritance, diamond merges,
 -- multi-level composite inheritance, and polymorphic queries.
 
-use entity_db as temporary
+use entity_db
 
 ------------------------------------------------------------------------
 -- Enums

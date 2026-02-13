@@ -1,22 +1,11 @@
-kind        | source        | field          | target       
-------------------------------------------------------------
-'Composite' | 'Boss'        | '(implements)' | 'Combatant'  
-'Composite' | 'NPC'         | '(implements)' | 'Combatant'  
-'Composite' | 'NPC'         | '(extends)'    | 'Creature'   
-'Interface' | 'Combatant'   | '(extends)'    | 'Damageable' 
-'Interface' | 'Combatant'   | '(extends)'    | 'GameEntity' 
-'Interface' | 'WorldObject' | '(extends)'    | 'GameEntity' 
-'Composite' | 'Boss'        | '(extends)'    | 'NPC'        
-'Interface' | 'WorldObject' | '(extends)'    | 'Physical'   
-'Interface' | 'WorldObject' | '(extends)'    | 'Renderable' 
-'Composite' | 'Boss'        | '(implements)' | 'WorldObject'
-'Composite' | 'NPC'         | '(implements)' | 'WorldObject'
-'Composite' | 'NPC'         | 'quest_giver'  | 'boolean'    
-'Composite' | 'Boss'        | 'title'        | 'string'     
-'Composite' | 'NPC'         | 'greeting'     | 'string'     
-'Interface' | 'Combatant'   | 'attack'       | 'uint16'     
-'Interface' | 'Combatant'   | 'defense'      | 'uint16'     
-'Composite' | 'Boss'        | 'reward_gold'  | 'uint32'     
-'Composite' | 'Boss'        | 'phase'        | 'uint8'      
+kind        | source | field         | target    
+-------------------------------------------------
+'Composite' | 'NPC'  | '(extends)'   | 'Creature'
+'Composite' | 'Boss' | '(extends)'   | 'NPC'     
+'Composite' | 'NPC'  | 'quest_giver' | 'boolean' 
+'Composite' | 'Boss' | 'title'       | 'string'  
+'Composite' | 'NPC'  | 'greeting'    | 'string'  
+'Composite' | 'Boss' | 'reward_gold' | 'uint32'  
+'Composite' | 'Boss' | 'phase'       | 'uint8'   
 
-(18 rows)
+(7 rows)

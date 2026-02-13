@@ -1,10 +1,8 @@
-kind        | source | field          | target       
------------------------------------------------------
-'Composite' | 'Boss' | '(implements)' | 'Combatant'  
-'Composite' | 'Boss' | '(extends)'    | 'NPC'        
-'Composite' | 'Boss' | '(implements)' | 'WorldObject'
-'Composite' | 'Boss' | 'title'        | 'string'     
-'Composite' | 'Boss' | 'reward_gold'  | 'uint32'     
-'Composite' | 'Boss' | 'phase'        | 'uint8'      
+kind        | source | field         | target  
+-----------------------------------------------
+'Composite' | 'Boss' | '(extends)'   | 'NPC'   
+'Composite' | 'Boss' | 'title'       | 'string'
+'Composite' | 'Boss' | 'reward_gold' | 'uint32'
+'Composite' | 'Boss' | 'phase'       | 'uint8' 
 
-(6 rows)
+(4 rows)

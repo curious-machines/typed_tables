@@ -9,8 +9,11 @@ digraph types {
     "Creature" [shape=box, fillcolor="#ADD8E6"];
     "Damageable" [shape=box, fillcolor="#FFB347"];
     "Player" [shape=box, fillcolor="#ADD8E6", penwidth=3];
+    "int16" [shape=ellipse, fillcolor="#FFFFE0"];
 
     "Player" -> "Creature" [label="(extends)", style=dashed];
     "Creature" -> "Combatant" [label="(implements)", style=dashed];
     "Combatant" -> "Damageable" [label="(extends)", style=dashed];
+    "Damageable" -> "int16" [label="hp"];
+    "Damageable" -> "int16" [label="max_hp"];
 }

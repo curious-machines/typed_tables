@@ -20,27 +20,23 @@ digraph types {
     "WorldObject" [shape=box, fillcolor="#FFB347"];
     "float32" [shape=ellipse, fillcolor="#FFFFE0"];
 
+    "Creature" -> "float32" [label="speed"];
     "Physical" -> "float32" [label="width"];
     "Physical" -> "float32" [label="height"];
-    "Creature" -> "float32" [label="speed"];
     "Positioned" -> "float32" [label="x"];
     "Positioned" -> "float32" [label="y"];
     "Boss" -> "NPC" [label="(extends)", style=dashed];
-    "Boss" -> "Combatant" [label="(implements)", style=dashed];
-    "Boss" -> "WorldObject" [label="(implements)", style=dashed];
     "NPC" -> "Creature" [label="(extends)", style=dashed];
-    "NPC" -> "Combatant" [label="(implements)", style=dashed];
-    "NPC" -> "WorldObject" [label="(implements)", style=dashed];
+    "Creature" -> "Combatant" [label="(implements)", style=dashed];
+    "Creature" -> "WorldObject" [label="(implements)", style=dashed];
     "Combatant" -> "GameEntity" [label="(extends)", style=dashed];
     "Combatant" -> "Damageable" [label="(extends)", style=dashed];
     "WorldObject" -> "GameEntity" [label="(extends)", style=dashed];
     "WorldObject" -> "Renderable" [label="(extends)", style=dashed];
     "WorldObject" -> "Physical" [label="(extends)", style=dashed];
-    "Physical" -> "Positioned" [label="(extends)", style=dashed];
     "GameEntity" -> "Entity" [label="(extends)", style=dashed];
     "GameEntity" -> "Trackable" [label="(extends)", style=dashed];
-    "Creature" -> "Combatant" [label="(implements)", style=dashed];
-    "Creature" -> "WorldObject" [label="(implements)", style=dashed];
+    "Physical" -> "Positioned" [label="(extends)", style=dashed];
     "Entity" -> "Identifiable" [label="(extends)", style=dashed];
     "Entity" -> "Positioned" [label="(extends)", style=dashed];
 }

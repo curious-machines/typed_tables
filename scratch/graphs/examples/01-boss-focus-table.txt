@@ -1,8 +1,6 @@
 kind        | source         | field          | target        
 --------------------------------------------------------------
-'Composite' | 'Boss'         | '(implements)' | 'Combatant'   
 'Composite' | 'Creature'     | '(implements)' | 'Combatant'   
-'Composite' | 'NPC'          | '(implements)' | 'Combatant'   
 'Composite' | 'NPC'          | '(extends)'    | 'Creature'    
 'Interface' | 'Combatant'    | '(extends)'    | 'Damageable'  
 'Interface' | 'GameEntity'   | '(extends)'    | 'Entity'      
@@ -18,9 +16,7 @@ kind        | source         | field          | target
 'Interface' | 'WorldObject'  | '(extends)'    | 'Renderable'  
 'Interface' | 'Trackable'    | '(extends)'    | 'Timed'       
 'Interface' | 'GameEntity'   | '(extends)'    | 'Trackable'   
-'Composite' | 'Boss'         | '(implements)' | 'WorldObject' 
 'Composite' | 'Creature'     | '(implements)' | 'WorldObject' 
-'Composite' | 'NPC'          | '(implements)' | 'WorldObject' 
 'Composite' | 'NPC'          | 'quest_giver'  | 'boolean'     
 'Interface' | 'Physical'     | 'solid'        | 'boolean'     
 'Composite' | 'Creature'     | 'speed'        | 'float32'     
@@ -43,4 +39,4 @@ kind        | source         | field          | target
 'Composite' | 'Creature'     | 'level'        | 'uint8'       
 'Interface' | 'Renderable'   | 'layer'        | 'uint8'       
 
-(42 rows)
+(38 rows)

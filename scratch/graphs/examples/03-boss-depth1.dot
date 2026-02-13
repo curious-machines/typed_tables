@@ -6,17 +6,10 @@ digraph types {
     fontsize=18;
 
     "Boss" [shape=box, fillcolor="#ADD8E6", penwidth=3];
-    "Combatant" [shape=box, fillcolor="#FFB347"];
     "Creature" [shape=box, fillcolor="#ADD8E6"];
-    "Damageable" [shape=box, fillcolor="#FFB347"];
-    "GameEntity" [shape=box, fillcolor="#FFB347"];
     "NPC" [shape=box, fillcolor="#ADD8E6"];
-    "Physical" [shape=box, fillcolor="#FFB347"];
-    "Renderable" [shape=box, fillcolor="#FFB347"];
-    "WorldObject" [shape=box, fillcolor="#FFB347"];
     "boolean" [shape=ellipse, fillcolor="#FFFFE0"];
     "string" [shape=ellipse, fillcolor="#FFFFE0"];
-    "uint16" [shape=ellipse, fillcolor="#FFFFE0"];
     "uint32" [shape=ellipse, fillcolor="#FFFFE0"];
     "uint8" [shape=ellipse, fillcolor="#FFFFE0"];
 
@@ -24,18 +17,7 @@ digraph types {
     "Boss" -> "string" [label="title"];
     "Boss" -> "uint32" [label="reward_gold"];
     "Boss" -> "NPC" [label="(extends)", style=dashed];
-    "Boss" -> "Combatant" [label="(implements)", style=dashed];
-    "Boss" -> "WorldObject" [label="(implements)", style=dashed];
-    "Combatant" -> "uint16" [label="attack"];
-    "Combatant" -> "uint16" [label="defense"];
-    "Combatant" -> "GameEntity" [label="(extends)", style=dashed];
-    "Combatant" -> "Damageable" [label="(extends)", style=dashed];
-    "WorldObject" -> "GameEntity" [label="(extends)", style=dashed];
-    "WorldObject" -> "Renderable" [label="(extends)", style=dashed];
-    "WorldObject" -> "Physical" [label="(extends)", style=dashed];
     "NPC" -> "string" [label="greeting"];
     "NPC" -> "boolean" [label="quest_giver"];
     "NPC" -> "Creature" [label="(extends)", style=dashed];
-    "NPC" -> "Combatant" [label="(implements)", style=dashed];
-    "NPC" -> "WorldObject" [label="(implements)", style=dashed];
 }

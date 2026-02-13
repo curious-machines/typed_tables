@@ -294,6 +294,17 @@ def _populate_composite_from_spec(
     stub.fields = fields
     stub.interfaces = spec.get("interfaces", [])
     stub.parent = spec.get("parent")
+    # declared_interfaces tracks what the user explicitly wrote in the from clause.
+    # For backward compat: if absent, infer by subtracting parent's interfaces.
+    if "declared_interfaces" in spec:
+        stub.declared_interfaces = spec["declared_interfaces"]
+    else:
+        parent_ifaces: set[str] = set()
+        if stub.parent:
+            parent_td = registry.get(stub.parent)
+            if parent_td and isinstance(parent_td, CompositeTypeDefinition):
+                parent_ifaces.update(parent_td.interfaces)
+        stub.declared_interfaces = [i for i in stub.interfaces if i not in parent_ifaces]
 
 
 def _populate_enum_from_spec(

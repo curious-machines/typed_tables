@@ -1,10 +1,6 @@
 kind        | source         | field          | target        
 --------------------------------------------------------------
-'Composite' | 'Boss'         | '(implements)' | 'Combatant'   
 'Composite' | 'Creature'     | '(implements)' | 'Combatant'   
-'Composite' | 'Merchant'     | '(implements)' | 'Combatant'   
-'Composite' | 'NPC'          | '(implements)' | 'Combatant'   
-'Composite' | 'Player'       | '(implements)' | 'Combatant'   
 'Composite' | 'NPC'          | '(extends)'    | 'Creature'    
 'Composite' | 'Player'       | '(extends)'    | 'Creature'    
 'Interface' | 'Combatant'    | '(extends)'    | 'Damageable'  
@@ -23,16 +19,9 @@ kind        | source         | field          | target
 'Interface' | 'Trackable'    | '(extends)'    | 'Timed'       
 'Interface' | 'GameEntity'   | '(extends)'    | 'Trackable'   
 'Composite' | 'MagicWeapon'  | '(extends)'    | 'Weapon'      
-'Composite' | 'Armor'        | '(implements)' | 'WorldObject' 
-'Composite' | 'Boss'         | '(implements)' | 'WorldObject' 
 'Composite' | 'Creature'     | '(implements)' | 'WorldObject' 
 'Composite' | 'Item'         | '(implements)' | 'WorldObject' 
-'Composite' | 'MagicWeapon'  | '(implements)' | 'WorldObject' 
-'Composite' | 'Merchant'     | '(implements)' | 'WorldObject' 
-'Composite' | 'NPC'          | '(implements)' | 'WorldObject' 
-'Composite' | 'Player'       | '(implements)' | 'WorldObject' 
 'Composite' | 'Prop'         | '(implements)' | 'WorldObject' 
-'Composite' | 'Weapon'       | '(implements)' | 'WorldObject' 
 'Composite' | 'Armor'        | 'slot'         | 'string'      
 'Composite' | 'Boss'         | 'title'        | 'string'      
 'Interface' | 'Identifiable' | 'name'         | 'string'      
@@ -42,4 +31,4 @@ kind        | source         | field          | target
 'Composite' | 'Player'       | 'class_name'   | 'string'      
 'Interface' | 'Renderable'   | 'sprite'       | 'string'      
 
-(41 rows)
+(30 rows)

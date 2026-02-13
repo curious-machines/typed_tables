@@ -1624,32 +1624,47 @@ class TestPathToExecution:
     """Test path-to query execution."""
 
     def test_path_to_immediate_parent(self, executor, parser):
-        """Path from Boss to NPC (one step)."""
+        """Path from Boss to NPC (one step) + NPC target expansion."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph Boss path to NPC')
         edges = _edges(result)
+        # Linear path edge
         assert ("Boss", "Composite", "(extends)", "NPC") in edges
-        assert len(edges) == 1
+        # Target expansion: NPC's own field + its transitive closure
+        assert ("NPC", "Composite", "dialogue", "string") in edges
+        assert ("NPC", "Composite", "(extends)", "Creature") in edges
+        # Creature's fields are also expanded through NPC
+        assert ("Creature", "Composite", "speed", "float32") in edges
+        assert len(edges) > 1  # path + target expansion
 
     def test_path_to_grandparent(self, executor, parser):
-        """Path from Boss to Creature (two steps)."""
+        """Path from Boss to Creature (two steps) + Creature target expansion."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph Boss path to Creature')
         edges = _edges(result)
+        # Linear path edges
         assert ("Boss", "Composite", "(extends)", "NPC") in edges
         assert ("NPC", "Composite", "(extends)", "Creature") in edges
-        assert len(edges) == 2
+        # Target expansion: Creature's own fields + transitive closure
+        assert ("Creature", "Composite", "speed", "float32") in edges
+        assert ("Creature", "Composite", "hp", "int16") in edges
+        assert ("Creature", "Composite", "(implements)", "Entity") in edges
+        assert len(edges) > 2  # path + target expansion
 
     def test_path_to_interface(self, executor, parser):
-        """Path from Boss to Entity (through Creature implements)."""
+        """Path from Boss to Entity (through Creature implements) + Entity target expansion."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph Boss path to Entity')
         edges = _edges(result)
-        # Boss → NPC → Creature → Entity
+        # Boss → NPC → Creature → Entity (linear path)
         assert ("Boss", "Composite", "(extends)", "NPC") in edges
         assert ("NPC", "Composite", "(extends)", "Creature") in edges
         assert ("Creature", "Composite", "(implements)", "Entity") in edges
-        assert len(edges) == 3
+        # Target expansion: Entity's transitive closure
+        assert ("Entity", "Interface", "(extends)", "Identifiable") in edges
+        assert ("Entity", "Interface", "(extends)", "Labelled") in edges
+        assert ("Identifiable", "Interface", "id", "uint32") in edges
+        assert len(edges) > 3  # path + target expansion
 
     def test_path_to_multiple_targets(self, executor, parser):
         """Path to multiple targets merges paths."""

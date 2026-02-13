@@ -163,6 +163,8 @@ class StorageManager:
             }
             if type_def.interfaces:
                 result["interfaces"] = type_def.interfaces
+            if type_def.declared_interfaces:
+                result["declared_interfaces"] = type_def.declared_interfaces
             if type_def.parent:
                 result["parent"] = type_def.parent
             return result

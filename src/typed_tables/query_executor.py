@@ -784,7 +784,7 @@ class QueryExecutor:
                 # Inheritance edges
                 if type_def.parent:
                     add_edge(type_name, kind, type_def.parent, "(extends)")
-                for iface_name in type_def.interfaces:
+                for iface_name in type_def.declared_interfaces:
                     add_edge(type_name, kind, iface_name, "(implements)")
             elif isinstance(type_def, FractionTypeDefinition):
                 pass
@@ -865,9 +865,20 @@ class QueryExecutor:
             if not query.focus_type:
                 return QueryResult(columns=[], rows=[],
                                    message="'path to' requires a focus type (e.g., graph MyType path to Target)")
-            edges = self._build_path_to(query.focus_type, query.path_to)
-            if isinstance(edges, str):
-                return QueryResult(columns=[], rows=[], message=edges)
+            path_edges = self._build_path_to(query.focus_type, query.path_to)
+            if isinstance(path_edges, str):
+                return QueryResult(columns=[], rows=[], message=path_edges)
+            # Expand each target type with full transitive closure
+            all_edges = self._build_type_graph()
+            seen: set[tuple[str, str, str]] = {(e["source"], e["target"], e["field"]) for e in path_edges}
+            edges = list(path_edges)
+            for target in query.path_to:
+                target_edges = self._filter_edges_by_type(all_edges, target, query.depth)
+                for e in target_edges:
+                    key = (e["source"], e["target"], e["field"])
+                    if key not in seen:
+                        seen.add(key)
+                        edges.append(e)
         # Build the graph based on view mode
         elif query.view_mode == "structure":
             edges = self._build_structure_graph(query.focus_type, query.depth)
@@ -1950,6 +1961,7 @@ class QueryExecutor:
         parents = query.parents
         parent_fields: list[FieldDefinition] = []
         interface_names: list[str] = []
+        explicitly_declared: list[str] = []  # Only interfaces from the from clause
         concrete_parent: str | None = None
 
         for parent_name in parents:
@@ -1975,6 +1987,7 @@ class QueryExecutor:
             if isinstance(parent_base, InterfaceTypeDefinition):
                 # Interface parent: merge fields with conflict detection
                 interface_names.append(parent_name)
+                explicitly_declared.append(parent_name)
                 for f in parent_base.fields:
                     existing_field = next((pf for pf in parent_fields if pf.name == f.name), None)
                     if existing_field is not None:
@@ -2063,6 +2076,7 @@ class QueryExecutor:
         stub.fields = fields
         # Deduplicate interface names
         stub.interfaces = list(dict.fromkeys(interface_names))
+        stub.declared_interfaces = list(dict.fromkeys(explicitly_declared))
         stub.parent = concrete_parent
 
         # Save updated metadata
