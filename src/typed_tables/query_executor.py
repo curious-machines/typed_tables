@@ -793,21 +793,34 @@ class QueryExecutor:
 
         Includes edges directly involving the type (or its array variant), plus
         outgoing edges from any parent or interface the type extends/implements.
-        This provides field provenance: inherited fields appear under their
-        defining type, not the inheriting composite.
+        Expansion is recursive: if a parent itself extends/implements other types,
+        those are followed too, giving the full inheritance chain.
         """
         names = {type_name, type_name + "[]"}
         filtered = [e for e in edges if e["source"] in names or e["target"] in names]
-        # Expand: include outgoing edges from parent/interface types
-        parent_names: set[str] = set()
+        # Build a quick lookup: source → list of edges
+        edges_by_source: dict[str, list[dict[str, str]]] = {}
+        for e in edges:
+            edges_by_source.setdefault(e["source"], []).append(e)
+        # Recursively expand through parent/interface chain
+        expanded: set[str] = set(names)
+        frontier: set[str] = set()
         for e in filtered:
             if e["field"] in ("(extends)", "(implements)") and e["source"] in names:
-                parent_names.add(e["target"])
-                parent_names.add(e["target"] + "[]")
-        if parent_names:
-            for e in edges:
-                if e["source"] in parent_names and e not in filtered:
-                    filtered.append(e)
+                frontier.add(e["target"])
+        while frontier:
+            next_frontier: set[str] = set()
+            for parent_name in frontier:
+                if parent_name in expanded:
+                    continue
+                expanded.add(parent_name)
+                expanded.add(parent_name + "[]")
+                for e in edges_by_source.get(parent_name, []):
+                    if e not in filtered:
+                        filtered.append(e)
+                    if e["field"] in ("(extends)", "(implements)"):
+                        next_frontier.add(e["target"])
+            frontier = next_frontier
         return filtered
 
     def _execute_show_references(self, query: ShowReferencesQuery) -> QueryResult:

@@ -443,6 +443,38 @@ class TestInheritanceEdges:
         assert 'name="Styled"' in script
         assert 'name="string"' in script
 
+    def test_recursive_expansion_deep_chain(self, executor, parser):
+        """Filter expansion follows the full inheritance chain, not just one level."""
+        _run(executor, parser, 'type A { x: uint8 }')
+        _run(executor, parser, 'type B from A { y: uint16 }')
+        _run(executor, parser, 'type C from B { z: uint32 }')
+        result = _run(executor, parser, 'show references C')
+        edges = _edges(result)
+        # C's own
+        assert ("C", "Composite", "z", "uint32") in edges
+        assert ("C", "Composite", "(extends)", "B") in edges
+        # B's (one level)
+        assert ("B", "Composite", "y", "uint16") in edges
+        assert ("B", "Composite", "(extends)", "A") in edges
+        # A's (two levels deep)
+        assert ("A", "Composite", "x", "uint8") in edges
+
+    def test_recursive_expansion_mixed_chain(self, executor, parser):
+        """Recursive expansion through concrete parent that implements interface."""
+        _run(executor, parser, 'interface Labelled { name: string }')
+        _run(executor, parser, 'type Person from Labelled { age: uint8 }')
+        _run(executor, parser, 'type Employee from Person { dept: string }')
+        result = _run(executor, parser, 'show references Employee')
+        edges = _edges(result)
+        # Employee's own
+        assert ("Employee", "Composite", "dept", "string") in edges
+        assert ("Employee", "Composite", "(extends)", "Person") in edges
+        # Person's (via extends)
+        assert ("Person", "Composite", "age", "uint8") in edges
+        assert ("Person", "Composite", "(implements)", "Labelled") in edges
+        # Labelled's (via Person's implements)
+        assert ("Labelled", "Interface", "name", "string") in edges
+
 
 # ---- Parent tracking tests ----
 
