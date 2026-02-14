@@ -1176,7 +1176,7 @@ class QueryExecutor:
             edges: list[dict[str, str]] = []
             for f in own_fields:
                 edges.append({"kind": kind, "source": focus_type, "field": f.name, "target": f.type_def.name})
-            return edges
+            return self._expand_alias_edges(edges)
 
     def _build_stored_graph(self, focus_type: str, field_centric: bool,
                              show_origin: bool, without_types: bool) -> list[dict[str, str]]:
@@ -1205,7 +1205,31 @@ class QueryExecutor:
                 if show_origin:
                     edge["origin"] = origins.get(f.name, focus_type)
                 edges.append(edge)
-            return edges
+            return self._expand_alias_edges(edges)
+
+    def _expand_alias_edges(self, edges: list[dict[str, str]]) -> list[dict[str, str]]:
+        """Append alias→base edges for any alias targets in the edge list.
+
+        Recursively expands through alias chains (alias of alias).
+        """
+        seen: set[str] = set()
+        targets = {e["target"] for e in edges}
+        queue = list(targets)
+        while queue:
+            name = queue.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            td = self.registry.get(name)
+            if td is None:
+                continue
+            if isinstance(td, AliasTypeDefinition):
+                kind = self._classify_type(td)
+                base_name = td.base_type.name
+                edges.append({"kind": kind, "source": name, "field": "(alias)", "target": base_name})
+                if base_name not in seen:
+                    queue.append(base_name)
+        return edges
 
     def _build_field_centric_rows(self, fields: list, without_types: bool) -> list[dict[str, str]]:
         """Build field-centric rows (one row per field)."""
@@ -1520,6 +1544,8 @@ class QueryExecutor:
                     lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dashed];')
                 elif e["field"] == "(implements)":
                     lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dotted];')
+                elif e["field"] == "(alias)":
+                    lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dashed, arrowhead=empty];')
                 else:
                     label = e["field"].replace('"', '\\"')
                     origin_suffix = ""
