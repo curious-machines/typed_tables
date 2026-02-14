@@ -1007,34 +1007,31 @@ class QueryExecutor:
 
     def _apply_showing(self, edges: list[dict[str, str]],
                         filters: list[GraphFilter]) -> list[dict[str, str]]:
-        """Keep only edges matching any showing filter, plus structural path."""
-        matched: list[dict[str, str]] = []
-        matched_sources: set[str] = set()
+        """Keep only edges on a path leading to filter-matched edges.
 
+        1. Find directly matched edges.
+        2. Collect all types from those edges.
+        3. Walk backward through ALL edges to find types that lead to matches.
+        4. Return all edges whose target is in the reachable set.
+        """
+        # Step 1-2: Find matched edges, collect reachable types
+        reachable: set[str] = set()
         for e in edges:
             if self._edge_matches_any_filter(e, filters):
-                matched.append(e)
-                matched_sources.add(e["source"])
+                reachable.add(e["source"])
+                reachable.add(e["target"])
 
-        # Also keep structural edges (extends/implements) that connect to matched sources
-        structural = [e for e in edges if e["field"] in ("(extends)", "(implements)")]
-        # Walk backwards: if a source type has matched edges, keep structural edges to it
-        needed_types = set(matched_sources)
-        # Also need structural edges whose target is in needed_types
+        # Step 3: Walk backward through all edges
         changed = True
         while changed:
             changed = False
-            for e in structural:
-                if e["target"] in needed_types and e["source"] not in needed_types:
-                    needed_types.add(e["source"])
+            for e in edges:
+                if e["target"] in reachable and e["source"] not in reachable:
+                    reachable.add(e["source"])
                     changed = True
 
-        # Add structural edges connecting needed types
-        for e in structural:
-            if e["source"] in needed_types and e not in matched:
-                matched.append(e)
-
-        return matched
+        # Step 4: Keep edges whose target is in the reachable set
+        return [e for e in edges if e["target"] in reachable]
 
     def _apply_excluding(self, edges: list[dict[str, str]],
                           filters: list[GraphFilter]) -> list[dict[str, str]]:

@@ -1327,15 +1327,15 @@ class TestShowingFilter:
         assert ("NPC", "Composite", "(extends)", "Creature") in edges
 
     def test_showing_kind(self, executor, parser):
-        """showing kind keeps edges where source matches kind."""
+        """showing kind keeps edges on paths to matching kind."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph Boss showing kind Interface')
         edges = _edges(result)
-        # All kept edges should have Interface kind (except structural path)
-        non_structural = [e for e in edges if not e[2].startswith("(")]
-        assert all(e[1] == "Interface" for e in non_structural)
-        # Interface sources should be present
-        sources = {e[0] for e in non_structural}
+        # Interface field edges should be present
+        interface_edges = [e for e in edges if e[1] == "Interface"]
+        assert len(interface_edges) > 0
+        # Structural path to interfaces should be present
+        sources = {e[0] for e in edges}
         assert "Identifiable" in sources or "Labelled" in sources or "Positioned" in sources
 
     def test_showing_kind_case_insensitive(self, executor, parser):
