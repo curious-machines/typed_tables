@@ -267,4 +267,4 @@ from Merchant select name, gold, specialty
 from MagicWeapon select name, spell_name, mana_cost, element
 
 -- Type graph to DOT (for visualization)
-graph to "entities.dot"
+graph > "entities.dot"
