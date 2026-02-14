@@ -793,6 +793,9 @@ graph Person depth 0             -- focus node only (no edges)
 graph Person depth 1             -- direct edges only (fields, extends, implements)
 graph Person depth 2             -- direct edges + 1 level of expansion
 graph Person structure depth 2   -- structure view, 2 levels deep
+graph Person stored depth 1      -- field edges only (aliases not expanded)
+graph Person stored depth 2      -- field edges + 1 level of alias resolution
+graph Person stored              -- field edges + full alias resolution (default)
 ```
 
 **Filters** — include or exclude by type, field, or kind:

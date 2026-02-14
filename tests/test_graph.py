@@ -1096,15 +1096,71 @@ class TestDepthControl:
         # NPC's own extends should NOT be here (depth 1 = only immediate)
         assert ("NPC", "Composite", "(extends)", "Creature") not in edges
 
-    def test_depth_error_with_declared(self, executor, parser):
+    def test_declared_depth_0(self, executor, parser):
+        """Declared depth 0 returns no edges (focus node only)."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss declared depth 1')
-        assert "cannot be used with" in result.message
+        result = _run(executor, parser, 'graph Creature declared depth 0')
+        assert result.rows == []
 
-    def test_depth_error_with_stored(self, executor, parser):
+    def test_declared_depth_1_no_alias_expansion(self, executor, parser):
+        """Declared depth 1 returns only own field edges, no alias expansion."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster { hp: health }')
+        result = _run(executor, parser, 'graph Monster declared depth 1')
+        fields = {e["field"] for e in result.rows}
+        assert fields == {"hp"}
+        # health alias should NOT be expanded at depth 1
+        assert not any(e["field"] == "(alias)" for e in result.rows)
+
+    def test_declared_depth_2_expands_aliases(self, executor, parser):
+        """Declared depth 2 resolves one level of alias chains."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster { hp: health }')
+        result = _run(executor, parser, 'graph Monster declared depth 2')
+        # depth 2 = field edges + 1 level of alias expansion
+        alias_edges = [e for e in result.rows if e["field"] == "(alias)"]
+        assert len(alias_edges) == 1
+        assert alias_edges[0]["source"] == "health"
+        assert alias_edges[0]["target"] == "int16"
+
+    def test_declared_no_depth_full_alias_resolution(self, executor, parser):
+        """Declared without depth resolves all alias chains."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias hp_type = int16')
+        _run(executor, parser, 'alias health = hp_type')
+        _run(executor, parser, 'type Monster { hp: health }')
+        result = _run(executor, parser, 'graph Monster declared')
+        # Should resolve health → hp_type → int16
+        alias_edges = {e["source"]: e["target"] for e in result.rows if e["field"] == "(alias)"}
+        assert alias_edges.get("health") == "hp_type"
+        assert alias_edges.get("hp_type") == "int16"
+
+    def test_stored_depth_0(self, executor, parser):
+        """Stored depth 0 returns no edges (focus node only)."""
+        _setup_boss_schema(executor, parser)
+        result = _run(executor, parser, 'graph Boss stored depth 0')
+        assert result.rows == []
+
+    def test_stored_depth_1_no_alias_expansion(self, executor, parser):
+        """Stored depth 1 returns only field edges, no alias expansion."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph Boss stored depth 1')
-        assert "cannot be used with" in result.message
+        fields = {e["field"] for e in result.rows if e["source"] == "Boss"}
+        assert "phase" in fields
+        assert "id" in fields
+        # No alias edges at depth 1
+        assert not any(e["field"] == "(alias)" for e in result.rows)
+
+    def test_stored_depth_2_expands_aliases(self, executor, parser):
+        """Stored depth 2 resolves one level of alias chains."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster from Creature { shield: health }')
+        result = _run(executor, parser, 'graph Monster stored depth 2')
+        alias_edges = [e for e in result.rows if e["field"] == "(alias)"]
+        assert any(e["source"] == "health" and e["target"] == "int16" for e in alias_edges)
 
 
 # ==== Phase 4: Filter tests ====

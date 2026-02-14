@@ -1463,6 +1463,8 @@ GRAPH (schema exploration):
     graph <type> depth 1             Direct edges only (fields, extends, etc.)
     graph <type> depth 2             Direct edges + 1 level of expansion
     graph <type> structure depth 2   Structure view, 2 levels deep
+    graph <type> stored depth 1      Field edges only (aliases not expanded)
+    graph <type> stored depth 2      Field edges + 1 level of alias resolution
 
   Filters (include or exclude by type, field, or kind):
     graph showing type string                  Only edges targeting string

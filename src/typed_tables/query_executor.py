@@ -874,10 +874,6 @@ class QueryExecutor:
         if query.show_origin and query.view_mode != "stored":
             return QueryResult(columns=[], rows=[],
                                message="'origin' modifier is only valid with 'stored' view mode")
-        if query.depth is not None and query.view_mode in ("declared", "stored"):
-            return QueryResult(columns=[], rows=[],
-                               message=f"'depth' cannot be used with '{query.view_mode}' view (no inheritance expansion)")
-
         # Handle path-to queries
         if query.path_to is not None:
             if not query.focus_type:
@@ -901,9 +897,9 @@ class QueryExecutor:
         elif query.view_mode == "structure":
             edges = self._build_structure_graph(query.focus_type, query.depth)
         elif query.view_mode == "declared":
-            edges = self._build_declared_graph(query.focus_type)
+            edges = self._build_declared_graph(query.focus_type, query.depth)
         elif query.view_mode == "stored":
-            edges = self._build_stored_graph(query.focus_type, query.show_origin)
+            edges = self._build_stored_graph(query.focus_type, query.show_origin, query.depth)
         else:
             # full view (default)
             edges = self._build_type_graph()
@@ -1147,8 +1143,16 @@ class QueryExecutor:
             frontier = next_frontier
         return result
 
-    def _build_declared_graph(self, focus_type: str) -> list[dict[str, str]]:
-        """Build declared view: only fields declared by the focus type itself."""
+    def _build_declared_graph(self, focus_type: str, depth: int | None = None) -> list[dict[str, str]]:
+        """Build declared view: only fields declared by the focus type itself.
+
+        Depth controls alias expansion beyond the initial field listing:
+        depth 0 = focus node only (no edges), depth 1 = field edges only,
+        None (unlimited) = resolve all aliases to storage types,
+        depth 2+ = resolve N-1 levels of alias chains.
+        """
+        if depth is not None and depth <= 0:
+            return []
         type_def = self.registry.get(focus_type)
         if type_def is None:
             return []
@@ -1181,11 +1185,19 @@ class QueryExecutor:
         edges: list[dict[str, str]] = []
         for f in own_fields:
             edges.append({"kind": kind, "source": focus_type, "field": f.name, "target": f.type_def.name})
-        return self._expand_alias_edges(edges)
+        return self._expand_view_aliases(edges, depth)
 
     def _build_stored_graph(self, focus_type: str,
-                             show_origin: bool) -> list[dict[str, str]]:
-        """Build stored view: all fields on the type's record (inherited + own)."""
+                             show_origin: bool, depth: int | None = None) -> list[dict[str, str]]:
+        """Build stored view: all fields on the type's record (inherited + own).
+
+        Depth controls alias expansion beyond the initial field listing:
+        depth 0 = focus node only (no edges), depth 1 = field edges only,
+        None (unlimited) = resolve all aliases to storage types,
+        depth 2+ = resolve N-1 levels of alias chains.
+        """
+        if depth is not None and depth <= 0:
+            return []
         type_def = self.registry.get(focus_type)
         if type_def is None:
             return []
@@ -1201,7 +1213,7 @@ class QueryExecutor:
             if show_origin:
                 edge["origin"] = origins.get(f.name, focus_type)
             edges.append(edge)
-        return self._expand_alias_edges(edges)
+        return self._expand_view_aliases(edges, depth)
 
     def _expand_alias_edges(self, edges: list[dict[str, str]]) -> list[dict[str, str]]:
         """Append alias→base edges for any alias targets in the edge list.
@@ -1225,6 +1237,43 @@ class QueryExecutor:
                 edges.append({"kind": kind, "source": name, "field": "(alias)", "target": base_name})
                 if base_name not in seen:
                     queue.append(base_name)
+        return edges
+
+    def _expand_view_aliases(self, edges: list[dict[str, str]],
+                              depth: int | None) -> list[dict[str, str]]:
+        """Expand alias chains in declared/stored views.
+
+        Field edges count as depth 1. Each additional depth level resolves
+        one level of alias chains. None (unlimited) resolves all aliases
+        to their storage types.
+        """
+        if depth is not None and depth <= 1:
+            return edges
+        # remaining_depth: how many alias levels to follow
+        remaining_depth = None if depth is None else depth - 1
+        seen: set[str] = set()
+        targets = {e["target"] for e in edges}
+        queue = list(targets)
+        levels_expanded = 0
+        while queue:
+            if remaining_depth is not None and levels_expanded >= remaining_depth:
+                break
+            levels_expanded += 1
+            next_queue: list[str] = []
+            for name in queue:
+                if name in seen:
+                    continue
+                seen.add(name)
+                td = self.registry.get(name)
+                if td is None:
+                    continue
+                if isinstance(td, AliasTypeDefinition):
+                    kind = self._classify_type(td)
+                    base_name = td.base_type.name
+                    edges.append({"kind": kind, "source": name, "field": "(alias)", "target": base_name})
+                    if base_name not in seen:
+                        next_queue.append(base_name)
+            queue = next_queue
         return edges
 
     def _compute_field_origins(self, base_type: Any, focus_name: str) -> dict[str, str]:
