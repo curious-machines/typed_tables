@@ -776,6 +776,8 @@ DOT output can be rendered with Graphviz:
 dot -Tsvg types.dot -o types.svg
 ```
 
+In DOT output, inheritance edges are unlabeled and distinguished by line style: **dashed** for `extends`, **dotted** for `implements`. Field edges always show the field name as a label.
+
 **View modes** — control which edges are included:
 
 ```ttq

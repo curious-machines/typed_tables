@@ -1516,14 +1516,16 @@ class QueryExecutor:
             lines.append("")
 
             for e in edges:
-                label = e["field"].replace('"', '\\"')
-                style = ""
-                if e["field"] in ("(extends)", "(implements)"):
-                    style = ", style=dashed"
-                origin_suffix = ""
-                if "origin" in e and e["origin"] != e.get("source", ""):
-                    origin_suffix = f"\\n(from {e['origin']})"
-                lines.append(f'    "{e["source"]}" -> "{e["target"]}" [label="{label}{origin_suffix}"{style}];')
+                if e["field"] == "(extends)":
+                    lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dashed];')
+                elif e["field"] == "(implements)":
+                    lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dotted];')
+                else:
+                    label = e["field"].replace('"', '\\"')
+                    origin_suffix = ""
+                    if "origin" in e and e["origin"] != e.get("source", ""):
+                        origin_suffix = f"\\n(from {e['origin']})"
+                    lines.append(f'    "{e["source"]}" -> "{e["target"]}" [label="{label}{origin_suffix}"];')
 
         lines.append("}")
         lines.append("")

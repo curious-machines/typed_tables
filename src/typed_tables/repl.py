@@ -1436,6 +1436,7 @@ GRAPH (schema exploration):
     graph to "file.ttq"              TTQ script format
     graph to "file"                  No extension → assumes .ttq
     graph <type> to "file.dot"       Focus type to file
+    In DOT: dashed = extends, dotted = implements, labeled = fields
 
   View modes (control which edges appear):
     graph <type> structure           Only extends/implements edges (no field→type)

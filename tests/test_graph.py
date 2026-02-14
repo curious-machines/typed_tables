@@ -954,7 +954,7 @@ class TestStructureView:
         result = executor.execute(GraphQuery(view_mode="structure", output_file="out.dot"))
         assert isinstance(result, DumpResult)
         assert "digraph" in result.script
-        assert "(extends)" in result.script
+        assert "style=dashed" in result.script
 
 
 class TestDeclaredView:
