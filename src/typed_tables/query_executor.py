@@ -1072,10 +1072,12 @@ class QueryExecutor:
 
         result_edges: list[dict[str, str]] = []
         seen_edges: set[int] = set()  # Track by id to avoid duplicates
+        errors: list[str] = []
 
         for target in targets:
             if self.registry.get(target) is None:
-                return f"Unknown type '{target}'"
+                errors.append(f"Unknown type '{target}'")
+                continue
 
             # BFS from focus to target
             queue: list[tuple[str, list[dict[str, str]]]] = [(focus_type, [])]
@@ -1098,7 +1100,10 @@ class QueryExecutor:
                         queue.append((neighbor, path + [edge]))
 
             if not found:
-                return f"No inheritance path from '{focus_type}' to '{target}'"
+                errors.append(f"No inheritance path from '{focus_type}' to '{target}'")
+
+        if errors:
+            return "; ".join(errors)
 
         return result_edges
 

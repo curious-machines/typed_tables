@@ -1735,6 +1735,14 @@ class TestPathToExecution:
         result = _run(executor, parser, 'graph Boss to Unrelated')
         assert "No inheritance path" in result.message
 
+    def test_path_to_multiple_errors(self, executor, parser):
+        """Error reports all failed targets, not just the first."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'type Unrelated { x: uint32 }')
+        result = _run(executor, parser, 'graph Boss to [Unrelated, Unknown]')
+        assert "Unrelated" in result.message
+        assert "Unknown" in result.message
+
     def test_path_to_requires_focus(self, executor, parser):
         """Path-to without focus type is an error."""
         _setup_boss_schema(executor, parser)
