@@ -971,6 +971,39 @@ class TestStoredView:
         assert origin_map["x"] == "Positioned"
         assert origin_map["y"] == "Positioned"
 
+    def test_stored_origin_depth_0(self, executor, parser):
+        """Stored origin depth 0 returns no edges."""
+        _setup_boss_schema(executor, parser)
+        result = _run(executor, parser, 'graph Boss stored origin depth 0')
+        assert result.rows == []
+
+    def test_stored_origin_depth_1(self, executor, parser):
+        """Stored origin depth 1 shows field edges with origin, no alias expansion."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster from Creature { shield: health }')
+        result = _run(executor, parser, 'graph Monster stored origin depth 1')
+        assert "origin" in result.columns
+        # Field edges have origins
+        origin_map = {r["field"]: r["origin"] for r in result.rows if "origin" in r}
+        assert origin_map.get("shield") == "Monster"
+        assert origin_map.get("hp") == "Creature"
+        # No alias expansion at depth 1
+        assert not any(e["field"] == "(alias)" for e in result.rows)
+
+    def test_stored_origin_depth_2(self, executor, parser):
+        """Stored origin depth 2 resolves one level of aliases."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster from Creature { shield: health }')
+        result = _run(executor, parser, 'graph Monster stored origin depth 2')
+        # Field edges have origins
+        origin_map = {r["field"]: r["origin"] for r in result.rows if "origin" in r}
+        assert origin_map.get("shield") == "Monster"
+        # Alias edge expanded
+        alias_edges = [e for e in result.rows if e["field"] == "(alias)"]
+        assert any(e["source"] == "health" and e["target"] == "int16" for e in alias_edges)
+
     def test_stored_to_dot(self, executor, parser):
         _setup_boss_schema(executor, parser)
         result = executor.execute(GraphQuery(
