@@ -1,9 +1,0 @@
-digraph types {
-    rankdir=LR;
-    node [style=filled];
-    label="graph Boss depth 1 showing kind Interface";
-    labelloc=t;
-    fontsize=18;
-
-
-}

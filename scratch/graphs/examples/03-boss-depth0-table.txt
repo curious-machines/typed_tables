@@ -1,8 +1,0 @@
-kind        | source | field         | target  
------------------------------------------------
-'Composite' | 'Boss' | '(extends)'   | 'NPC'   
-'Composite' | 'Boss' | 'title'       | 'string'
-'Composite' | 'Boss' | 'reward_gold' | 'uint32'
-'Composite' | 'Boss' | 'phase'       | 'uint8' 
-
-(4 rows)
