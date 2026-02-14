@@ -788,11 +788,12 @@ graph Person declared fields     -- field-centric: each field as its own node
 graph Person stored fields origin  -- annotate each field's defining type
 ```
 
-**Depth control** — limit inheritance expansion:
+**Depth control** — number of edges to traverse from focus type:
 
 ```ttq
-graph Person depth 0             -- focus type only
-graph Person depth 1             -- focus + immediate parents/interfaces
+graph Person depth 0             -- focus node only (no edges)
+graph Person depth 1             -- direct edges only (fields, extends, implements)
+graph Person depth 2             -- direct edges + 1 level of expansion
 graph Person structure depth 2   -- structure view, 2 levels deep
 ```
 
@@ -810,10 +811,14 @@ graph Person depth 2 showing kind Composite
 **Path-to queries** — find inheritance paths between types:
 
 ```ttq
-graph Boss path to Entity                    -- shortest path Boss → Entity
+graph Boss path to Entity                    -- path + target expansion
 graph Boss path to [Entity, Combatant]       -- paths to multiple targets
+graph Boss path to Entity depth 0            -- linear path only (no expansion)
+graph Boss path to Entity depth 1            -- expand one level from target
 graph Boss path to Entity to "path.dot"      -- output path as DOT
 ```
+
+Target types are expanded with their full transitive closure by default. Use `depth 0` for just the linear path (no target expansion), or `depth N` to traverse N edges from each target.
 
 **Titles and styles** — customize DOT output:
 

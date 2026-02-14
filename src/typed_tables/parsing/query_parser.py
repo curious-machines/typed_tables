@@ -742,6 +742,18 @@ class QueryParser:
         """graph_final : graph_to"""
         p[0] = p[1]
 
+    def p_graph_final_depth(self, p: yacc.YaccProduction) -> None:
+        """graph_final : DEPTH INTEGER"""
+        p[0] = {"depth": p[2]}
+
+    def p_graph_final_depth_to(self, p: yacc.YaccProduction) -> None:
+        """graph_final : DEPTH INTEGER graph_to"""
+        p[0] = {"depth": p[2], **p[3]}
+
+    def p_graph_final_depth_sort(self, p: yacc.YaccProduction) -> None:
+        """graph_final : DEPTH INTEGER SORT BY identifier_list"""
+        p[0] = {"depth": p[2], "sort_by": p[5]}
+
     # ---- Graph TO clause (with optional title/style) ----
 
     def p_graph_to_plain(self, p: yacc.YaccProduction) -> None:

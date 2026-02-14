@@ -128,8 +128,8 @@ class TestGraphTable:
         # Inherited name appears via Labelled (filter expansion)
         assert ("Labelled", "Interface", "name", "string") in edges
         assert ("Person", "Composite", "(implements)", "Labelled") in edges
-        # Should NOT include edges unrelated to Person
-        assert ("myid", "Alias", "(alias)", "uint128") not in edges
+        # Unlimited depth: aliases are expanded
+        assert ("myid", "Alias", "(alias)", "uint128") in edges
 
     def test_graph_alias_edges(self, executor, parser):
         self._setup_schema(executor, parser)
@@ -1151,37 +1151,46 @@ class TestDepthParser:
 
 class TestDepthControl:
     def test_depth_zero_focus_only(self, executor, parser):
-        """depth 0 shows only the focus type's own edges."""
+        """depth 0 = focus node only, no edges."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph Boss depth 0')
         edges = _edges(result)
-        # Boss's own edges only (no expansion to NPC, Creature, etc.)
-        sources = {e[0] for e in edges}
-        assert "Boss" in sources
-        assert "NPC" not in sources
-        assert "Creature" not in sources
+        assert len(edges) == 0
+        # Table output shows a message with the focus type name
+        assert result.message is not None
+        assert "Boss" in result.message
 
-    def test_depth_one_immediate_parents(self, executor, parser):
-        """depth 1 shows focus + immediate parent."""
+    def test_depth_zero_dot_shows_focus_node(self, executor, parser, tmp_data_dir):
+        """depth 0 DOT output includes the focus node."""
+        _setup_boss_schema(executor, parser)
+        result = _run(executor, parser, f'graph Boss depth 0 to "{tmp_data_dir}/d0.dot"')
+        assert isinstance(result, DumpResult)
+        assert '"Boss"' in result.script
+        # No edges in the DOT output
+        assert "->" not in result.script
+
+    def test_depth_one_direct_edges(self, executor, parser):
+        """depth 1 = direct edges from focus only."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph Boss depth 1')
         edges = _edges(result)
         sources = {e[0] for e in edges}
-        # Boss + NPC (immediate parent)
+        # Boss's own edges only
         assert "Boss" in sources
-        assert "NPC" in sources
-        # But not deeper: Creature's own fields shouldn't be here
+        # No parent expansion yet
+        assert "NPC" not in sources
         assert "Creature" not in sources
 
     def test_depth_two(self, executor, parser):
-        """depth 2 shows focus + 2 levels of parents."""
+        """depth 2 = focus edges + 1 level of parent expansion."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph Boss depth 2')
         edges = _edges(result)
         sources = {e[0] for e in edges}
         assert "Boss" in sources
         assert "NPC" in sources
-        assert "Creature" in sources
+        # Not yet at depth 3
+        assert "Creature" not in sources
 
     def test_depth_unlimited_default(self, executor, parser):
         """No depth = unlimited expansion."""

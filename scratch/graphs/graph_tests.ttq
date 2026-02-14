@@ -1,0 +1,26 @@
+use "graph_tests"
+
+alias coordinate = float32
+alias length = float32
+
+interface Nameable {
+    name: string
+}
+
+interface Positionable {
+    x: coordinate,
+    y: coordinate
+}
+
+interface Sizable {
+    width: length,
+    height: length
+}
+
+type Base from Nameable, Positionable, Sizable {
+    age: uint8
+}
+
+type Root from Base{
+    id: uint64
+}

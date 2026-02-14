@@ -714,13 +714,13 @@ def run_repl(data_dir: Path | None) -> int:
                 # run_file() so that scripts containing use/drop work correctly.
                 if isinstance(query, ExecuteQuery):
                     script_path = Path(query.file_path)
-                    if not script_path.exists() and not script_path.suffix:
+                    if not script_path.is_file() and not script_path.suffix:
                         for ext in (".ttq", ".ttq.gz"):
                             candidate = Path(str(script_path) + ext)
-                            if candidate.exists():
+                            if candidate.is_file():
                                 script_path = candidate
                                 break
-                    if not script_path.exists():
+                    if not script_path.is_file():
                         print(f"Error: File not found: {script_path}")
                         print()
                         continue
@@ -1450,9 +1450,10 @@ GRAPH (schema exploration):
     graph <type> declared fields without types
                                      Field nodes without type labels
 
-  Depth control (limit inheritance expansion):
-    graph <type> depth 0             Focus type only (no expansion)
-    graph <type> depth 1             Focus + immediate parents/interfaces
+  Depth control (number of edges to traverse from focus):
+    graph <type> depth 0             Focus node only (no edges)
+    graph <type> depth 1             Direct edges only (fields, extends, etc.)
+    graph <type> depth 2             Direct edges + 1 level of expansion
     graph <type> structure depth 2   Structure view, 2 levels deep
 
   Filters (include or exclude by type, field, or kind):
@@ -1464,8 +1465,10 @@ GRAPH (schema exploration):
     graph <type> depth 2 showing kind Composite
 
   Path-to queries (find inheritance paths):
-    graph <type> path to <target>              Shortest inheritance path
+    graph <type> path to <target>              Path + target expansion
     graph <type> path to [<t1>, <t2>]          Paths to multiple targets
+    graph <type> path to <target> depth 0      Linear path only (no expansion)
+    graph <type> path to <target> depth 1      Expand one level from target
     graph <type> path to <target> to "p.dot"   Output path as DOT
 
   Titles and styles (DOT output only):
@@ -1883,10 +1886,17 @@ def main(argv: list[str] | None = None) -> int:
 
     # Handle file execution
     if args.file:
-        if not args.file.exists():
-            print(f"Error: File not found: {args.file}", file=sys.stderr)
+        file_path = args.file
+        if not file_path.is_file() and not file_path.suffix:
+            for ext in (".ttq", ".ttq.gz"):
+                candidate = Path(str(file_path) + ext)
+                if candidate.is_file():
+                    file_path = candidate
+                    break
+        if not file_path.is_file():
+            print(f"Error: File not found: {file_path}", file=sys.stderr)
             return 1
-        exit_code, _ = run_file(args.file, args.data_dir, args.verbose)
+        exit_code, _ = run_file(file_path, args.data_dir, args.verbose)
         return exit_code
 
     if args.command:

@@ -799,46 +799,66 @@ class QueryExecutor:
 
     def _filter_edges_by_type(self, edges: list[dict[str, str]], type_name: str,
                               depth: int | None = None) -> list[dict[str, str]]:
-        """Filter edges to those involving a type, expanding to parent/interface edges.
+        """Filter edges to those involving a type, expanding outward via BFS.
 
-        Includes edges directly involving the type (or its array variant), plus
-        outgoing edges from any parent or interface the type extends/implements.
-        Expansion is recursive: if a parent itself extends/implements other types,
-        those are followed too, giving the full inheritance chain.
+        Depth = number of edges to traverse from the focus type:
+        depth 0 = focus node only (no edges), depth 1 = direct edges only, etc.
 
-        If depth is specified, limits inheritance expansion to that many levels:
-        depth 0 = focus type only, depth 1 = focus + immediate parents, etc.
+        The BFS follows inheritance and alias edges. Each edge traversal counts
+        against the depth budget.
         """
+        if depth is not None and depth <= 0:
+            return []
         names = {type_name, type_name + "[]"}
         filtered = [e for e in edges if e["source"] in names or e["target"] in names]
-        if depth is not None and depth <= 0:
+        if depth is not None and depth <= 1:
             return filtered
         # Build a quick lookup: source → list of edges
         edges_by_source: dict[str, list[dict[str, str]]] = {}
         for e in edges:
             edges_by_source.setdefault(e["source"], []).append(e)
-        # Recursively expand through parent/interface chain
+        # BFS expansion: follow inheritance/alias targets outward
+        # depth 1 = focus edges only (already collected above)
+        # depth 2+ = one more level per depth increment
         expanded: set[str] = set(names)
+        # Seed frontier with all targets reachable via structural edges from focus
         frontier: set[str] = set()
         for e in filtered:
-            if e["field"] in ("(extends)", "(implements)") and e["source"] in names:
+            if e["field"] in ("(extends)", "(implements)", "(alias)") and e["source"] in names:
                 frontier.add(e["target"])
-        current_depth = 0
+            # Also follow targets that are aliases (they need expansion at depth 2)
+            target = e["target"]
+            if target not in names:
+                td = self.registry.get(target)
+                if td and isinstance(td, AliasTypeDefinition):
+                    frontier.add(target)
+        current_depth = 1  # We've already traversed 1 edge (focus → targets)
         while frontier:
             current_depth += 1
             if depth is not None and current_depth > depth:
                 break
             next_frontier: set[str] = set()
-            for parent_name in frontier:
-                if parent_name in expanded:
+            for node_name in frontier:
+                if node_name in expanded:
                     continue
-                expanded.add(parent_name)
-                expanded.add(parent_name + "[]")
-                for e in edges_by_source.get(parent_name, []):
+                expanded.add(node_name)
+                expanded.add(node_name + "[]")
+                # Add outgoing edges from the pre-built graph
+                for e in edges_by_source.get(node_name, []):
                     if e not in filtered:
                         filtered.append(e)
-                    if e["field"] in ("(extends)", "(implements)"):
+                    if e["field"] in ("(extends)", "(implements)", "(alias)"):
                         next_frontier.add(e["target"])
+                # If this node is an alias, generate an alias→base edge
+                td = self.registry.get(node_name)
+                if td and isinstance(td, AliasTypeDefinition):
+                    kind = self._classify_type(td)
+                    base_name = td.base_type.name
+                    ae = {"kind": kind, "source": node_name, "field": "(alias)", "target": base_name}
+                    if ae not in filtered:
+                        filtered.append(ae)
+                    if base_name not in expanded:
+                        next_frontier.add(base_name)
             frontier = next_frontier
         return filtered
 
@@ -868,10 +888,10 @@ class QueryExecutor:
             path_edges = self._build_path_to(query.focus_type, query.path_to)
             if isinstance(path_edges, str):
                 return QueryResult(columns=[], rows=[], message=path_edges)
-            # Expand each target type with full transitive closure
+            edges = list(path_edges)
+            # Expand targets (depth controls how many edges from each target)
             all_edges = self._build_type_graph()
             seen: set[tuple[str, str, str]] = {(e["source"], e["target"], e["field"]) for e in path_edges}
-            edges = list(path_edges)
             for target in query.path_to:
                 target_edges = self._filter_edges_by_type(all_edges, target, query.depth)
                 for e in target_edges:
@@ -902,6 +922,10 @@ class QueryExecutor:
         if query.output_file:
             # File output: DOT or TTQ
             nodes = {} if query.field_centric else self._collect_graph_nodes(edges)
+            # Ensure focus type always appears as a node (even with depth 0 / no edges)
+            if query.focus_type and not query.field_centric and query.focus_type not in nodes:
+                td = self.registry.get(query.focus_type)
+                nodes[query.focus_type] = self._classify_type(td) if td else "Unknown"
             ext = Path(query.output_file).suffix.lower()
             if ext == ".dot":
                 script = self._format_graph_dot(nodes, edges, query)
@@ -914,7 +938,10 @@ class QueryExecutor:
             # Table output
             columns = self._graph_table_columns(query)
             edges = self._sort_rows(edges, query.sort_by, defaults=self._graph_default_sort(query))
-            return QueryResult(columns=columns, rows=edges)
+            message = None
+            if not edges and query.focus_type and query.depth == 0:
+                message = f"{query.focus_type} (no edges at depth 0)"
+            return QueryResult(columns=columns, rows=edges, message=message)
 
     def _graph_table_columns(self, query: GraphQuery) -> list[str]:
         """Determine table columns based on view mode."""
@@ -1114,7 +1141,13 @@ class QueryExecutor:
 
     def _filter_edges_by_type_structure(self, edges: list[dict[str, str]], type_name: str,
                                          depth: int | None = None) -> list[dict[str, str]]:
-        """Filter structural edges to those reachable from a focus type."""
+        """Filter structural edges to those reachable from a focus type.
+
+        Depth = number of edges to traverse from the focus type:
+        depth 0 = focus node only (no edges), depth 1 = direct inheritance only, etc.
+        """
+        if depth is not None and depth <= 0:
+            return []
         # Build adjacency: source → edges
         edges_by_source: dict[str, list[dict[str, str]]] = {}
         for e in edges:
@@ -1125,6 +1158,9 @@ class QueryExecutor:
         result: list[dict[str, str]] = []
         current_depth = 0
         while frontier:
+            current_depth += 1
+            if depth is not None and current_depth > depth:
+                break
             next_frontier: set[str] = set()
             for name in frontier:
                 if name in visited:
@@ -1132,10 +1168,8 @@ class QueryExecutor:
                 visited.add(name)
                 for e in edges_by_source.get(name, []):
                     result.append(e)
-                    if depth is None or current_depth + 1 < depth:
-                        next_frontier.add(e["target"])
+                    next_frontier.add(e["target"])
             frontier = next_frontier
-            current_depth += 1
         return result
 
     def _build_declared_graph(self, focus_type: str, field_centric: bool,
@@ -8171,16 +8205,16 @@ class QueryExecutor:
         if not raw_path.is_absolute() and self._script_stack:
             raw_path = self._script_stack[-1] / raw_path
 
-        # Auto-append extension if file not found and no extension
+        # Auto-append extension if not a file (directories are skipped)
         script_path = raw_path
-        if not script_path.exists() and not script_path.suffix:
+        if not script_path.is_file() and not script_path.suffix:
             for ext in (".ttq", ".ttq.gz"):
                 candidate = Path(str(script_path) + ext)
-                if candidate.exists():
+                if candidate.is_file():
                     script_path = candidate
                     break
 
-        if not script_path.exists():
+        if not script_path.is_file():
             raise FileNotFoundError(f"Script file not found: {script_path}")
 
         # Resolve to absolute for dedup tracking
@@ -8288,15 +8322,15 @@ class QueryExecutor:
 
         script_path = raw_path
         auto_ext = ""
-        if not script_path.exists() and not script_path.suffix:
+        if not script_path.is_file() and not script_path.suffix:
             for ext in (".ttq", ".ttq.gz"):
                 candidate = Path(str(script_path) + ext)
-                if candidate.exists():
+                if candidate.is_file():
                     script_path = candidate
                     auto_ext = ext
                     break
 
-        if not script_path.exists():
+        if not script_path.is_file():
             raise FileNotFoundError(f"Script file not found: {script_path}")
 
         # Build normalized import key from the user's original path

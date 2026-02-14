@@ -1,0 +1,9 @@
+graph Root to "all.dot"
+graph Root depth 0 to "all-d0.dot"
+graph Root depth 1 to "all-d1.dot"
+graph Root depth 2 to "all-d2.dot"
+
+graph Root path to Positionable to "path-to-positionable.dot"
+graph Root path to Positionable depth 0 to "path-to-d0.dot"
+graph Root path to Positionable depth 1 to "path-to-d1.dot"
+graph Root path to Positionable depth 2 to "path-to-d2.dot"
