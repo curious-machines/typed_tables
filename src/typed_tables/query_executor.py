@@ -1007,21 +1007,21 @@ class QueryExecutor:
 
     def _apply_showing(self, edges: list[dict[str, str]],
                         filters: list[GraphFilter]) -> list[dict[str, str]]:
-        """Keep only edges on a path leading to filter-matched edges.
+        """Keep matched edges plus edges on paths leading to them.
 
         1. Find directly matched edges.
-        2. Collect all types from those edges.
-        3. Walk backward through ALL edges to find types that lead to matches.
-        4. Return all edges whose target is in the reachable set.
+        2. Walk backward from matched sources to find types that lead to them.
+        3. Return matched edges + edges whose target is in the reachable set.
         """
-        # Step 1-2: Find matched edges, collect reachable types
+        # Step 1: Find matched edges, seed reachable from their sources only
+        matched: list[dict[str, str]] = []
         reachable: set[str] = set()
         for e in edges:
             if self._edge_matches_any_filter(e, filters):
+                matched.append(e)
                 reachable.add(e["source"])
-                reachable.add(e["target"])
 
-        # Step 3: Walk backward through all edges
+        # Step 2: Walk backward through all edges from matched sources
         changed = True
         while changed:
             changed = False
@@ -1030,8 +1030,10 @@ class QueryExecutor:
                     reachable.add(e["source"])
                     changed = True
 
-        # Step 4: Keep edges whose target is in the reachable set
-        return [e for e in edges if e["target"] in reachable]
+        # Step 3: Matched edges + path edges leading to matched sources
+        matched_set = set(id(e) for e in matched)
+        return matched + [e for e in edges
+                          if id(e) not in matched_set and e["target"] in reachable]
 
     def _apply_excluding(self, edges: list[dict[str, str]],
                           filters: list[GraphFilter]) -> list[dict[str, str]]:
