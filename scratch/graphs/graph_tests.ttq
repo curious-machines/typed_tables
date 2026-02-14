@@ -2,6 +2,7 @@ use "graph_tests"
 
 alias coordinate = float32
 alias length = float32
+alias uuid = uint128
 
 interface Nameable {
     name: string
@@ -12,15 +13,28 @@ interface Positionable {
     y: coordinate
 }
 
-interface Sizable {
+interface Sizeable {
     width: length,
     height: length
 }
 
-type Base from Nameable, Positionable, Sizable {
+interface Address {
+    street: string,
+    city: string,
+    state: string,
+    zip: string
+}
+
+type Base from Nameable, Positionable, Sizeable {
     age: uint8
 }
 
-type Root from Base{
-    id: uint64
+type Root from Base {
+    id: uuid,
+    address: Address
+}
+
+type Person from Nameable {
+    id: uuid,
+    age: uint8
 }
