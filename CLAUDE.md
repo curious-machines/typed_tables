@@ -760,8 +760,24 @@ Explore the type reference graph. The `graph` command is a unified tool for view
 graph                            -- all type edges
 graph Person                     -- edges involving Person (as source or target)
 graph [Person, Employee]         -- edges involving either type (multi-focus)
+graph all Interfaces             -- all interfaces expanded (focus by kind)
 graph sort by source             -- sort by column
 ```
+
+**Focus by kind** — expand all types in a category:
+
+```ttq
+graph all Composites             -- all composite types expanded
+graph all Interfaces             -- all interfaces expanded
+graph all Enums                  -- all enums expanded
+graph all Aliases                -- alias→target forest
+graph all Primitives             -- all used primitives
+graph all Arrays                 -- all array types
+graph all Sets                   -- all set types
+graph all Dictionaries           -- all dictionary types
+```
+
+Singular forms also accepted (`graph all Composite`). Singleton kinds (String, Boolean, Fraction, BigInt, BigUInt) are not valid — use the type name directly (e.g., `graph string`).
 
 **File output** — DOT or TTQ format determined by extension:
 
@@ -802,13 +818,15 @@ graph Person stored              -- field edges + full alias resolution (default
 **Filters** — include or exclude by type, field, or kind:
 
 ```ttq
-graph showing type string                    -- only edges targeting string
-graph showing field [name, age]              -- only edges for name/age fields
-graph showing kind Interface                 -- only interface nodes
+graph showing type string                    -- paths leading to string
+graph showing field [name, age]              -- paths to edges with those fields
+graph showing kind Interface                 -- paths leading to any interface
+graph showing kind Primitive                 -- paths leading to any primitive
 graph excluding type [uint8, uint16]         -- hide specific types
 graph Person showing type float32 excluding field speed
-graph Person depth 2 showing kind Composite
 ```
+
+`showing type/field/kind` finds matching edges and walks backward to show all paths leading to them. `showing kind X` expands to all types of that kind (e.g., `showing kind Primitive` = `showing type [uint8, int8, ...]`).
 
 **Path-to queries** — find inheritance paths between types:
 

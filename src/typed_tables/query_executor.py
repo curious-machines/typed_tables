@@ -863,18 +863,73 @@ class QueryExecutor:
             frontier = next_frontier
         return filtered
 
+    # Kind name → canonical label (case-insensitive, singular+plural)
+    _KIND_LOOKUP: dict[str, str] = {
+        "composite": "Composite", "composites": "Composite",
+        "interface": "Interface", "interfaces": "Interface",
+        "enum": "Enum", "enums": "Enum",
+        "alias": "Alias", "aliases": "Alias",
+        "array": "Array", "arrays": "Array",
+        "set": "Set", "sets": "Set",
+        "dictionary": "Dictionary", "dictionaries": "Dictionary",
+        "primitive": "Primitive", "primitives": "Primitive",
+    }
+    # Singleton kinds — use the type name directly instead
+    _SINGLETON_KINDS: dict[str, str] = {
+        "String": "string", "Boolean": "boolean", "Fraction": "fraction",
+        "BigInt": "bigint", "BigUInt": "biguint",
+    }
+
+    def _resolve_kind(self, kind_value: str) -> str | None:
+        """Resolve a user-supplied kind name to canonical form. Returns None if invalid."""
+        return self._KIND_LOOKUP.get(kind_value.lower())
+
+    def _collect_types_by_kind(self, kind_label: str) -> list[str]:
+        """Collect all non-system type names matching a kind label."""
+        result = []
+        for name in self.registry.list_types():
+            if name.startswith("_"):
+                continue
+            td = self.registry.get(name)
+            if td is not None and self._classify_type(td) == kind_label:
+                result.append(name)
+        return result
+
     def _execute_graph(self, query: GraphQuery) -> QueryResult | DumpResult:
         """Execute GRAPH query — unified schema exploration."""
         from pathlib import Path
 
+        # Resolve focus_kind to focus_types
+        focus_types = query.focus_type  # list[str] | None
+        if query.focus_kind:
+            kind_label = self._resolve_kind(query.focus_kind)
+            if kind_label is None:
+                # Check if it's a singleton kind
+                for sk, type_name in self._SINGLETON_KINDS.items():
+                    if query.focus_kind.lower() == sk.lower():
+                        return QueryResult(columns=[], rows=[],
+                            message=f"'{sk}' is a single type; use 'graph {type_name}' instead")
+                valid = "Composite, Interface, Enum, Alias, Array, Set, Dictionary, Primitive"
+                return QueryResult(columns=[], rows=[],
+                    message=f"Unknown kind '{query.focus_kind}'. Valid kinds: {valid}")
+            if kind_label in self._SINGLETON_KINDS:
+                type_name = self._SINGLETON_KINDS[kind_label]
+                return QueryResult(columns=[], rows=[],
+                    message=f"'{kind_label}' is a single type; use 'graph {type_name}' instead")
+            focus_types = self._collect_types_by_kind(kind_label)
+            if not focus_types:
+                return QueryResult(columns=[], rows=[],
+                    message=f"No types of kind '{kind_label}' in the schema")
+            # Set on query so DOT/TTQ formatters can highlight focus nodes
+            query.focus_type = focus_types
+
         # Validate constraints
-        if query.view_mode in ("declared", "stored") and not query.focus_type:
+        if query.view_mode in ("declared", "stored") and not focus_types:
             return QueryResult(columns=[], rows=[],
                                message=f"'{query.view_mode}' view requires a focus type (e.g., graph MyType {query.view_mode})")
         if query.show_origin and query.view_mode != "stored":
             return QueryResult(columns=[], rows=[],
                                message="'origin' modifier is only valid with 'stored' view mode")
-        focus_types = query.focus_type  # list[str] | None
 
         # Handle path-to queries
         if query.path_to is not None:
@@ -1007,21 +1062,40 @@ class QueryExecutor:
 
     def _apply_showing(self, edges: list[dict[str, str]],
                         filters: list[GraphFilter]) -> list[dict[str, str]]:
-        """Keep matched edges plus edges on paths leading to them.
+        """Apply showing filters to narrow the graph.
 
-        1. Find directly matched edges.
-        2. Walk backward from matched sources to find types that lead to them.
-        3. Return matched edges + edges whose target is in the reachable set.
+        All filter dimensions use the same logic: find matched edges, then
+        walk backward to show paths leading to them.
+
+        kind filters are expanded to equivalent type filters first (e.g.,
+        showing kind Primitive → showing type [uint8, int8, ...]).
         """
-        # Step 1: Find matched edges, seed reachable from their sources only
+        # Expand kind filters to type filters
+        expanded: list[GraphFilter] = []
+        for f in filters:
+            if f.dimension == "kind":
+                kind_types: list[str] = []
+                for v in f.values:
+                    kind_label = self._resolve_kind(v)
+                    if kind_label:
+                        kind_types.extend(self._collect_types_by_kind(kind_label))
+                if kind_types:
+                    expanded.append(GraphFilter(dimension="type", values=kind_types))
+            else:
+                expanded.append(f)
+
+        if not expanded:
+            return edges
+
+        # Apply type/field filters: matched edges + backward paths
         matched: list[dict[str, str]] = []
         reachable: set[str] = set()
         for e in edges:
-            if self._edge_matches_any_filter(e, filters):
+            if self._edge_matches_any_filter(e, expanded):
                 matched.append(e)
                 reachable.add(e["source"])
 
-        # Step 2: Walk backward through all edges from matched sources
+        # Walk backward through all edges from matched sources
         changed = True
         while changed:
             changed = False
@@ -1030,7 +1104,7 @@ class QueryExecutor:
                     reachable.add(e["source"])
                     changed = True
 
-        # Step 3: Matched edges + path edges leading to matched sources
+        # Matched edges + path edges leading to matched sources
         matched_set = set(id(e) for e in matched)
         return matched + [e for e in edges
                           if id(e) not in matched_set and e["target"] in reachable]
@@ -1448,10 +1522,11 @@ class QueryExecutor:
         """Build a descriptive default title from query parameters."""
         parts: list[str] = []
 
-        # Focus type(s)
-        focus = query.focus_type
-        if focus:
-            parts.append(", ".join(focus))
+        # Focus type(s) or kind
+        if query.focus_kind:
+            parts.append(f"all {query.focus_kind}")
+        elif query.focus_type:
+            parts.append(", ".join(query.focus_type))
 
         # Path-to
         if query.path_to:

@@ -1327,16 +1327,16 @@ class TestShowingFilter:
         assert ("NPC", "Composite", "(extends)", "Creature") in edges
 
     def test_showing_kind(self, executor, parser):
-        """showing kind keeps edges on paths to matching kind."""
+        """showing kind shows paths leading to types of that kind."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph Boss showing kind Interface')
         edges = _edges(result)
-        # Interface field edges should be present
-        interface_edges = [e for e in edges if e[1] == "Interface"]
-        assert len(interface_edges) > 0
-        # Structural path to interfaces should be present
+        # Interfaces should appear as targets (implements edges lead to them)
+        targets = {e[3] for e in edges}
+        assert "Identifiable" in targets or "Labelled" in targets or "Positioned" in targets
+        # Composites on the path should be sources
         sources = {e[0] for e in edges}
-        assert "Identifiable" in sources or "Labelled" in sources or "Positioned" in sources
+        assert "Boss" in sources or "NPC" in sources or "Creature" in sources
 
     def test_showing_kind_case_insensitive(self, executor, parser):
         """Kind filter matches case-insensitively."""
@@ -1887,3 +1887,131 @@ class TestMultiFocusExecution:
         result = _run(executor, parser, 'graph [Boss, NPC] depth 0')
         assert "Boss" in result.message
         assert "NPC" in result.message
+
+
+# ==== Phase 7: Focus Kind (graph all X) ====
+
+
+class TestFocusKindParser:
+    """Test parsing of graph all X syntax."""
+
+    def test_parse_all_composites(self, parser):
+        r = parser.parse('graph all Composites')
+        assert isinstance(r, GraphQuery)
+        assert r.focus_kind == "Composites"
+        assert r.focus_type is None
+
+    def test_parse_all_interfaces(self, parser):
+        r = parser.parse('graph all Interfaces')
+        assert r.focus_kind == "Interfaces"
+
+    def test_parse_all_aliases(self, parser):
+        r = parser.parse('graph all Aliases')
+        assert r.focus_kind == "Aliases"
+
+    def test_parse_all_enums(self, parser):
+        r = parser.parse('graph all Enums')
+        assert r.focus_kind == "Enums"
+
+    def test_parse_all_singular(self, parser):
+        r = parser.parse('graph all Composite')
+        assert r.focus_kind == "Composite"
+
+    def test_parse_all_primitives(self, parser):
+        r = parser.parse('graph all Primitives')
+        assert r.focus_kind == "Primitives"
+
+    def test_parse_all_with_depth(self, parser):
+        r = parser.parse('graph all Interfaces depth 1')
+        assert r.focus_kind == "Interfaces"
+        assert r.depth == 1
+
+    def test_parse_all_to_file(self, parser):
+        r = parser.parse('graph all Aliases > "out.dot"')
+        assert r.focus_kind == "Aliases"
+        assert r.output_file == "out.dot"
+
+    def test_parse_all_structure(self, parser):
+        r = parser.parse('graph all Composites structure')
+        assert r.focus_kind == "Composites"
+        assert r.view_mode == "structure"
+
+    def test_parse_all_with_meta(self, parser):
+        r = parser.parse('graph{"title": "All"} all Interfaces > "out.dot"')
+        assert r.focus_kind == "Interfaces"
+        assert r.metadata == [("title", "All")]
+
+
+class TestFocusKindExecution:
+    """Test execution of graph all X queries."""
+
+    def test_all_interfaces(self, executor, parser):
+        """graph all Interfaces expands all interfaces."""
+        _setup_boss_schema(executor, parser)
+        result = _run(executor, parser, 'graph all Interfaces')
+        edges = _edges(result)
+        # Interface field edges
+        assert ("Labelled", "Interface", "name", "string") in edges
+        assert ("Positioned", "Interface", "x", "float32") in edges
+        # Composites implementing them (incoming edges)
+        assert ("Creature", "Composite", "(implements)", "Entity") in edges
+
+    def test_all_composites(self, executor, parser):
+        """graph all Composites expands all composites."""
+        _setup_boss_schema(executor, parser)
+        result = _run(executor, parser, 'graph all Composites')
+        edges = _edges(result)
+        assert ("Boss", "Composite", "(extends)", "NPC") in edges
+        assert ("Boss", "Composite", "phase", "uint8") in edges
+
+    def test_all_aliases(self, executor, parser):
+        """graph all Aliases shows alias forest."""
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster { hp: health }')
+        result = _run(executor, parser, 'graph all Aliases')
+        edges = _edges(result)
+        assert ("health", "Alias", "(alias)", "int16") in edges
+        # Composites using the alias show up as incoming edges
+        assert ("Monster", "Composite", "hp", "health") in edges
+
+    def test_all_enums_empty(self, executor, parser):
+        """graph all Enums with no enums gives a message."""
+        result = _run(executor, parser, 'graph all Enums')
+        assert "No types of kind" in result.message
+
+    def test_all_enums(self, executor, parser):
+        """graph all Enums expands enum types."""
+        _run(executor, parser, 'enum Color { red, green, blue }')
+        _run(executor, parser, 'type Pixel { color: Color }')
+        result = _run(executor, parser, 'graph all Enums')
+        edges = _edges(result)
+        assert ("Pixel", "Composite", "color", "Color") in edges
+
+    def test_singleton_rejected(self, executor, parser):
+        """Singleton kinds give a helpful error."""
+        result = _run(executor, parser, 'graph all String')
+        assert "single type" in result.message
+        assert "graph string" in result.message
+
+    def test_unknown_kind(self, executor, parser):
+        """Unknown kind names give a helpful error."""
+        result = _run(executor, parser, 'graph all Bogus')
+        assert "Unknown kind" in result.message
+
+    def test_showing_kind_backward_walk(self, executor, parser):
+        """showing kind uses backward-walk semantics."""
+        _setup_boss_schema(executor, parser)
+        result = _run(executor, parser, 'graph showing kind Interface')
+        edges = _edges(result)
+        # Should show paths TO interfaces (implements edges)
+        targets = {e[3] for e in edges}
+        assert "Entity" in targets or "Labelled" in targets
+        # Should NOT show interface field edges (those are FROM interfaces)
+        assert not any(e[2] not in ("(extends)", "(implements)") for e in edges)
+
+    def test_showing_kind_case_insensitive(self, executor, parser):
+        """showing kind works case-insensitively."""
+        _setup_boss_schema(executor, parser)
+        r1 = _run(executor, parser, 'graph showing kind interface')
+        r2 = _run(executor, parser, 'graph showing kind Interface')
+        assert _edges(r1) == _edges(r2)

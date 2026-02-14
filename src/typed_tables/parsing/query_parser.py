@@ -133,6 +133,7 @@ class GraphQuery:
     """A GRAPH query — unified schema exploration command."""
 
     focus_type: list[str] | None = None
+    focus_kind: str | None = None  # "graph all Composites" — kind category focus
     output_file: str | None = None  # None=table, .dot=DOT, else=TTQ
     sort_by: list[str] = field(default_factory=list)
     view_mode: str = "full"  # "full" | "structure" | "declared" | "stored"
@@ -635,10 +636,17 @@ class QueryParser:
     # 8 top-level rules: with/without focus type × 4 view modes (full/structure/declared/stored)
     # Each ends with graph_output (sort_clause | TO STRING | empty)
 
-    def _make_graph(self, focus: list[str] | None, view: dict, output: dict,
-                    meta: list[tuple[str, str]] | None = None) -> GraphQuery:
+    def _make_graph(self, focus: list[str] | tuple[str, str] | None, view: dict,
+                    output: dict, meta: list[tuple[str, str]] | None = None) -> GraphQuery:
+        focus_type = None
+        focus_kind = None
+        if isinstance(focus, tuple):
+            focus_kind = focus[1]  # ("all", kind_name)
+        elif isinstance(focus, list):
+            focus_type = focus
         return GraphQuery(
-            focus_type=focus,
+            focus_type=focus_type,
+            focus_kind=focus_kind,
             output_file=output.get("output_file"),
             sort_by=output.get("sort_by", []),
             view_mode=view.get("view_mode", "full"),
@@ -687,6 +695,26 @@ class QueryParser:
     def p_graph_focus_single(self, p: yacc.YaccProduction) -> None:
         """graph_focus : IDENTIFIER"""
         p[0] = [p[1]]
+
+    def p_graph_focus_all(self, p: yacc.YaccProduction) -> None:
+        """graph_focus : IDENTIFIER graph_kind_name"""
+        if p[1].lower() != "all":
+            raise SyntaxError(f"Unexpected '{p[2]}' after '{p[1]}'")
+        p[0] = ("all", p[2])
+
+    def p_graph_kind_name(self, p: yacc.YaccProduction) -> None:
+        """graph_kind_name : IDENTIFIER
+                           | INTERFACE
+                           | INTERFACES
+                           | COMPOSITES
+                           | ENUMS
+                           | PRIMITIVES
+                           | ALIASES
+                           | ALIAS
+                           | ENUM
+                           | TYPE
+                           | SET"""
+        p[0] = p[1]
 
     def p_graph_focus_list(self, p: yacc.YaccProduction) -> None:
         """graph_focus : LBRACKET graph_filter_value_list RBRACKET"""

@@ -1444,6 +1444,8 @@ GRAPH (schema exploration):
     graph                            All type edges as table
     graph <type>                     Edges involving a specific type
     graph [<t1>, <t2>]               Edges involving multiple types
+    graph all Interfaces             All interfaces expanded (focus by kind)
+    graph all Composites             All composites expanded
     graph sort by source             Sort table output
 
   File output (extension determines format):
@@ -1468,12 +1470,19 @@ GRAPH (schema exploration):
     graph <type> stored depth 2      Field edges + 1 level of alias resolution
 
   Filters (include or exclude by type, field, or kind):
-    graph showing type string                  Only edges targeting string
-    graph showing field [name, age]            Only name/age field edges
-    graph showing kind Interface               Only interface nodes
+    graph showing type string                  Paths leading to string
+    graph showing field [name, age]            Paths to name/age field edges
+    graph showing kind Interface               Paths leading to any interface
+    graph showing kind Primitive               Paths leading to any primitive
     graph excluding type [uint8, uint16]       Hide specific types
     graph <type> showing type float32 excluding field speed
-    graph <type> depth 2 showing kind Composite
+
+  Focus by kind (valid: Composite, Interface, Enum, Alias, Array, Set,
+                 Dictionary, Primitive — singular or plural):
+    graph all Interfaces             All interfaces expanded
+    graph all Aliases                Alias→target forest
+    graph all Enums                  All enums expanded
+    graph all Primitives             All used primitives
 
   Path-to queries (find inheritance paths):
     graph <type> to <target>                   Path + target expansion
