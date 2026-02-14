@@ -834,72 +834,23 @@ class TestViewModeParser:
         assert isinstance(q, GraphQuery)
         assert q.focus_type == "Boss"
         assert q.view_mode == "declared"
-        assert q.field_centric is False
-
-    def test_parse_declared_fields(self, parser):
-        q = parser.parse("graph Boss declared fields")
-        assert isinstance(q, GraphQuery)
-        assert q.view_mode == "declared"
-        assert q.field_centric is True
-
-    def test_parse_declared_fields_without_types(self, parser):
-        q = parser.parse("graph Boss declared fields without types")
-        assert isinstance(q, GraphQuery)
-        assert q.view_mode == "declared"
-        assert q.field_centric is True
-        assert q.without_types is True
 
     def test_parse_stored(self, parser):
         q = parser.parse("graph Boss stored")
         assert isinstance(q, GraphQuery)
         assert q.view_mode == "stored"
 
-    def test_parse_stored_fields(self, parser):
-        q = parser.parse("graph Boss stored fields")
-        assert isinstance(q, GraphQuery)
-        assert q.view_mode == "stored"
-        assert q.field_centric is True
-
     def test_parse_stored_origin(self, parser):
         q = parser.parse("graph Boss stored origin")
         assert isinstance(q, GraphQuery)
         assert q.view_mode == "stored"
         assert q.show_origin is True
-        assert q.field_centric is False
-
-    def test_parse_stored_fields_origin(self, parser):
-        q = parser.parse("graph Boss stored fields origin")
-        assert isinstance(q, GraphQuery)
-        assert q.view_mode == "stored"
-        assert q.field_centric is True
-        assert q.show_origin is True
-
-    def test_parse_stored_fields_without_types(self, parser):
-        q = parser.parse("graph Boss stored fields without types")
-        assert isinstance(q, GraphQuery)
-        assert q.field_centric is True
-        assert q.without_types is True
-
-    def test_parse_stored_fields_origin_without_types(self, parser):
-        q = parser.parse("graph Boss stored fields origin without types")
-        assert isinstance(q, GraphQuery)
-        assert q.field_centric is True
-        assert q.show_origin is True
-        assert q.without_types is True
 
     def test_parse_structure_to_file(self, parser):
         q = parser.parse('graph Boss structure > "boss.dot"')
         assert isinstance(q, GraphQuery)
         assert q.view_mode == "structure"
         assert q.output_file == "boss.dot"
-
-    def test_parse_stored_fields_sort(self, parser):
-        q = parser.parse("graph Boss stored fields sort by field")
-        assert isinstance(q, GraphQuery)
-        assert q.view_mode == "stored"
-        assert q.field_centric is True
-        assert q.sort_by == ["field"]
-
 
 def _setup_boss_schema(executor, parser):
     """Set up a rich schema for view mode testing."""
@@ -982,29 +933,6 @@ class TestDeclaredView:
         fields = {e["field"] for e in result.rows}
         assert fields == {"hp", "speed"}
 
-    def test_declared_field_centric(self, executor, parser):
-        """Declared fields view returns field-centric rows."""
-        _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Creature declared fields')
-        assert isinstance(result, QueryResult)
-        assert result.columns == ["field", "type"]
-        field_names = {r["field"] for r in result.rows}
-        assert field_names == {"hp", "speed"}
-        # Check types
-        type_map = {r["field"]: r["type"] for r in result.rows}
-        assert type_map["hp"] == "int16"
-        assert type_map["speed"] == "float32"
-
-    def test_declared_fields_without_types(self, executor, parser):
-        """Declared fields without types returns only field names."""
-        _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Creature declared fields without types')
-        assert result.columns == ["field"]
-        assert all("type" not in r for r in result.rows)
-        field_names = {r["field"] for r in result.rows}
-        assert field_names == {"hp", "speed"}
-
-
 class TestStoredView:
     """Test stored view mode."""
 
@@ -1028,15 +956,6 @@ class TestStoredView:
         assert "x" in fields  # from Positioned
         assert "y" in fields  # from Positioned
 
-    def test_stored_field_centric(self, executor, parser):
-        """Stored fields view returns field-centric rows."""
-        _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss stored fields')
-        assert result.columns == ["field", "type"]
-        field_names = {r["field"] for r in result.rows}
-        assert "phase" in field_names
-        assert "id" in field_names
-
     def test_stored_origin(self, executor, parser):
         """Stored origin shows where each field comes from."""
         _setup_boss_schema(executor, parser)
@@ -1052,44 +971,12 @@ class TestStoredView:
         assert origin_map["x"] == "Positioned"
         assert origin_map["y"] == "Positioned"
 
-    def test_stored_fields_origin(self, executor, parser):
-        """Stored fields origin combines field-centric with origin."""
-        _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss stored fields origin')
-        assert result.columns == ["field", "type", "origin"]
-        assert any(r["field"] == "phase" and r["origin"] == "Boss" for r in result.rows)
-        assert any(r["field"] == "id" and r["origin"] == "Identifiable" for r in result.rows)
-
-    def test_stored_fields_without_types(self, executor, parser):
-        _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss stored fields without types')
-        assert result.columns == ["field"]
-        field_names = {r["field"] for r in result.rows}
-        assert "phase" in field_names
-        assert "id" in field_names
-
-    def test_stored_fields_origin_without_types(self, executor, parser):
-        _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss stored fields origin without types')
-        assert result.columns == ["field", "origin"]
-        assert any(r["field"] == "phase" and r["origin"] == "Boss" for r in result.rows)
-
     def test_stored_to_dot(self, executor, parser):
         _setup_boss_schema(executor, parser)
         result = executor.execute(GraphQuery(
             focus_type="Boss", view_mode="stored", output_file="out.dot"))
         assert isinstance(result, DumpResult)
         assert "digraph" in result.script
-
-    def test_stored_field_centric_to_dot(self, executor, parser):
-        _setup_boss_schema(executor, parser)
-        result = executor.execute(GraphQuery(
-            focus_type="Boss", view_mode="stored", field_centric=True,
-            output_file="out.dot"))
-        assert isinstance(result, DumpResult)
-        assert "digraph" in result.script
-        assert "phase" in result.script
-
 
 class TestViewModeValidation:
     """Test error cases for view mode constraints."""
@@ -1099,12 +986,6 @@ class TestViewModeValidation:
         result = executor.execute(GraphQuery(
             focus_type="Boss", view_mode="declared", show_origin=True))
         assert "only valid with 'stored'" in result.message
-
-    def test_without_types_requires_fields(self, executor, parser):
-        _setup_boss_schema(executor, parser)
-        result = executor.execute(GraphQuery(
-            focus_type="Boss", view_mode="stored", without_types=True))
-        assert "requires 'fields'" in result.message
 
     def test_declared_unknown_type(self, executor, parser):
         result = _run(executor, parser, 'graph Nonexistent declared')

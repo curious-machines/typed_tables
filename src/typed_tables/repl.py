@@ -1456,13 +1456,7 @@ GRAPH (schema exploration):
     graph <type> structure           Only extends/implements edges (no field→type)
     graph <type> declared            Only fields the type itself defines
     graph <type> stored              All fields on the record (inherited + own)
-    graph <type> declared fields     Field-centric: each field as its own node
-    graph <type> stored fields       Field-centric for all stored fields
     graph <type> stored origin       Annotate each field's defining type
-    graph <type> stored fields origin
-                                     Field-centric with origin annotations
-    graph <type> declared fields without types
-                                     Field nodes without type labels
 
   Depth control (number of edges to traverse from focus):
     graph <type> depth 0             Focus node only (no edges)

@@ -874,9 +874,6 @@ class QueryExecutor:
         if query.show_origin and query.view_mode != "stored":
             return QueryResult(columns=[], rows=[],
                                message="'origin' modifier is only valid with 'stored' view mode")
-        if query.without_types and not query.field_centric:
-            return QueryResult(columns=[], rows=[],
-                               message="'without types' modifier requires 'fields' (e.g., declared fields without types)")
         if query.depth is not None and query.view_mode in ("declared", "stored"):
             return QueryResult(columns=[], rows=[],
                                message=f"'depth' cannot be used with '{query.view_mode}' view (no inheritance expansion)")
@@ -904,11 +901,9 @@ class QueryExecutor:
         elif query.view_mode == "structure":
             edges = self._build_structure_graph(query.focus_type, query.depth)
         elif query.view_mode == "declared":
-            edges = self._build_declared_graph(query.focus_type, query.field_centric,
-                                                query.without_types)
+            edges = self._build_declared_graph(query.focus_type)
         elif query.view_mode == "stored":
-            edges = self._build_stored_graph(query.focus_type, query.field_centric,
-                                              query.show_origin, query.without_types)
+            edges = self._build_stored_graph(query.focus_type, query.show_origin)
         else:
             # full view (default)
             edges = self._build_type_graph()
@@ -917,14 +912,13 @@ class QueryExecutor:
 
         # Apply showing/excluding filters
         if query.showing or query.excluding:
-            edges = self._apply_graph_filters(edges, query.showing, query.excluding,
-                                               query.field_centric)
+            edges = self._apply_graph_filters(edges, query.showing, query.excluding)
 
         if query.output_file:
             # File output: DOT or TTQ
-            nodes = {} if query.field_centric else self._collect_graph_nodes(edges)
+            nodes = self._collect_graph_nodes(edges)
             # Ensure focus type always appears as a node (even with depth 0 / no edges)
-            if query.focus_type and not query.field_centric and query.focus_type not in nodes:
+            if query.focus_type and query.focus_type not in nodes:
                 td = self.registry.get(query.focus_type)
                 nodes[query.focus_type] = self._classify_type(td) if td else "Unknown"
             ext = Path(query.output_file).suffix.lower()
@@ -947,53 +941,38 @@ class QueryExecutor:
 
     def _graph_table_columns(self, query: GraphQuery) -> list[str]:
         """Determine table columns based on view mode."""
-        if query.field_centric:
-            cols = ["field"]
-            if not query.without_types:
-                cols.append("type")
-            if query.show_origin:
-                cols.append("origin")
-            return cols
         if query.view_mode in ("declared", "stored") and query.show_origin:
             return ["kind", "source", "field", "target", "origin"]
         return ["kind", "source", "field", "target"]
 
     def _graph_default_sort(self, query: GraphQuery) -> list[str]:
         """Default sort keys based on view mode."""
-        if query.field_centric:
-            return ["field"]
         return ["target", "source"]
 
     def _apply_graph_filters(self, edges: list[dict[str, str]],
                               showing: list[GraphFilter],
-                              excluding: list[GraphFilter],
-                              field_centric: bool) -> list[dict[str, str]]:
+                              excluding: list[GraphFilter]) -> list[dict[str, str]]:
         """Apply showing/excluding filters to graph edges.
 
         showing narrows to matching edges (plus structural path).
         excluding removes matching edges. showing applied first, then excluding.
         """
         if showing:
-            edges = self._apply_showing(edges, showing, field_centric)
+            edges = self._apply_showing(edges, showing)
         if excluding:
-            edges = self._apply_excluding(edges, excluding, field_centric)
+            edges = self._apply_excluding(edges, excluding)
         return edges
 
     def _apply_showing(self, edges: list[dict[str, str]],
-                        filters: list[GraphFilter],
-                        field_centric: bool) -> list[dict[str, str]]:
+                        filters: list[GraphFilter]) -> list[dict[str, str]]:
         """Keep only edges matching any showing filter, plus structural path."""
         matched: list[dict[str, str]] = []
         matched_sources: set[str] = set()
 
         for e in edges:
-            if self._edge_matches_any_filter(e, filters, field_centric):
+            if self._edge_matches_any_filter(e, filters):
                 matched.append(e)
-                if not field_centric:
-                    matched_sources.add(e["source"])
-
-        if field_centric:
-            return matched
+                matched_sources.add(e["source"])
 
         # Also keep structural edges (extends/implements) that connect to matched sources
         structural = [e for e in edges if e["field"] in ("(extends)", "(implements)")]
@@ -1016,29 +995,23 @@ class QueryExecutor:
         return matched
 
     def _apply_excluding(self, edges: list[dict[str, str]],
-                          filters: list[GraphFilter],
-                          field_centric: bool) -> list[dict[str, str]]:
+                          filters: list[GraphFilter]) -> list[dict[str, str]]:
         """Remove edges matching any excluding filter."""
         return [e for e in edges
-                if not self._edge_matches_any_filter(e, filters, field_centric)]
+                if not self._edge_matches_any_filter(e, filters)]
 
     def _edge_matches_any_filter(self, edge: dict[str, str],
-                                  filters: list[GraphFilter],
-                                  field_centric: bool) -> bool:
+                                  filters: list[GraphFilter]) -> bool:
         """Check if an edge matches any of the given filters."""
         for f in filters:
-            if self._edge_matches_filter(edge, f, field_centric):
+            if self._edge_matches_filter(edge, f):
                 return True
         return False
 
     def _edge_matches_filter(self, edge: dict[str, str],
-                              filt: GraphFilter,
-                              field_centric: bool) -> bool:
+                              filt: GraphFilter) -> bool:
         """Check if an edge matches a single filter."""
         if filt.dimension == "type":
-            if field_centric:
-                # field-centric rows have "type" key
-                return edge.get("type", "") in filt.values
             return edge.get("target", "") in filt.values
         elif filt.dimension == "field":
             return edge.get("field", "") in filt.values
@@ -1174,8 +1147,7 @@ class QueryExecutor:
             frontier = next_frontier
         return result
 
-    def _build_declared_graph(self, focus_type: str, field_centric: bool,
-                               without_types: bool) -> list[dict[str, str]]:
+    def _build_declared_graph(self, focus_type: str) -> list[dict[str, str]]:
         """Build declared view: only fields declared by the focus type itself."""
         type_def = self.registry.get(focus_type)
         if type_def is None:
@@ -1206,16 +1178,13 @@ class QueryExecutor:
         own_fields = [f for f in base.fields if f.name not in inherited_fields] if hasattr(base, 'fields') else []
 
         kind = self._classify_type(type_def)
-        if field_centric:
-            return self._build_field_centric_rows(own_fields, without_types)
-        else:
-            edges: list[dict[str, str]] = []
-            for f in own_fields:
-                edges.append({"kind": kind, "source": focus_type, "field": f.name, "target": f.type_def.name})
-            return self._expand_alias_edges(edges)
+        edges: list[dict[str, str]] = []
+        for f in own_fields:
+            edges.append({"kind": kind, "source": focus_type, "field": f.name, "target": f.type_def.name})
+        return self._expand_alias_edges(edges)
 
-    def _build_stored_graph(self, focus_type: str, field_centric: bool,
-                             show_origin: bool, without_types: bool) -> list[dict[str, str]]:
+    def _build_stored_graph(self, focus_type: str,
+                             show_origin: bool) -> list[dict[str, str]]:
         """Build stored view: all fields on the type's record (inherited + own)."""
         type_def = self.registry.get(focus_type)
         if type_def is None:
@@ -1225,23 +1194,14 @@ class QueryExecutor:
             return []
 
         kind = self._classify_type(type_def)
-
-        if field_centric:
-            rows = self._build_field_centric_rows(base.fields, without_types)
+        edges: list[dict[str, str]] = []
+        origins = self._compute_field_origins(base, focus_type) if show_origin else {}
+        for f in base.fields:
+            edge: dict[str, str] = {"kind": kind, "source": focus_type, "field": f.name, "target": f.type_def.name}
             if show_origin:
-                origins = self._compute_field_origins(base, focus_type)
-                for row in rows:
-                    row["origin"] = origins.get(row["field"], focus_type)
-            return rows
-        else:
-            edges: list[dict[str, str]] = []
-            origins = self._compute_field_origins(base, focus_type) if show_origin else {}
-            for f in base.fields:
-                edge: dict[str, str] = {"kind": kind, "source": focus_type, "field": f.name, "target": f.type_def.name}
-                if show_origin:
-                    edge["origin"] = origins.get(f.name, focus_type)
-                edges.append(edge)
-            return self._expand_alias_edges(edges)
+                edge["origin"] = origins.get(f.name, focus_type)
+            edges.append(edge)
+        return self._expand_alias_edges(edges)
 
     def _expand_alias_edges(self, edges: list[dict[str, str]]) -> list[dict[str, str]]:
         """Append alias→base edges for any alias targets in the edge list.
@@ -1266,16 +1226,6 @@ class QueryExecutor:
                 if base_name not in seen:
                     queue.append(base_name)
         return edges
-
-    def _build_field_centric_rows(self, fields: list, without_types: bool) -> list[dict[str, str]]:
-        """Build field-centric rows (one row per field)."""
-        rows: list[dict[str, str]] = []
-        for f in fields:
-            row: dict[str, str] = {"field": f.name}
-            if not without_types:
-                row["type"] = f.type_def.name
-            rows.append(row)
-        return rows
 
     def _compute_field_origins(self, base_type: Any, focus_name: str) -> dict[str, str]:
         """Compute origin (defining type) for each field.
@@ -1411,12 +1361,8 @@ class QueryExecutor:
         # View mode
         elif query.view_mode != "full":
             mode = query.view_mode
-            if query.field_centric:
-                mode += " fields"
             if query.show_origin:
                 mode += " origin"
-            if query.without_types:
-                mode += " without types"
             parts.append(mode)
 
         # Depth
@@ -1510,8 +1456,6 @@ class QueryExecutor:
 
         lines.append("")
 
-        field_centric = query.field_centric if query else False
-
         kind_styles = {
             "Composite": ('box', '#ADD8E6'),
             "Interface": ('box', '#FFB347'),
@@ -1545,52 +1489,31 @@ class QueryExecutor:
         # Focus type styling
         focus_color = user_styles.get("focus.color")
 
-        if field_centric:
-            # Field-centric: each row is a field node
-            focus = query.focus_type or ""
-            focus_kind = self._classify_type(self.registry.get(focus)) if focus else "Composite"
-            shape, color = kind_styles.get(focus_kind, ('box', '#ADD8E6'))
-            lines.append(f'    "{focus}" [shape={shape}, fillcolor="{color}"];')
-            lines.append("")
-            for e in edges:
-                fname = e["field"]
-                ftype = e.get("type", "")
-                origin = e.get("origin", "")
-                label_parts = [fname]
-                if ftype:
-                    label_parts.append(f": {ftype}")
-                if origin and origin != focus:
-                    label_parts.append(f"\\n(from {origin})")
-                node_label = "".join(label_parts)
-                node_id = f"{focus}.{fname}"
-                lines.append(f'    "{node_id}" [shape=plaintext, label="{node_label}"];')
-                lines.append(f'    "{focus}" -> "{node_id}";')
-        else:
-            for name in nodes:
-                kind = nodes[name]
-                shape, color = kind_styles.get(kind, ('box', '#FFFFFF'))
-                extra = ""
-                if query and query.focus_type and name == query.focus_type:
-                    if focus_color:
-                        color = focus_color
-                    extra = ', penwidth=3'
-                lines.append(f'    "{name}" [shape={shape}, fillcolor="{color}"{extra}];')
+        for name in nodes:
+            kind = nodes[name]
+            shape, color = kind_styles.get(kind, ('box', '#FFFFFF'))
+            extra = ""
+            if query and query.focus_type and name == query.focus_type:
+                if focus_color:
+                    color = focus_color
+                extra = ', penwidth=3'
+            lines.append(f'    "{name}" [shape={shape}, fillcolor="{color}"{extra}];')
 
-            lines.append("")
+        lines.append("")
 
-            for e in edges:
-                if e["field"] == "(extends)":
-                    lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dashed];')
-                elif e["field"] == "(implements)":
-                    lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dotted];')
-                elif e["field"] == "(alias)":
-                    lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dashed, arrowhead=empty];')
-                else:
-                    label = e["field"].replace('"', '\\"')
-                    origin_suffix = ""
-                    if "origin" in e and e["origin"] != e.get("source", ""):
-                        origin_suffix = f"\\n(from {e['origin']})"
-                    lines.append(f'    "{e["source"]}" -> "{e["target"]}" [label="{label}{origin_suffix}"];')
+        for e in edges:
+            if e["field"] == "(extends)":
+                lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dashed];')
+            elif e["field"] == "(implements)":
+                lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dotted];')
+            elif e["field"] == "(alias)":
+                lines.append(f'    "{e["source"]}" -> "{e["target"]}" [style=dashed, arrowhead=empty];')
+            else:
+                label = e["field"].replace('"', '\\"')
+                origin_suffix = ""
+                if "origin" in e and e["origin"] != e.get("source", ""):
+                    origin_suffix = f"\\n(from {e['origin']})"
+                lines.append(f'    "{e["source"]}" -> "{e["target"]}" [label="{label}{origin_suffix}"];')
 
         lines.append("}")
         lines.append("")

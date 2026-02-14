@@ -784,8 +784,6 @@ In DOT output, inheritance edges are unlabeled and distinguished by line style: 
 graph Person structure           -- only extends/implements edges (no field→type)
 graph Person declared            -- only fields Person itself defines
 graph Person stored              -- all fields on Person (inherited + own)
-graph Person declared fields     -- field-centric: each field as its own node
-graph Person stored fields origin  -- annotate each field's defining type
 ```
 
 **Depth control** — number of edges to traverse from focus type:

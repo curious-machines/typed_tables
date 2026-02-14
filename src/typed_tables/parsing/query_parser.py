@@ -136,9 +136,7 @@ class GraphQuery:
     output_file: str | None = None  # None=table, .dot=DOT, else=TTQ
     sort_by: list[str] = field(default_factory=list)
     view_mode: str = "full"  # "full" | "structure" | "declared" | "stored"
-    field_centric: bool = False  # "declared fields" / "stored fields"
-    show_origin: bool = False  # "stored origin" / "stored fields origin"
-    without_types: bool = False  # "fields without types"
+    show_origin: bool = False  # "stored origin"
     depth: int | None = None  # None = unlimited
     showing: list[GraphFilter] = field(default_factory=list)
     excluding: list[GraphFilter] = field(default_factory=list)
@@ -644,9 +642,7 @@ class QueryParser:
             output_file=output.get("output_file"),
             sort_by=output.get("sort_by", []),
             view_mode=view.get("view_mode", "full"),
-            field_centric=view.get("field_centric", False),
             show_origin=view.get("show_origin", False),
-            without_types=view.get("without_types", False),
             depth=output.get("depth"),
             showing=output.get("showing", []),
             excluding=output.get("excluding", []),
@@ -834,61 +830,24 @@ class QueryParser:
         # Allow reserved keywords as filter values (e.g., showing kind Interface)
         p[0] = p[1]
 
-    # ---- Declared modifiers: [fields [without types]] ----
+    # ---- Declared modifiers (none) ----
 
     def p_graph_declared_mods_empty(self, p: yacc.YaccProduction) -> None:
         """graph_declared_mods : """
         p[0] = {}
 
-    def p_graph_declared_mods_one(self, p: yacc.YaccProduction) -> None:
-        """graph_declared_mods : IDENTIFIER"""
-        if p[1] != "fields":
-            raise SyntaxError(f"Expected 'fields' after 'declared', got '{p[1]}' (position {p.lexpos(1)})")
-        p[0] = {"field_centric": True}
-
-    def p_graph_declared_mods_without_types(self, p: yacc.YaccProduction) -> None:
-        """graph_declared_mods : IDENTIFIER IDENTIFIER TYPES"""
-        if p[1] != "fields":
-            raise SyntaxError(f"Expected 'fields' after 'declared', got '{p[1]}' (position {p.lexpos(1)})")
-        if p[2] != "without":
-            raise SyntaxError(f"Expected 'without' after 'fields', got '{p[2]}' (position {p.lexpos(2)})")
-        p[0] = {"field_centric": True, "without_types": True}
-
-    # ---- Stored modifiers: [fields] [origin] [without types] ----
+    # ---- Stored modifiers: [origin] ----
 
     def p_graph_stored_mods_empty(self, p: yacc.YaccProduction) -> None:
         """graph_stored_mods : """
         p[0] = {}
 
-    def p_graph_stored_mods_one(self, p: yacc.YaccProduction) -> None:
+    def p_graph_stored_mods_origin(self, p: yacc.YaccProduction) -> None:
         """graph_stored_mods : IDENTIFIER"""
-        if p[1] == "fields":
-            p[0] = {"field_centric": True}
-        elif p[1] == "origin":
+        if p[1] == "origin":
             p[0] = {"show_origin": True}
         else:
-            raise SyntaxError(f"Expected 'fields' or 'origin' after 'stored', got '{p[1]}' (position {p.lexpos(1)})")
-
-    def p_graph_stored_mods_two(self, p: yacc.YaccProduction) -> None:
-        """graph_stored_mods : IDENTIFIER IDENTIFIER"""
-        if p[1] == "fields" and p[2] == "origin":
-            p[0] = {"field_centric": True, "show_origin": True}
-        else:
-            raise SyntaxError(f"Invalid stored modifiers: '{p[1]} {p[2]}' (position {p.lexpos(1)})")
-
-    def p_graph_stored_mods_two_types(self, p: yacc.YaccProduction) -> None:
-        """graph_stored_mods : IDENTIFIER IDENTIFIER TYPES"""
-        if p[1] == "fields" and p[2] == "without":
-            p[0] = {"field_centric": True, "without_types": True}
-        else:
-            raise SyntaxError(f"Invalid stored modifiers (position {p.lexpos(1)})")
-
-    def p_graph_stored_mods_three_types(self, p: yacc.YaccProduction) -> None:
-        """graph_stored_mods : IDENTIFIER IDENTIFIER IDENTIFIER TYPES"""
-        if p[1] == "fields" and p[2] == "origin" and p[3] == "without":
-            p[0] = {"field_centric": True, "show_origin": True, "without_types": True}
-        else:
-            raise SyntaxError(f"Invalid stored modifiers (position {p.lexpos(1)})")
+            raise SyntaxError(f"Expected 'origin' after 'stored', got '{p[1]}' (position {p.lexpos(1)})")
 
     def p_query_compact_to(self, p: yacc.YaccProduction) -> None:
         """query : COMPACT GT STRING"""
