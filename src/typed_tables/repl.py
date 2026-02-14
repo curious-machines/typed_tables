@@ -1485,10 +1485,11 @@ GRAPH (schema exploration):
     graph <type> to <target> depth 1           Expand one level from target
     graph <type> to <target> > "p.dot"         Output path as DOT
 
-  Titles and styles (DOT output only):
-    graph > "f.dot" title "My Schema"
-    graph > "f.dot" style "custom.style"
-    graph > "f.dot" title "Schema" style "dark.style"
+  Metadata dict (DOT output — inline properties and style files):
+    graph{"title": "My Schema"} > "f.dot"
+    graph{"style": "custom.style"} > "f.dot"
+    graph{"title": "Schema", "direction": "TB"} > "f.dot"
+    graph{"style": "base.style", "direction": "TB"} > "f.dot"
 
   Style files use TTQ dictionary syntax:
     { "direction": "LR",            Graph direction (LR, TB, etc.)

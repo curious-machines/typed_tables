@@ -142,8 +142,7 @@ class GraphQuery:
     depth: int | None = None  # None = unlimited
     showing: list[GraphFilter] = field(default_factory=list)
     excluding: list[GraphFilter] = field(default_factory=list)
-    style_file: str | None = None  # External style file for DOT output
-    title: str | None = None  # Graph title (default = query string)
+    metadata: list[tuple[str, str]] = field(default_factory=list)  # Ordered key-value pairs from graph{...}
     path_to: list[str] | None = None  # Path-to targets
 
 
@@ -608,11 +607,38 @@ class QueryParser:
         """query : SHOW ALIASES sort_clause"""
         p[0] = ShowTypesQuery(filter="aliases", sort_by=p[3])
 
+    # ---- Graph metadata dict: graph{...} ----
+
+    def p_graph_meta_empty(self, p: yacc.YaccProduction) -> None:
+        """graph_meta : """
+        p[0] = []
+
+    def p_graph_meta_empty_braces(self, p: yacc.YaccProduction) -> None:
+        """graph_meta : LBRACE RBRACE"""
+        p[0] = []
+
+    def p_graph_meta_entries(self, p: yacc.YaccProduction) -> None:
+        """graph_meta : LBRACE graph_meta_list RBRACE"""
+        p[0] = p[2]
+
+    def p_graph_meta_entries_trailing(self, p: yacc.YaccProduction) -> None:
+        """graph_meta : LBRACE graph_meta_list COMMA RBRACE"""
+        p[0] = p[2]
+
+    def p_graph_meta_list_single(self, p: yacc.YaccProduction) -> None:
+        """graph_meta_list : STRING COLON STRING"""
+        p[0] = [(p[1], p[3])]
+
+    def p_graph_meta_list_multi(self, p: yacc.YaccProduction) -> None:
+        """graph_meta_list : graph_meta_list COMMA STRING COLON STRING"""
+        p[0] = p[1] + [(p[3], p[5])]
+
     # ---- Graph command grammar ----
     # 8 top-level rules: with/without focus type × 4 view modes (full/structure/declared/stored)
     # Each ends with graph_output (sort_clause | TO STRING | empty)
 
-    def _make_graph(self, focus: str | None, view: dict, output: dict) -> GraphQuery:
+    def _make_graph(self, focus: str | None, view: dict, output: dict,
+                    meta: list[tuple[str, str]] | None = None) -> GraphQuery:
         return GraphQuery(
             focus_type=focus,
             output_file=output.get("output_file"),
@@ -624,42 +650,41 @@ class QueryParser:
             depth=output.get("depth"),
             showing=output.get("showing", []),
             excluding=output.get("excluding", []),
-            style_file=output.get("style_file"),
-            title=output.get("title"),
+            metadata=meta or [],
             path_to=output.get("path_to"),
         )
 
     def p_query_graph(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_output"""
-        p[0] = self._make_graph(None, {}, p[2])
+        """query : GRAPH graph_meta graph_output"""
+        p[0] = self._make_graph(None, {}, p[3], meta=p[2])
 
     def p_query_graph_structure(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH STRUCTURE graph_output"""
-        p[0] = self._make_graph(None, {"view_mode": "structure"}, p[3])
+        """query : GRAPH graph_meta STRUCTURE graph_output"""
+        p[0] = self._make_graph(None, {"view_mode": "structure"}, p[4], meta=p[2])
 
     def p_query_graph_declared(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH DECLARED graph_declared_mods graph_output"""
-        p[0] = self._make_graph(None, {"view_mode": "declared", **p[3]}, p[4])
+        """query : GRAPH graph_meta DECLARED graph_declared_mods graph_output"""
+        p[0] = self._make_graph(None, {"view_mode": "declared", **p[4]}, p[5], meta=p[2])
 
     def p_query_graph_stored(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH STORED graph_stored_mods graph_output"""
-        p[0] = self._make_graph(None, {"view_mode": "stored", **p[3]}, p[4])
+        """query : GRAPH graph_meta STORED graph_stored_mods graph_output"""
+        p[0] = self._make_graph(None, {"view_mode": "stored", **p[4]}, p[5], meta=p[2])
 
     def p_query_graph_type(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH IDENTIFIER graph_output"""
-        p[0] = self._make_graph(p[2], {}, p[3])
+        """query : GRAPH graph_meta IDENTIFIER graph_output"""
+        p[0] = self._make_graph(p[3], {}, p[4], meta=p[2])
 
     def p_query_graph_type_structure(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH IDENTIFIER STRUCTURE graph_output"""
-        p[0] = self._make_graph(p[2], {"view_mode": "structure"}, p[4])
+        """query : GRAPH graph_meta IDENTIFIER STRUCTURE graph_output"""
+        p[0] = self._make_graph(p[3], {"view_mode": "structure"}, p[5], meta=p[2])
 
     def p_query_graph_type_declared(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH IDENTIFIER DECLARED graph_declared_mods graph_output"""
-        p[0] = self._make_graph(p[2], {"view_mode": "declared", **p[4]}, p[5])
+        """query : GRAPH graph_meta IDENTIFIER DECLARED graph_declared_mods graph_output"""
+        p[0] = self._make_graph(p[3], {"view_mode": "declared", **p[5]}, p[6], meta=p[2])
 
     def p_query_graph_type_stored(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH IDENTIFIER STORED graph_stored_mods graph_output"""
-        p[0] = self._make_graph(p[2], {"view_mode": "stored", **p[4]}, p[5])
+        """query : GRAPH graph_meta IDENTIFIER STORED graph_stored_mods graph_output"""
+        p[0] = self._make_graph(p[3], {"view_mode": "stored", **p[5]}, p[6], meta=p[2])
 
     # ---- Graph output: sort clause, file output, or empty ----
 
@@ -758,24 +783,6 @@ class QueryParser:
     def p_graph_to_plain(self, p: yacc.YaccProduction) -> None:
         """graph_to : GT STRING"""
         p[0] = {"output_file": p[2]}
-
-    def p_graph_to_one_mod(self, p: yacc.YaccProduction) -> None:
-        """graph_to : GT STRING IDENTIFIER STRING"""
-        if p[3] == "title":
-            p[0] = {"output_file": p[2], "title": p[4]}
-        elif p[3] == "style":
-            p[0] = {"output_file": p[2], "style_file": p[4]}
-        else:
-            raise SyntaxError(f"Expected 'title' or 'style' after output file, got '{p[3]}' (position {p.lexpos(3)})")
-
-    def p_graph_to_two_mods(self, p: yacc.YaccProduction) -> None:
-        """graph_to : GT STRING IDENTIFIER STRING IDENTIFIER STRING"""
-        if p[3] == "title" and p[5] == "style":
-            p[0] = {"output_file": p[2], "title": p[4], "style_file": p[6]}
-        elif p[3] == "style" and p[5] == "title":
-            p[0] = {"output_file": p[2], "style_file": p[4], "title": p[6]}
-        else:
-            raise SyntaxError(f"Expected 'title' and 'style' modifiers, got '{p[3]}' and '{p[5]}' (position {p.lexpos(3)})")
 
     # ---- Graph filter list ----
 

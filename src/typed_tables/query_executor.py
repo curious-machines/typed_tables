@@ -933,7 +933,8 @@ class QueryExecutor:
             else:
                 if not ext:
                     query.output_file += ".ttq"
-                script = self._format_graph_ttq(nodes, edges, title=query.title, query=query)
+                title = next((v for k, v in query.metadata if k == "title"), None)
+                script = self._format_graph_ttq(nodes, edges, title=title, query=query)
             return DumpResult(columns=[], rows=[], script=script, output_file=query.output_file)
         else:
             # Table output
@@ -1481,23 +1482,26 @@ class QueryExecutor:
     def _format_graph_dot(self, nodes: dict[str, str], edges: list[dict[str, str]],
                           query: GraphQuery | None = None) -> str:
         """Format type graph as a DOT file for Graphviz."""
-        # Load style overrides
+        # Load style overrides from ordered metadata
         user_styles: dict[str, str] = {}
-        if query and query.style_file:
-            user_styles = self._load_style_file(query.style_file)
+        title = None
+        if query:
+            for key, value in query.metadata:
+                if key == "title":
+                    title = value
+                elif key == "style":
+                    file_styles = self._load_style_file(value)
+                    user_styles.update(file_styles)
+                else:
+                    user_styles[key] = value
+            if title is None:
+                title = self._build_graph_default_title(query)
 
         lines: list[str] = []
         lines.append("digraph types {")
         direction = user_styles.get("direction", "LR")
         lines.append(f"    rankdir={direction};")
         lines.append('    node [style=filled];')
-
-        # Title — always emit one; use explicit title or build from query
-        title = None
-        if query:
-            title = query.title
-            if not title:
-                title = self._build_graph_default_title(query)
         if title:
             escaped = title.replace('"', '\\"')
             lines.append(f'    label="{escaped}";')

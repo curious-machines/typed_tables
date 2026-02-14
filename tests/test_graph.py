@@ -1475,40 +1475,66 @@ class TestCombinedFilters:
 
 # ==== Phase 6: Styling and Titles ====
 
-class TestTitleStyleParser:
-    """Test parsing of title and style clauses."""
+class TestGraphMetaParser:
+    """Test parsing of graph{...} metadata dict."""
 
     def test_parse_title(self, parser):
-        r = parser.parse('graph > "out.dot" title "Boss Schema"')
+        r = parser.parse('graph{"title": "Boss Schema"} > "out.dot"')
         assert isinstance(r, GraphQuery)
-        assert r.title == "Boss Schema"
+        assert r.metadata == [("title", "Boss Schema")]
         assert r.output_file == "out.dot"
 
     def test_parse_style(self, parser):
-        r = parser.parse('graph > "out.dot" style "styles.txt"')
-        assert r.style_file == "styles.txt"
+        r = parser.parse('graph{"style": "styles.txt"} > "out.dot"')
+        assert r.metadata == [("style", "styles.txt")]
         assert r.output_file == "out.dot"
 
     def test_parse_title_and_style(self, parser):
-        r = parser.parse('graph > "out.dot" title "My Graph" style "s.txt"')
-        assert r.title == "My Graph"
-        assert r.style_file == "s.txt"
+        r = parser.parse('graph{"title": "My Graph", "style": "s.txt"} > "out.dot"')
+        assert r.metadata == [("title", "My Graph"), ("style", "s.txt")]
 
     def test_parse_style_then_title(self, parser):
-        r = parser.parse('graph > "out.dot" style "s.txt" title "My Graph"')
-        assert r.title == "My Graph"
-        assert r.style_file == "s.txt"
+        r = parser.parse('graph{"style": "s.txt", "title": "My Graph"} > "out.dot"')
+        assert r.metadata == [("style", "s.txt"), ("title", "My Graph")]
 
-    def test_parse_title_no_style(self, parser):
-        r = parser.parse('graph Boss > "out.dot" title "Boss"')
+    def test_parse_title_with_focus(self, parser):
+        r = parser.parse('graph{"title": "Boss"} Boss > "out.dot"')
         assert r.focus_type == "Boss"
-        assert r.title == "Boss"
-        assert r.style_file is None
+        assert r.metadata == [("title", "Boss")]
 
     def test_parse_with_filters(self, parser):
-        r = parser.parse('graph Boss showing type uint8 > "out.dot" title "Focused"')
-        assert r.title == "Focused"
+        r = parser.parse('graph{"title": "Focused"} Boss showing type uint8 > "out.dot"')
+        assert r.metadata == [("title", "Focused")]
         assert len(r.showing) == 1
+
+    def test_parse_empty_meta(self, parser):
+        r = parser.parse('graph{} > "out.dot"')
+        assert isinstance(r, GraphQuery)
+        assert r.metadata == []
+        assert r.output_file == "out.dot"
+
+    def test_parse_no_meta(self, parser):
+        r = parser.parse('graph > "out.dot"')
+        assert isinstance(r, GraphQuery)
+        assert r.metadata == []
+
+    def test_parse_trailing_comma(self, parser):
+        r = parser.parse('graph{"title": "X",} > "out.dot"')
+        assert r.metadata == [("title", "X")]
+
+    def test_parse_inline_style_properties(self, parser):
+        r = parser.parse('graph{"direction": "TB", "composite.color": "#FF0000"} > "out.dot"')
+        assert r.metadata == [("direction", "TB"), ("composite.color", "#FF0000")]
+
+    def test_parse_meta_with_structure(self, parser):
+        r = parser.parse('graph{"title": "Structure"} Person structure > "out.dot"')
+        assert r.metadata == [("title", "Structure")]
+        assert r.focus_type == "Person"
+        assert r.view_mode == "structure"
+
+    def test_parse_style_then_override(self, parser):
+        r = parser.parse('graph{"style": "base.style", "direction": "TB"} > "out.dot"')
+        assert r.metadata == [("style", "base.style"), ("direction", "TB")]
 
 
 class TestTitleOutput:
@@ -1517,7 +1543,7 @@ class TestTitleOutput:
     def test_dot_title(self, executor, parser, tmp_data_dir):
         """Title appears as label in DOT output."""
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, 'graph > "out.dot" title "My Schema"')
+        result = _run(executor, parser, 'graph{"title": "My Schema"} > "out.dot"')
         assert isinstance(result, DumpResult)
         assert 'label="My Schema"' in result.script
         assert "labelloc=t" in result.script
@@ -1533,7 +1559,7 @@ class TestTitleOutput:
     def test_ttq_title(self, executor, parser, tmp_data_dir):
         """Title appears as comment in TTQ output."""
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, 'graph > "out.ttq" title "My Schema"')
+        result = _run(executor, parser, 'graph{"title": "My Schema"} > "out.ttq"')
         assert isinstance(result, DumpResult)
         assert result.script.startswith("-- My Schema")
 
@@ -1546,14 +1572,14 @@ class TestTitleOutput:
 
 
 class TestStyleOutput:
-    """Test style file application in DOT output."""
+    """Test style file and inline style application in DOT output."""
 
     def test_style_direction(self, executor, parser, tmp_data_dir):
         """Style file can override graph direction."""
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('{"direction": "TB"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph > "out.dot" style "{style_path}"')
+        result = _run(executor, parser, f'graph{{"style": "{style_path}"}} > "out.dot"')
         assert isinstance(result, DumpResult)
         assert "rankdir=TB" in result.script
 
@@ -1562,7 +1588,7 @@ class TestStyleOutput:
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('{"composite.color": "#FF0000"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph > "out.dot" style "{style_path}"')
+        result = _run(executor, parser, f'graph{{"style": "{style_path}"}} > "out.dot"')
         assert isinstance(result, DumpResult)
         assert "#FF0000" in result.script
 
@@ -1571,7 +1597,7 @@ class TestStyleOutput:
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('{"focus.color": "#00FF00"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph Foo > "out.dot" style "{style_path}"')
+        result = _run(executor, parser, f'graph{{"style": "{style_path}"}} Foo > "out.dot"')
         assert isinstance(result, DumpResult)
         assert "#00FF00" in result.script
 
@@ -1580,14 +1606,14 @@ class TestStyleOutput:
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('-- This is a comment\n{"direction": "TB"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph > "out.dot" style "{style_path}"')
+        result = _run(executor, parser, f'graph{{"style": "{style_path}"}} > "out.dot"')
         assert isinstance(result, DumpResult)
         assert "rankdir=TB" in result.script
 
     def test_style_missing_file(self, executor, parser, tmp_data_dir):
         """Missing style file is silently ignored."""
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, 'graph > "out.dot" style "nonexistent.txt"')
+        result = _run(executor, parser, 'graph{"style": "nonexistent.txt"} > "out.dot"')
         assert isinstance(result, DumpResult)
         # Should still produce valid DOT with defaults
         assert "digraph types" in result.script
@@ -1597,9 +1623,41 @@ class TestStyleOutput:
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('{"direction": "TB"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph > "out.dot" title "My Graph" style "{style_path}"')
+        result = _run(executor, parser, f'graph{{"title": "My Graph", "style": "{style_path}"}} > "out.dot"')
         assert isinstance(result, DumpResult)
         assert 'label="My Graph"' in result.script
+        assert "rankdir=TB" in result.script
+
+    def test_inline_direction(self, executor, parser, tmp_data_dir):
+        """Inline direction property in metadata dict."""
+        _run(executor, parser, 'type Foo { x: uint32 }')
+        result = _run(executor, parser, 'graph{"direction": "TB"} > "out.dot"')
+        assert isinstance(result, DumpResult)
+        assert "rankdir=TB" in result.script
+
+    def test_inline_color(self, executor, parser, tmp_data_dir):
+        """Inline composite.color property in metadata dict."""
+        _run(executor, parser, 'type Foo { x: uint32 }')
+        result = _run(executor, parser, 'graph{"composite.color": "#FF0000"} > "out.dot"')
+        assert isinstance(result, DumpResult)
+        assert "#FF0000" in result.script
+
+    def test_style_file_then_inline_override(self, executor, parser, tmp_data_dir):
+        """Inline property after style file overrides the file value."""
+        style_path = tmp_data_dir / "styles.txt"
+        style_path.write_text('{"direction": "LR"}')
+        _run(executor, parser, 'type Foo { x: uint32 }')
+        result = _run(executor, parser, f'graph{{"style": "{style_path}", "direction": "TB"}} > "out.dot"')
+        assert isinstance(result, DumpResult)
+        assert "rankdir=TB" in result.script
+
+    def test_inline_then_style_file_override(self, executor, parser, tmp_data_dir):
+        """Style file after inline property overrides the inline value."""
+        style_path = tmp_data_dir / "styles.txt"
+        style_path.write_text('{"direction": "TB"}')
+        _run(executor, parser, 'type Foo { x: uint32 }')
+        result = _run(executor, parser, f'graph{{"direction": "LR", "style": "{style_path}"}} > "out.dot"')
+        assert isinstance(result, DumpResult)
         assert "rankdir=TB" in result.script
 
 

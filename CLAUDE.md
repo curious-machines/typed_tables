@@ -820,13 +820,18 @@ graph Boss to Entity > "path.dot"            -- output path as DOT
 
 Target types are expanded with their full transitive closure by default. Use `depth 0` for just the linear path (no target expansion), or `depth N` to traverse N edges from each target.
 
-**Titles and styles** — customize DOT output:
+**Metadata dict** — customize DOT output with `graph{...}` syntax:
 
 ```ttq
-graph > "types.dot" title "My Schema"
-graph > "types.dot" style "custom.style"
-graph > "types.dot" title "Schema" style "dark.style"
+graph{"title": "My Schema"} > "types.dot"
+graph{"style": "custom.style"} > "types.dot"
+graph{"title": "Schema", "style": "dark.style"} > "types.dot"
+graph{"direction": "TB", "composite.color": "#FF0000"} > "types.dot"
+graph{"style": "base.style", "direction": "TB"} > "types.dot"  -- TB overrides file
+graph{"title": "Boss"} Boss > "out.dot"
 ```
+
+Keys and values are quoted strings. Entries are processed in order — later entries override earlier ones. The `style` key loads an external style file; other keys set properties directly.
 
 Style files use TTQ dictionary syntax:
 ```ttq
