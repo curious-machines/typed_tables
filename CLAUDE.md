@@ -765,10 +765,10 @@ graph sort by source             -- sort by column
 **File output** — DOT or TTQ format determined by extension:
 
 ```ttq
-graph to "types.dot"             -- DOT format (for Graphviz)
-graph to "types.ttq"             -- TTQ format
-graph to "types"                 -- no extension → assumes TTQ, appends .ttq
-graph Person to "person.dot"     -- focus type to file
+graph > "types.dot"              -- DOT format (for Graphviz)
+graph > "types.ttq"              -- TTQ format
+graph > "types"                  -- no extension → assumes TTQ, appends .ttq
+graph Person > "person.dot"      -- focus type to file
 ```
 
 DOT output can be rendered with Graphviz:
@@ -811,11 +811,11 @@ graph Person depth 2 showing kind Composite
 **Path-to queries** — find inheritance paths between types:
 
 ```ttq
-graph Boss path to Entity                    -- path + target expansion
-graph Boss path to [Entity, Combatant]       -- paths to multiple targets
-graph Boss path to Entity depth 0            -- linear path only (no expansion)
-graph Boss path to Entity depth 1            -- expand one level from target
-graph Boss path to Entity to "path.dot"      -- output path as DOT
+graph Boss to Entity                         -- path + target expansion
+graph Boss to [Entity, Combatant]            -- paths to multiple targets
+graph Boss to Entity depth 0                 -- linear path only (no expansion)
+graph Boss to Entity depth 1                 -- expand one level from target
+graph Boss to Entity > "path.dot"            -- output path as DOT
 ```
 
 Target types are expanded with their full transitive closure by default. Use `depth 0` for just the linear path (no target expansion), or `depth N` to traverse N edges from each target.
@@ -823,9 +823,9 @@ Target types are expanded with their full transitive closure by default. Use `de
 **Titles and styles** — customize DOT output:
 
 ```ttq
-graph to "types.dot" title "My Schema"
-graph to "types.dot" style "custom.style"
-graph to "types.dot" title "Schema" style "dark.style"
+graph > "types.dot" title "My Schema"
+graph > "types.dot" style "custom.style"
+graph > "types.dot" title "Schema" style "dark.style"
 ```
 
 Style files use TTQ dictionary syntax:
@@ -895,7 +895,7 @@ Use `dump archive` to include system types in a dump (equivalent to archiving
 the full database state):
 ```ttq
 dump archive                 -- dump including system types
-dump archive to "full.ttq"   -- dump archive to file
+dump archive > "full.ttq"    -- dump archive to file
 dump archive yaml            -- dump archive as YAML
 ```
 
@@ -905,22 +905,22 @@ Serialize database contents as an executable TTQ script:
 ```ttq
 dump              -- dump entire database
 dump Person       -- dump single table
-dump to "backup.ttq"          -- dump entire database to file
-dump Person to "person.ttq"   -- dump single table to file
+dump > "backup.ttq"           -- dump entire database to file
+dump Person > "person.ttq"    -- dump single table to file
 dump $var                     -- dump records referenced by a variable
-dump $var to "backup.ttq"     -- dump variable records to file
+dump $var > "backup.ttq"      -- dump variable records to file
 dump [Person, $seniors, Employee]             -- dump a list of tables/variables
-dump [Person, $seniors, Employee] to "backup.ttq"  -- dump list to file
-dump to "backup"              -- no extension → appends .ttq (or .yaml/.json/.xml)
-dump to "backup.ttq.gz"      -- gzip-compressed output (any format)
-dump yaml to "backup.yaml.gz"
+dump [Person, $seniors, Employee] > "backup.ttq"  -- dump list to file
+dump > "backup"               -- no extension → appends .ttq (or .yaml/.json/.xml)
+dump > "backup.ttq.gz"       -- gzip-compressed output (any format)
+dump yaml > "backup.yaml.gz"
 ```
 
 YAML format is also supported using anchors and aliases for references:
 ```ttq
 dump yaml                     -- dump as YAML
 dump yaml pretty              -- pretty-print YAML
-dump yaml to "backup.yaml"    -- dump YAML to file
+dump yaml > "backup.yaml"     -- dump YAML to file
 ```
 
 Example YAML output with cyclic references:
@@ -938,7 +938,7 @@ JSON format is supported using `$id` and `$ref` for references:
 ```ttq
 dump json                     -- dump as JSON
 dump json pretty              -- pretty-print JSON
-dump json to "backup.json"    -- dump JSON to file
+dump json > "backup.json"     -- dump JSON to file
 ```
 
 Example JSON output with cyclic references:
@@ -955,7 +955,7 @@ XML format is supported using `id` and `ref="#id"` attributes for references:
 ```ttq
 dump xml                      -- dump as XML
 dump xml pretty               -- pretty-print XML
-dump xml to "backup.xml"      -- dump XML to file
+dump xml > "backup.xml"       -- dump XML to file
 ```
 
 Example XML output with cyclic references:
@@ -979,7 +979,7 @@ Example XML output with cyclic references:
 
 Create a compacted copy of the database, removing deleted records (tombstones) and unreferenced data:
 ```ttq
-compact to "path/to/output"
+compact > "path/to/output"
 ```
 
 The original database is left untouched. The output path must not already exist. All three table types are compacted:
@@ -993,11 +993,12 @@ All reference types (composite refs, interface refs, array refs, Swift-style enu
 
 Bundle the current database into a single binary archive file (`.ttar`). The database is automatically compacted before archiving:
 ```ttq
-archive to "backup.ttar"
-archive to "backup.ttar.gz"   -- gzip-compressed archive
+archive                       -- archive to <database_name>.ttar
+archive > "backup.ttar"
+archive > "backup.ttar.gz"    -- gzip-compressed archive
 ```
 
-The `.ttar` extension is added automatically if not present.
+The `.ttar` extension is added automatically if not present. If the target file already exists, the REPL prompts for confirmation before overwriting.
 
 ### Restore Database
 

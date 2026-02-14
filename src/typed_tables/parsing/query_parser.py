@@ -156,9 +156,10 @@ class CompactQuery:
 
 @dataclass
 class ArchiveQuery:
-    """An ARCHIVE TO query."""
+    """An ARCHIVE query."""
 
     output_file: str | None = None
+    overwrite: bool = False
 
 
 @dataclass
@@ -686,13 +687,11 @@ class QueryParser:
         """graph_output : DEPTH INTEGER SORT BY identifier_list"""
         p[0] = {"depth": p[2], "sort_by": p[5]}
 
-    # ---- Graph output: path to ----
+    # ---- Graph output: to (path-to) ----
 
     def p_graph_output_path_to(self, p: yacc.YaccProduction) -> None:
-        """graph_output : IDENTIFIER TO graph_path_targets graph_final"""
-        if p[1] != "path":
-            raise SyntaxError(f"Expected 'path' before 'to', got '{p[1]}' (position {p.lexpos(1)})")
-        p[0] = {"path_to": p[3], **p[4]}
+        """graph_output : TO graph_path_targets graph_final"""
+        p[0] = {"path_to": p[2], **p[3]}
 
     def p_graph_path_targets_single(self, p: yacc.YaccProduction) -> None:
         """graph_path_targets : IDENTIFIER"""
@@ -757,11 +756,11 @@ class QueryParser:
     # ---- Graph TO clause (with optional title/style) ----
 
     def p_graph_to_plain(self, p: yacc.YaccProduction) -> None:
-        """graph_to : TO STRING"""
+        """graph_to : GT STRING"""
         p[0] = {"output_file": p[2]}
 
     def p_graph_to_one_mod(self, p: yacc.YaccProduction) -> None:
-        """graph_to : TO STRING IDENTIFIER STRING"""
+        """graph_to : GT STRING IDENTIFIER STRING"""
         if p[3] == "title":
             p[0] = {"output_file": p[2], "title": p[4]}
         elif p[3] == "style":
@@ -770,7 +769,7 @@ class QueryParser:
             raise SyntaxError(f"Expected 'title' or 'style' after output file, got '{p[3]}' (position {p.lexpos(3)})")
 
     def p_graph_to_two_mods(self, p: yacc.YaccProduction) -> None:
-        """graph_to : TO STRING IDENTIFIER STRING IDENTIFIER STRING"""
+        """graph_to : GT STRING IDENTIFIER STRING IDENTIFIER STRING"""
         if p[3] == "title" and p[5] == "style":
             p[0] = {"output_file": p[2], "title": p[4], "style_file": p[6]}
         elif p[3] == "style" and p[5] == "title":
@@ -885,11 +884,11 @@ class QueryParser:
             raise SyntaxError(f"Invalid stored modifiers (position {p.lexpos(1)})")
 
     def p_query_compact_to(self, p: yacc.YaccProduction) -> None:
-        """query : COMPACT TO STRING"""
+        """query : COMPACT GT STRING"""
         p[0] = CompactQuery(output_path=p[3])
 
     def p_query_archive_to(self, p: yacc.YaccProduction) -> None:
-        """query : ARCHIVE TO STRING"""
+        """query : ARCHIVE GT STRING"""
         p[0] = ArchiveQuery(output_file=p[3])
 
     def p_query_archive(self, p: yacc.YaccProduction) -> None:
@@ -1071,13 +1070,13 @@ class QueryParser:
         p[0] = DumpQuery(table=p[2], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_to(self, p: yacc.YaccProduction) -> None:
-        """query : dump_prefix TO STRING"""
+        """query : dump_prefix GT STRING"""
         pretty, fmt, archive = p[1]
         p[0] = DumpQuery(output_file=p[3], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_table_to(self, p: yacc.YaccProduction) -> None:
-        """query : dump_prefix IDENTIFIER TO STRING
-                 | dump_prefix STRING TO STRING"""
+        """query : dump_prefix IDENTIFIER GT STRING
+                 | dump_prefix STRING GT STRING"""
         pretty, fmt, archive = p[1]
         p[0] = DumpQuery(table=p[2], output_file=p[4], pretty=pretty, format=fmt, include_system=archive)
 
@@ -1087,7 +1086,7 @@ class QueryParser:
         p[0] = DumpQuery(variable=p[2], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_variable_to(self, p: yacc.YaccProduction) -> None:
-        """query : dump_prefix VARIABLE TO STRING"""
+        """query : dump_prefix VARIABLE GT STRING"""
         pretty, fmt, archive = p[1]
         p[0] = DumpQuery(variable=p[2], output_file=p[4], pretty=pretty, format=fmt, include_system=archive)
 
@@ -1097,7 +1096,7 @@ class QueryParser:
         p[0] = DumpQuery(items=p[3], pretty=pretty, format=fmt, include_system=archive)
 
     def p_query_dump_list_to(self, p: yacc.YaccProduction) -> None:
-        """query : dump_prefix LBRACKET dump_item_list RBRACKET TO STRING"""
+        """query : dump_prefix LBRACKET dump_item_list RBRACKET GT STRING"""
         pretty, fmt, archive = p[1]
         p[0] = DumpQuery(items=p[3], output_file=p[6], pretty=pretty, format=fmt, include_system=archive)
 

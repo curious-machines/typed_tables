@@ -220,6 +220,7 @@ class ArchiveResult(QueryResult):
     output_file: str = ""
     file_count: int = 0
     total_bytes: int = 0
+    exists: bool = False
 
 
 @dataclass
@@ -884,7 +885,7 @@ class QueryExecutor:
         if query.path_to is not None:
             if not query.focus_type:
                 return QueryResult(columns=[], rows=[],
-                                   message="'path to' requires a focus type (e.g., graph MyType path to Target)")
+                                   message="'to' requires a focus type (e.g., graph MyType to Target)")
             path_edges = self._build_path_to(query.focus_type, query.path_to)
             if isinstance(path_edges, str):
                 return QueryResult(columns=[], rows=[], message=path_edges)
@@ -1405,7 +1406,7 @@ class QueryExecutor:
         # Path-to
         if query.path_to:
             targets = ", ".join(query.path_to)
-            parts.append(f"path to {targets}")
+            parts.append(f"to {targets}")
         # View mode
         elif query.view_mode != "full":
             mode = query.view_mode
@@ -8680,11 +8681,15 @@ class QueryExecutor:
                 output_file += ".ttar"
 
         output_path = Path(output_file)
-        if output_path.exists():
+        if output_path.exists() and not query.overwrite:
             return ArchiveResult(
                 columns=[], rows=[],
                 message=f"Output file already exists: {output_path}",
+                output_file=str(output_path),
+                exists=True,
             )
+        if output_path.exists() and query.overwrite:
+            output_path.unlink()
 
         tmp_dir = None
         try:

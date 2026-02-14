@@ -77,12 +77,12 @@ class TestParseGraph:
         assert q.sort_by == ["kind", "field"]
 
     def test_parse_graph_to(self, parser):
-        q = parser.parse('graph to "types.dot"')
+        q = parser.parse('graph > "types.dot"')
         assert isinstance(q, GraphQuery)
         assert q.output_file == "types.dot"
 
     def test_parse_graph_type_to(self, parser):
-        q = parser.parse('graph Person to "types.dot"')
+        q = parser.parse('graph Person > "types.dot"')
         assert isinstance(q, GraphQuery)
         assert q.focus_type == "Person"
         assert q.output_file == "types.dot"
@@ -241,7 +241,7 @@ class TestGraphFileOutput:
 
     def test_graph_ttq(self, executor, parser):
         self._setup_schema(executor, parser)
-        result = _run(executor, parser, 'graph to "types.ttq"')
+        result = _run(executor, parser, 'graph > "types.ttq"')
         assert isinstance(result, DumpResult)
         script = result.script
         assert "enum NodeRole" in script
@@ -324,7 +324,7 @@ class TestGraphFileOutput:
         assert 'name="Color"' not in script
 
     def test_graph_filter_type_to_dot(self, executor, parser, tmp_data_dir):
-        """graph <type> to "file.dot" filters and outputs DOT."""
+        """graph <type> > "file.dot" filters and outputs DOT."""
         _run(executor, parser, 'type Point { x: float32, y: float32 }')
         _run(executor, parser, 'type Line { start: Point }')
         out_path = str(tmp_data_dir / "graph.dot")
@@ -888,7 +888,7 @@ class TestViewModeParser:
         assert q.without_types is True
 
     def test_parse_structure_to_file(self, parser):
-        q = parser.parse('graph Boss structure to "boss.dot"')
+        q = parser.parse('graph Boss structure > "boss.dot"')
         assert isinstance(q, GraphQuery)
         assert q.view_mode == "structure"
         assert q.output_file == "boss.dot"
@@ -1131,7 +1131,7 @@ class TestDepthParser:
         assert q.depth == 0
 
     def test_parse_depth_to_file(self, parser):
-        q = parser.parse('graph Boss depth 1 to "out.dot"')
+        q = parser.parse('graph Boss depth 1 > "out.dot"')
         assert isinstance(q, GraphQuery)
         assert q.depth == 1
         assert q.output_file == "out.dot"
@@ -1163,7 +1163,7 @@ class TestDepthControl:
     def test_depth_zero_dot_shows_focus_node(self, executor, parser, tmp_data_dir):
         """depth 0 DOT output includes the focus node."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, f'graph Boss depth 0 to "{tmp_data_dir}/d0.dot"')
+        result = _run(executor, parser, f'graph Boss depth 0 > "{tmp_data_dir}/d0.dot"')
         assert isinstance(result, DumpResult)
         assert '"Boss"' in result.script
         # No edges in the DOT output
@@ -1286,7 +1286,7 @@ class TestFilterParser:
         assert r.sort_by == ["source"]
 
     def test_parse_filter_with_to(self, parser):
-        r = parser.parse('graph showing type Person to "out.dot"')
+        r = parser.parse('graph showing type Person > "out.dot"')
         assert r.showing[0].dimension == "type"
         assert r.output_file == "out.dot"
 
@@ -1479,34 +1479,34 @@ class TestTitleStyleParser:
     """Test parsing of title and style clauses."""
 
     def test_parse_title(self, parser):
-        r = parser.parse('graph to "out.dot" title "Boss Schema"')
+        r = parser.parse('graph > "out.dot" title "Boss Schema"')
         assert isinstance(r, GraphQuery)
         assert r.title == "Boss Schema"
         assert r.output_file == "out.dot"
 
     def test_parse_style(self, parser):
-        r = parser.parse('graph to "out.dot" style "styles.txt"')
+        r = parser.parse('graph > "out.dot" style "styles.txt"')
         assert r.style_file == "styles.txt"
         assert r.output_file == "out.dot"
 
     def test_parse_title_and_style(self, parser):
-        r = parser.parse('graph to "out.dot" title "My Graph" style "s.txt"')
+        r = parser.parse('graph > "out.dot" title "My Graph" style "s.txt"')
         assert r.title == "My Graph"
         assert r.style_file == "s.txt"
 
     def test_parse_style_then_title(self, parser):
-        r = parser.parse('graph to "out.dot" style "s.txt" title "My Graph"')
+        r = parser.parse('graph > "out.dot" style "s.txt" title "My Graph"')
         assert r.title == "My Graph"
         assert r.style_file == "s.txt"
 
     def test_parse_title_no_style(self, parser):
-        r = parser.parse('graph Boss to "out.dot" title "Boss"')
+        r = parser.parse('graph Boss > "out.dot" title "Boss"')
         assert r.focus_type == "Boss"
         assert r.title == "Boss"
         assert r.style_file is None
 
     def test_parse_with_filters(self, parser):
-        r = parser.parse('graph Boss showing type uint8 to "out.dot" title "Focused"')
+        r = parser.parse('graph Boss showing type uint8 > "out.dot" title "Focused"')
         assert r.title == "Focused"
         assert len(r.showing) == 1
 
@@ -1517,7 +1517,7 @@ class TestTitleOutput:
     def test_dot_title(self, executor, parser, tmp_data_dir):
         """Title appears as label in DOT output."""
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, 'graph to "out.dot" title "My Schema"')
+        result = _run(executor, parser, 'graph > "out.dot" title "My Schema"')
         assert isinstance(result, DumpResult)
         assert 'label="My Schema"' in result.script
         assert "labelloc=t" in result.script
@@ -1525,7 +1525,7 @@ class TestTitleOutput:
     def test_dot_default_title(self, executor, parser, tmp_data_dir):
         """Default title when not explicitly specified."""
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, 'graph to "out.dot"')
+        result = _run(executor, parser, 'graph > "out.dot"')
         assert isinstance(result, DumpResult)
         assert "labelloc=t" in result.script
         assert 'label="graph"' in result.script
@@ -1533,14 +1533,14 @@ class TestTitleOutput:
     def test_ttq_title(self, executor, parser, tmp_data_dir):
         """Title appears as comment in TTQ output."""
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, 'graph to "out.ttq" title "My Schema"')
+        result = _run(executor, parser, 'graph > "out.ttq" title "My Schema"')
         assert isinstance(result, DumpResult)
         assert result.script.startswith("-- My Schema")
 
     def test_ttq_default_comment(self, executor, parser, tmp_data_dir):
         """Default TTQ comment derived from query when no explicit title."""
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, 'graph to "out.ttq"')
+        result = _run(executor, parser, 'graph > "out.ttq"')
         assert isinstance(result, DumpResult)
         assert result.script.startswith("-- graph")
 
@@ -1553,7 +1553,7 @@ class TestStyleOutput:
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('{"direction": "TB"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph to "out.dot" style "{style_path}"')
+        result = _run(executor, parser, f'graph > "out.dot" style "{style_path}"')
         assert isinstance(result, DumpResult)
         assert "rankdir=TB" in result.script
 
@@ -1562,7 +1562,7 @@ class TestStyleOutput:
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('{"composite.color": "#FF0000"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph to "out.dot" style "{style_path}"')
+        result = _run(executor, parser, f'graph > "out.dot" style "{style_path}"')
         assert isinstance(result, DumpResult)
         assert "#FF0000" in result.script
 
@@ -1571,7 +1571,7 @@ class TestStyleOutput:
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('{"focus.color": "#00FF00"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph Foo to "out.dot" style "{style_path}"')
+        result = _run(executor, parser, f'graph Foo > "out.dot" style "{style_path}"')
         assert isinstance(result, DumpResult)
         assert "#00FF00" in result.script
 
@@ -1580,14 +1580,14 @@ class TestStyleOutput:
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('-- This is a comment\n{"direction": "TB"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph to "out.dot" style "{style_path}"')
+        result = _run(executor, parser, f'graph > "out.dot" style "{style_path}"')
         assert isinstance(result, DumpResult)
         assert "rankdir=TB" in result.script
 
     def test_style_missing_file(self, executor, parser, tmp_data_dir):
         """Missing style file is silently ignored."""
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, 'graph to "out.dot" style "nonexistent.txt"')
+        result = _run(executor, parser, 'graph > "out.dot" style "nonexistent.txt"')
         assert isinstance(result, DumpResult)
         # Should still produce valid DOT with defaults
         assert "digraph types" in result.script
@@ -1597,7 +1597,7 @@ class TestStyleOutput:
         style_path = tmp_data_dir / "styles.txt"
         style_path.write_text('{"direction": "TB"}')
         _run(executor, parser, 'type Foo { x: uint32 }')
-        result = _run(executor, parser, f'graph to "out.dot" title "My Graph" style "{style_path}"')
+        result = _run(executor, parser, f'graph > "out.dot" title "My Graph" style "{style_path}"')
         assert isinstance(result, DumpResult)
         assert 'label="My Graph"' in result.script
         assert "rankdir=TB" in result.script
@@ -1609,22 +1609,22 @@ class TestPathToParser:
     """Test parsing of path-to syntax."""
 
     def test_parse_path_to_single(self, parser):
-        r = parser.parse('graph Boss path to NPC')
+        r = parser.parse('graph Boss to NPC')
         assert isinstance(r, GraphQuery)
         assert r.focus_type == "Boss"
         assert r.path_to == ["NPC"]
 
     def test_parse_path_to_multiple(self, parser):
-        r = parser.parse('graph Boss path to [NPC, Creature]')
+        r = parser.parse('graph Boss to [NPC, Creature]')
         assert r.path_to == ["NPC", "Creature"]
 
     def test_parse_path_to_with_output(self, parser):
-        r = parser.parse('graph Boss path to NPC to "out.dot"')
+        r = parser.parse('graph Boss to NPC > "out.dot"')
         assert r.path_to == ["NPC"]
         assert r.output_file == "out.dot"
 
     def test_parse_path_to_with_sort(self, parser):
-        r = parser.parse('graph Boss path to NPC sort by source')
+        r = parser.parse('graph Boss to NPC sort by source')
         assert r.path_to == ["NPC"]
         assert r.sort_by == ["source"]
 
@@ -1635,7 +1635,7 @@ class TestPathToExecution:
     def test_path_to_immediate_parent(self, executor, parser):
         """Path from Boss to NPC (one step) + NPC target expansion."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss path to NPC')
+        result = _run(executor, parser, 'graph Boss to NPC')
         edges = _edges(result)
         # Linear path edge
         assert ("Boss", "Composite", "(extends)", "NPC") in edges
@@ -1649,7 +1649,7 @@ class TestPathToExecution:
     def test_path_to_grandparent(self, executor, parser):
         """Path from Boss to Creature (two steps) + Creature target expansion."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss path to Creature')
+        result = _run(executor, parser, 'graph Boss to Creature')
         edges = _edges(result)
         # Linear path edges
         assert ("Boss", "Composite", "(extends)", "NPC") in edges
@@ -1663,7 +1663,7 @@ class TestPathToExecution:
     def test_path_to_interface(self, executor, parser):
         """Path from Boss to Entity (through Creature implements) + Entity target expansion."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss path to Entity')
+        result = _run(executor, parser, 'graph Boss to Entity')
         edges = _edges(result)
         # Boss → NPC → Creature → Entity (linear path)
         assert ("Boss", "Composite", "(extends)", "NPC") in edges
@@ -1678,7 +1678,7 @@ class TestPathToExecution:
     def test_path_to_multiple_targets(self, executor, parser):
         """Path to multiple targets merges paths."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss path to [NPC, Entity]')
+        result = _run(executor, parser, 'graph Boss to [NPC, Entity]')
         edges = _edges(result)
         # Should include path to NPC (1 edge) and path to Entity (3 edges, shared prefix)
         assert ("Boss", "Composite", "(extends)", "NPC") in edges
@@ -1688,7 +1688,7 @@ class TestPathToExecution:
     def test_path_to_deep_interface(self, executor, parser):
         """Path to a deeply inherited interface."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss path to Identifiable')
+        result = _run(executor, parser, 'graph Boss to Identifiable')
         edges = _edges(result)
         # Boss → NPC → Creature → Entity → Identifiable
         assert ("Boss", "Composite", "(extends)", "NPC") in edges
@@ -1697,26 +1697,26 @@ class TestPathToExecution:
     def test_path_to_unknown_target(self, executor, parser):
         """Error for unknown target type."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss path to Unknown')
+        result = _run(executor, parser, 'graph Boss to Unknown')
         assert "Unknown type" in result.message
 
     def test_path_to_no_path(self, executor, parser):
         """Error when no inheritance path exists."""
         _setup_boss_schema(executor, parser)
         _run(executor, parser, 'type Unrelated { x: uint32 }')
-        result = _run(executor, parser, 'graph Boss path to Unrelated')
+        result = _run(executor, parser, 'graph Boss to Unrelated')
         assert "No inheritance path" in result.message
 
     def test_path_to_requires_focus(self, executor, parser):
         """Path-to without focus type is an error."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph path to NPC')
+        result = _run(executor, parser, 'graph to NPC')
         assert "requires a focus type" in result.message
 
     def test_path_to_dot_output(self, executor, parser, tmp_data_dir):
         """Path-to with DOT file output."""
         _setup_boss_schema(executor, parser)
-        result = _run(executor, parser, 'graph Boss path to Creature to "path.dot"')
+        result = _run(executor, parser, 'graph Boss to Creature > "path.dot"')
         assert isinstance(result, DumpResult)
         assert "Boss" in result.script
         assert "NPC" in result.script

@@ -468,7 +468,7 @@ class TestCompact:
         output_dir = tempfile.mkdtemp()
         shutil.rmtree(output_dir)  # compact needs non-existent target
 
-        result = run(executor, f'compact to "{output_dir}"')
+        result = run(executor, f'compact > "{output_dir}"')
         assert "2" in result.message  # 3 -> 2 records
 
         # Verify compacted data

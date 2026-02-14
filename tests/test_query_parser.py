@@ -662,7 +662,7 @@ class TestQueryParser:
     def test_parse_dump_to_file(self):
         """Test parsing dump query with output file."""
         parser = QueryParser()
-        query = parser.parse('dump to "backup.ttq"')
+        query = parser.parse('dump > "backup.ttq"')
 
         assert isinstance(query, DumpQuery)
         assert query.table is None
@@ -671,7 +671,7 @@ class TestQueryParser:
     def test_parse_dump_table_to_file(self):
         """Test parsing dump query with table name and output file."""
         parser = QueryParser()
-        query = parser.parse('dump Person to "person.ttq"')
+        query = parser.parse('dump Person > "person.ttq"')
 
         assert isinstance(query, DumpQuery)
         assert query.table == "Person"
@@ -680,7 +680,7 @@ class TestQueryParser:
     def test_parse_dump_quoted_table_to_file(self):
         """Test parsing dump query with quoted table name and output file."""
         parser = QueryParser()
-        query = parser.parse('dump "character[]" to "chars.ttq"')
+        query = parser.parse('dump "character[]" > "chars.ttq"')
 
         assert isinstance(query, DumpQuery)
         assert query.table == "character[]"
@@ -845,7 +845,7 @@ class TestQueryParser:
     def test_parse_dump_variable_to_file(self):
         """Test parsing dump $var to file."""
         parser = QueryParser()
-        query = parser.parse('dump $myvar to "output.ttq"')
+        query = parser.parse('dump $myvar > "output.ttq"')
 
         assert isinstance(query, DumpQuery)
         assert query.variable == "myvar"
@@ -975,7 +975,7 @@ class TestQueryParser:
     def test_parse_dump_list_to_file(self):
         """Test parsing dump list with output file."""
         parser = QueryParser()
-        query = parser.parse('dump [$combined] to "backup.ttq"')
+        query = parser.parse('dump [$combined] > "backup.ttq"')
 
         assert isinstance(query, DumpQuery)
         assert query.items is not None
@@ -1094,7 +1094,7 @@ class TestQueryParser:
     def test_parse_dump_pretty_to_file(self):
         """Test parsing dump pretty with output file."""
         parser = QueryParser()
-        query = parser.parse('dump pretty to "f.ttq"')
+        query = parser.parse('dump pretty > "f.ttq"')
 
         assert isinstance(query, DumpQuery)
         assert query.pretty is True
@@ -1104,7 +1104,7 @@ class TestQueryParser:
     def test_parse_dump_pretty_table_to_file(self):
         """Test parsing dump pretty with table and output file."""
         parser = QueryParser()
-        query = parser.parse('dump pretty Person to "p.ttq"')
+        query = parser.parse('dump pretty Person > "p.ttq"')
 
         assert isinstance(query, DumpQuery)
         assert query.pretty is True

@@ -45,7 +45,7 @@ class TestCompactParsing:
     def test_parse_compact(self):
         """Parser produces CompactQuery with output_path."""
         parser = QueryParser()
-        query = parser.parse('compact to "output_dir"')
+        query = parser.parse('compact > "output_dir"')
         assert isinstance(query, CompactQuery)
         assert query.output_path == "output_dir"
 
@@ -54,7 +54,7 @@ class TestCompactExecution:
     def test_compact_empty_database(self, executor, db_dir):
         """Compact with no user types produces valid empty DB."""
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
         assert result.records_before == 0
         assert result.records_after == 0
@@ -68,7 +68,7 @@ class TestCompactExecution:
             create Person(name="Bob", age=25)
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
         assert result.records_before == 2
         assert result.records_after == 2
@@ -95,7 +95,7 @@ class TestCompactExecution:
             delete Person where name="Bob"
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
         assert result.records_before == 3
         assert result.records_after == 2
@@ -123,7 +123,7 @@ class TestCompactExecution:
             delete Person where name="Bob"
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
 
         reg2 = load_registry_from_metadata(out)
@@ -156,7 +156,7 @@ class TestCompactExecution:
             delete Dog where name="Spot"
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
 
         reg2 = load_registry_from_metadata(out)
@@ -185,7 +185,7 @@ class TestCompactExecution:
             delete Sensor where name="B"
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
 
         reg2 = load_registry_from_metadata(out)
@@ -215,7 +215,7 @@ class TestCompactExecution:
             delete Canvas where name="A"
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
 
         reg2 = load_registry_from_metadata(out)
@@ -243,7 +243,7 @@ class TestCompactExecution:
             create Pixel(x=1, color=.blue)
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
 
         reg2 = load_registry_from_metadata(out)
@@ -266,7 +266,7 @@ class TestCompactExecution:
             delete Node where value=1
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
 
         reg2 = load_registry_from_metadata(out)
@@ -283,7 +283,7 @@ class TestCompactExecution:
         """Error when output path already exists."""
         existing = db_dir / "existing_dir"
         existing.mkdir()
-        result = _run(executor, f'compact to "{existing}"')
+        result = _run(executor, f'compact > "{existing}"')
         assert isinstance(result, CompactResult)
         assert "already exists" in result.message
 
@@ -300,7 +300,7 @@ class TestCompactExecution:
             delete Item where value=4
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
         assert result.records_before == 5
         assert result.records_after == 3
@@ -319,7 +319,7 @@ class TestCompactExecution:
             delete Person where name="Bob"
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
 
         # Load compacted database and verify full queryability
@@ -356,7 +356,7 @@ class TestCompactExecution:
             create List(items=[1, 2])
         """)
         out = db_dir / "compacted"
-        result = _run(executor, f'compact to "{out}"')
+        result = _run(executor, f'compact > "{out}"')
         assert isinstance(result, CompactResult)
 
         reg2 = load_registry_from_metadata(out)

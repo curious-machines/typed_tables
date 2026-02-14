@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
-from typed_tables.parsing.query_parser import DropDatabaseQuery, EvalQuery, ExecuteQuery, ImportQuery, QueryParser, RestoreQuery, UseQuery
+from typed_tables.parsing.query_parser import ArchiveQuery, DropDatabaseQuery, EvalQuery, ExecuteQuery, ImportQuery, QueryParser, RestoreQuery, UseQuery
 from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, ExecuteResult, ImportResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
 from typed_tables.storage import StorageManager
 from fractions import Fraction
@@ -753,6 +753,20 @@ def run_repl(data_dir: Path | None) -> int:
 
                 result = executor.execute(query)  # type: ignore
 
+                # Handle ArchiveResult with existing file — prompt for overwrite
+                if isinstance(result, ArchiveResult) and result.exists:
+                    try:
+                        answer = input(f"Overwrite {result.output_file}? [y/N] ").strip().lower()
+                    except EOFError:
+                        answer = ""
+                    if answer in ("y", "yes"):
+                        query.overwrite = True  # type: ignore[union-attr]
+                        result = executor.execute(query)  # type: ignore
+                    else:
+                        print("Archive cancelled.")
+                        print()
+                        continue
+
                 # Handle UseResult - switch databases
                 if isinstance(result, UseResult):
                     if not result.path:
@@ -1398,8 +1412,8 @@ DUMP:
   dump <type>                 Dump a single type
   dump $var                   Dump records referenced by a variable
   dump [Person, $var, ...]    Dump a list of types and/or variables
-  dump to "file"              Dump to a file (any variant supports "to")
-  dump to "file.ttq.gz"       Gzip-compressed output (.gz suffix on any format)
+  dump > "file"               Dump to a file (any variant supports ">")
+  dump > "file.ttq.gz"        Gzip-compressed output (.gz suffix on any format)
 
   Format modifiers (combinable with any variant above):
     dump pretty               Multi-line indented formatting
@@ -1415,8 +1429,8 @@ DUMP:
     dump archive yaml         Combinable with format modifiers
 
   File extension behavior:
-    dump to "file"              Auto-appends .ttq (or .yaml/.json/.xml)
-    dump to "file.ttq.gz"       Gzip-compressed output (.gz on any format)
+    dump > "file"               Auto-appends .ttq (or .yaml/.json/.xml)
+    dump > "file.ttq.gz"        Gzip-compressed output (.gz on any format)
 
   Shared references are automatically emitted as $var bindings.
   The dump command is cycle-aware and emits scope/tag syntax for cycles.""",
@@ -1432,10 +1446,10 @@ GRAPH (schema exploration):
     graph sort by source             Sort table output
 
   File output (extension determines format):
-    graph to "file.dot"              Graphviz DOT format
-    graph to "file.ttq"              TTQ script format
-    graph to "file"                  No extension → assumes .ttq
-    graph <type> to "file.dot"       Focus type to file
+    graph > "file.dot"               Graphviz DOT format
+    graph > "file.ttq"               TTQ script format
+    graph > "file"                   No extension → assumes .ttq
+    graph <type> > "file.dot"        Focus type to file
     In DOT: dashed = extends, dotted = implements, labeled = fields
 
   View modes (control which edges appear):
@@ -1465,16 +1479,16 @@ GRAPH (schema exploration):
     graph <type> depth 2 showing kind Composite
 
   Path-to queries (find inheritance paths):
-    graph <type> path to <target>              Path + target expansion
-    graph <type> path to [<t1>, <t2>]          Paths to multiple targets
-    graph <type> path to <target> depth 0      Linear path only (no expansion)
-    graph <type> path to <target> depth 1      Expand one level from target
-    graph <type> path to <target> to "p.dot"   Output path as DOT
+    graph <type> to <target>                   Path + target expansion
+    graph <type> to [<t1>, <t2>]               Paths to multiple targets
+    graph <type> to <target> depth 0           Linear path only (no expansion)
+    graph <type> to <target> depth 1           Expand one level from target
+    graph <type> to <target> > "p.dot"         Output path as DOT
 
   Titles and styles (DOT output only):
-    graph to "f.dot" title "My Schema"
-    graph to "f.dot" style "custom.style"
-    graph to "f.dot" title "Schema" style "dark.style"
+    graph > "f.dot" title "My Schema"
+    graph > "f.dot" style "custom.style"
+    graph > "f.dot" title "Schema" style "dark.style"
 
   Style files use TTQ dictionary syntax:
     { "direction": "LR",            Graph direction (LR, TB, etc.)
@@ -1487,9 +1501,10 @@ GRAPH (schema exploration):
 
     "archive": """\
 ARCHIVE, RESTORE & COMPACT:
-  archive to "file.ttar"   Compact and bundle database into a single file
+  archive                  Archive to <database_name>.ttar (prompts if exists)
+  archive > "file.ttar"    Compact and bundle database into a specific file
                            (.ttar extension added automatically if missing)
-  archive to "file.ttar.gz"
+  archive > "file.ttar.gz"
                            Gzip-compressed archive
 
   restore "file.ttar" to "path"
@@ -1500,7 +1515,7 @@ ARCHIVE, RESTORE & COMPACT:
   restore "file.ttar.gz" to "path"
                            Restore from a gzip-compressed archive
 
-  compact to "path"        Create a compacted copy of the database
+  compact > "path"         Create a compacted copy of the database
                            Removes tombstones and unreferenced data
                            Remaps all references to new indices
 

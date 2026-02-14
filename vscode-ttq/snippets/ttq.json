@@ -118,7 +118,7 @@
   },
   "Dump to File": {
     "prefix": "dump",
-    "body": "dump to \"${1:file.ttq}\"",
+    "body": "dump > \"${1:file.ttq}\"",
     "description": "Dump database to file"
   },
   "Execute Script": {

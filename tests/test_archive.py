@@ -52,7 +52,7 @@ class TestArchiveParsing:
     def test_parse_archive(self):
         """Parser produces ArchiveQuery with output_file."""
         parser = QueryParser()
-        query = parser.parse('archive to "backup.ttar"')
+        query = parser.parse('archive > "backup.ttar"')
         assert isinstance(query, ArchiveQuery)
         assert query.output_file == "backup.ttar"
 
@@ -77,7 +77,7 @@ class TestArchiveExecution:
     def test_archive_empty_database(self, executor, db_dir):
         """Archive + restore empty DB produces valid empty DB."""
         ttar = db_dir / "empty.ttar"
-        result = _run(executor, f'archive to "{ttar}"')
+        result = _run(executor, f'archive > "{ttar}"')
         assert isinstance(result, ArchiveResult)
         assert ttar.exists()
         assert result.total_bytes > 0
@@ -95,7 +95,7 @@ class TestArchiveExecution:
             create Person(name="Bob", age=25)
         """)
         ttar = db_dir / "backup.ttar"
-        result = _run(executor, f'archive to "{ttar}"')
+        result = _run(executor, f'archive > "{ttar}"')
         assert isinstance(result, ArchiveResult)
         assert result.file_count > 0
 
@@ -122,7 +122,7 @@ class TestArchiveExecution:
             create Team(lead=Person(1), name="Alpha")
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         out = db_dir / "restored"
         execute_restore(RestoreQuery(archive_file=str(ttar), output_path=str(out)))
@@ -144,7 +144,7 @@ class TestArchiveExecution:
             create Sensor(name="humidity", readings=[50, 60])
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         out = db_dir / "restored"
         execute_restore(RestoreQuery(archive_file=str(ttar), output_path=str(out)))
@@ -169,7 +169,7 @@ class TestArchiveExecution:
             create Pixel(x=1, color=.blue)
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         out = db_dir / "restored"
         execute_restore(RestoreQuery(archive_file=str(ttar), output_path=str(out)))
@@ -194,7 +194,7 @@ class TestArchiveExecution:
             create Canvas(name="B", bg=.none)
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         out = db_dir / "restored"
         execute_restore(RestoreQuery(archive_file=str(ttar), output_path=str(out)))
@@ -225,7 +225,7 @@ class TestArchiveExecution:
             delete Person where name="Bob"
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         out = db_dir / "restored"
         execute_restore(RestoreQuery(archive_file=str(ttar), output_path=str(out)))
@@ -250,7 +250,7 @@ class TestArchiveExecution:
             create Shelter(resident=Dog(0))
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         out = db_dir / "restored"
         execute_restore(RestoreQuery(archive_file=str(ttar), output_path=str(out)))
@@ -272,7 +272,7 @@ class TestArchiveExecution:
             create Node(value=2)
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         out = db_dir / "restored"
         execute_restore(RestoreQuery(archive_file=str(ttar), output_path=str(out)))
@@ -294,7 +294,7 @@ class TestArchiveExecution:
             create Config(name="test")
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         out = db_dir / "restored"
         execute_restore(RestoreQuery(archive_file=str(ttar), output_path=str(out)))
@@ -315,7 +315,7 @@ class TestArchiveExecution:
             create Item(value=1)
         """)
         ttar_name = str(db_dir / "backup")
-        result = _run(executor, f'archive to "{ttar_name}"')
+        result = _run(executor, f'archive > "{ttar_name}"')
         assert isinstance(result, ArchiveResult)
         assert result.output_file.endswith(".ttar")
         assert Path(result.output_file).exists()
@@ -327,7 +327,7 @@ class TestArchiveExecution:
             create Item(value=1)
         """)
         ttar_name = str(db_dir / "backup.ttar")
-        result = _run(executor, f'archive to "{ttar_name}"')
+        result = _run(executor, f'archive > "{ttar_name}"')
         assert isinstance(result, ArchiveResult)
         assert result.output_file == ttar_name
 
@@ -335,9 +335,40 @@ class TestArchiveExecution:
         """Error when output file already exists."""
         existing = db_dir / "existing.ttar"
         existing.write_bytes(b"dummy")
-        result = _run(executor, f'archive to "{existing}"')
+        result = _run(executor, f'archive > "{existing}"')
         assert isinstance(result, ArchiveResult)
         assert "already exists" in result.message
+        assert result.exists is True
+
+    def test_archive_overwrite_existing(self, executor, db_dir):
+        """Overwrite flag allows replacing an existing archive."""
+        _run(executor, """
+            type Item { value: uint8 }
+            create Item(value=42)
+        """)
+        ttar = db_dir / "backup.ttar"
+        ttar.write_bytes(b"dummy")
+        assert ttar.exists()
+        # Execute with overwrite flag
+        query = ArchiveQuery(output_file=str(ttar), overwrite=True)
+        result = executor.execute(query)
+        assert isinstance(result, ArchiveResult)
+        assert result.exists is False
+        assert result.file_count > 0
+        assert ttar.exists()
+        assert ttar.stat().st_size > 5  # Not the dummy data
+
+    def test_archive_no_filename_derives_from_db(self, executor, db_dir):
+        """Archive without filename uses <database_name>.ttar."""
+        _run(executor, """
+            type Item { value: uint8 }
+            create Item(value=1)
+        """)
+        result = _run(executor, 'archive')
+        assert isinstance(result, ArchiveResult)
+        expected = db_dir.name + ".ttar"
+        assert result.output_file.endswith(expected)
+        assert Path(result.output_file).exists()
 
     def test_restore_error_archive_missing(self, db_dir):
         """Error when archive file doesn't exist."""
@@ -354,7 +385,7 @@ class TestArchiveExecution:
             create Item(value=1)
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         existing_out = db_dir / "existing_out"
         existing_out.mkdir()
@@ -385,7 +416,7 @@ class TestArchiveExecution:
             create Team(lead=Person(1), name="Beta")
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         out = db_dir / "restored"
         execute_restore(RestoreQuery(archive_file=str(ttar), output_path=str(out)))
@@ -425,7 +456,7 @@ class TestArchiveExecution:
             create Item(value=42)
         """)
         ttar = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         # Call execute_restore directly — no executor needed
         out = db_dir / "standalone_restore"
@@ -453,7 +484,7 @@ class TestArchiveExecution:
             create Item(value=1)
         """)
         ttar = db_dir / "mydb.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         result = execute_restore(RestoreQuery(archive_file=str(ttar)))
         assert isinstance(result, RestoreResult)
@@ -476,7 +507,7 @@ class TestArchiveExecution:
             create Item(value=1)
         """)
         ttar_gz = db_dir / "mydb.ttar.gz"
-        _run(executor, f'archive to "{ttar_gz}"')
+        _run(executor, f'archive > "{ttar_gz}"')
 
         result = execute_restore(RestoreQuery(archive_file=str(ttar_gz)))
         assert isinstance(result, RestoreResult)
@@ -491,7 +522,7 @@ class TestArchiveExecution:
             create Item(value=1)
         """)
         ttar = db_dir / "mydb.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         # Create the directory that would be the derived path
         (db_dir / "mydb").mkdir()
@@ -507,7 +538,7 @@ class TestArchiveExecution:
             create Item(value=1)
         """)
         ttar = db_dir / "format_check.ttar"
-        _run(executor, f'archive to "{ttar}"')
+        _run(executor, f'archive > "{ttar}"')
 
         with open(ttar, "rb") as f:
             # Magic
@@ -534,7 +565,7 @@ class TestGzipSupport:
             create Person(name="Bob", age=25)
         """)
         ttar_gz = db_dir / "backup.ttar.gz"
-        result = _run(executor, f'archive to "{ttar_gz}"')
+        result = _run(executor, f'archive > "{ttar_gz}"')
         assert isinstance(result, ArchiveResult)
         assert ttar_gz.exists()
 
@@ -566,9 +597,9 @@ class TestGzipSupport:
             create Person(name="Diana", age=28)
         """)
         plain = db_dir / "backup.ttar"
-        _run(executor, f'archive to "{plain}"')
+        _run(executor, f'archive > "{plain}"')
         compressed = db_dir / "backup.ttar.gz"
-        _run(executor, f'archive to "{compressed}"')
+        _run(executor, f'archive > "{compressed}"')
 
         assert compressed.stat().st_size < plain.stat().st_size
 
@@ -579,7 +610,7 @@ class TestGzipSupport:
             create Item(value=42)
         """)
         from typed_tables.repl import print_result
-        result = _run(executor, 'dump to "unused"')
+        result = _run(executor, 'dump > "unused"')
         # Manually set output_file and write via print_result
         gz_path = db_dir / "dump.ttq.gz"
         result.output_file = str(gz_path)
@@ -605,7 +636,7 @@ class TestGzipSupport:
         """)
         # Dump to gzipped TTQ
         gz_path = db_dir / "dump.ttq.gz"
-        result = _run(executor, 'dump to "unused"')
+        result = _run(executor, 'dump > "unused"')
         result.output_file = str(gz_path)
         print_result(result)
         assert gz_path.exists()

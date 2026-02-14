@@ -189,7 +189,7 @@ Type a prefix and press `Tab` to expand. Tab stops (`$1`, `$2`, ...) let you cyc
 | Prefix | Expands to |
 |---|---|
 | `use` | `use db_name` |
-| `dump` | `dump to "file.ttq"` |
+| `dump` | `dump > "file.ttq"` |
 | `execute` | `execute "file.ttq"` |
 | `import` | `import "file.ttq"` |
 | `describe` | `describe Type` |

@@ -499,13 +499,13 @@ dump_prefix     ::= "dump"
 dump_query      ::= dump_prefix
                   | dump_prefix IDENTIFIER
                   | dump_prefix STRING
-                  | dump_prefix "to" STRING
-                  | dump_prefix IDENTIFIER "to" STRING
-                  | dump_prefix STRING "to" STRING
+                  | dump_prefix ">" STRING
+                  | dump_prefix IDENTIFIER ">" STRING
+                  | dump_prefix STRING ">" STRING
                   | dump_prefix VARIABLE
-                  | dump_prefix VARIABLE "to" STRING
+                  | dump_prefix VARIABLE ">" STRING
                   | dump_prefix "[" dump_item_list "]"
-                  | dump_prefix "[" dump_item_list "]" "to" STRING
+                  | dump_prefix "[" dump_item_list "]" ">" STRING
 
 dump_item_list  ::= dump_item
                   | dump_item_list "," dump_item

@@ -384,7 +384,7 @@ use "{db_path}";
 type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
-dump to "{tmp_path / 'dump_output.ttq'}";
+dump > "{tmp_path / 'dump_output.ttq'}";
 """)
 
         result, _ = run_file(script, None, verbose=False)
@@ -406,7 +406,7 @@ use "{db_path}";
 type Address {{ street: string, city: string }}
 type Person {{ name: string, address: Address }}
 create Person(name="Alice", address=Address(street="123 Main", city="Springfield"));
-dump Person to "{tmp_path / 'person_dump.ttq'}";
+dump Person > "{tmp_path / 'person_dump.ttq'}";
 """)
 
         result, _ = run_file(script, None, verbose=False)
@@ -427,7 +427,7 @@ use "{db_path}";
 type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
-dump to "{tmp_path / 'dump_output.ttq'}";
+dump > "{tmp_path / 'dump_output.ttq'}";
 """)
 
         result, _ = run_file(script, None, verbose=False)
@@ -999,7 +999,7 @@ type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
 create Person(name="Bob", age=25);
 $all = collect Person;
-dump $all to "{output_file}";
+dump $all > "{output_file}";
 """)
 
         result, _ = run_file(script, None, verbose=False)
@@ -1020,7 +1020,7 @@ create Person(name="Alice", age=30);
 create Person(name="Bob", age=65);
 create Person(name="Carol", age=70);
 $seniors = collect Person where age >= 65;
-dump $seniors to "{tmp_path / 'seniors.ttq'}";
+dump $seniors > "{tmp_path / 'seniors.ttq'}";
 """)
 
         result, _ = run_file(script, None, verbose=False)
@@ -1459,7 +1459,7 @@ create Person(name="Carol", age=70);
 use "{db_path}";
 type Person {{ name: string, age: uint8 }}
 create Person(name="Alice", age=30);
-dump [Person] to "{output_file}";
+dump [Person] > "{output_file}";
 """)
         result, _ = run_file(script, None, verbose=False)
         assert result == 0

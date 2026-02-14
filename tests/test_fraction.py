@@ -521,7 +521,7 @@ class TestFractionCompact:
             storage.close()
 
             output_dir = str(Path(tmpdir) / "compacted")
-            results2, storage2 = _run_with_registry(data_dir, f'compact to "{output_dir}"')
+            results2, storage2 = _run_with_registry(data_dir, f'compact > "{output_dir}"')
             storage2.close()
 
             results3, storage3 = _run_with_registry(output_dir, "from Data select *")
@@ -541,7 +541,7 @@ class TestFractionCompact:
                 create Data(id=2, val=fraction(2, 7))
                 create Data(id=3, val=fraction(3, 11))
                 delete Data where id = 2
-                compact to "{output_dir}"
+                compact > "{output_dir}"
             """, data_dir=data_dir)
             storage.close()
 
