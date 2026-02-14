@@ -1443,6 +1443,7 @@ GRAPH (schema exploration):
   Basic:
     graph                            All type edges as table
     graph <type>                     Edges involving a specific type
+    graph [<t1>, <t2>]               Edges involving multiple types
     graph sort by source             Sort table output
 
   File output (extension determines format):

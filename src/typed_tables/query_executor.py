@@ -874,18 +874,30 @@ class QueryExecutor:
         if query.show_origin and query.view_mode != "stored":
             return QueryResult(columns=[], rows=[],
                                message="'origin' modifier is only valid with 'stored' view mode")
+        focus_types = query.focus_type  # list[str] | None
+
         # Handle path-to queries
         if query.path_to is not None:
-            if not query.focus_type:
+            if not focus_types:
                 return QueryResult(columns=[], rows=[],
                                    message="'to' requires a focus type (e.g., graph MyType to Target)")
-            path_edges = self._build_path_to(query.focus_type, query.path_to)
-            if isinstance(path_edges, str):
-                return QueryResult(columns=[], rows=[], message=path_edges)
-            edges = list(path_edges)
+            edges: list[dict[str, str]] = []
+            seen: set[tuple[str, str, str]] = set()
+            errors: list[str] = []
+            for ft in focus_types:
+                path_edges = self._build_path_to(ft, query.path_to)
+                if isinstance(path_edges, str):
+                    errors.append(path_edges)
+                    continue
+                for e in path_edges:
+                    key = (e["source"], e["target"], e["field"])
+                    if key not in seen:
+                        seen.add(key)
+                        edges.append(e)
+            if errors and not edges:
+                return QueryResult(columns=[], rows=[], message="; ".join(errors))
             # Expand targets (depth controls how many edges from each target)
             all_edges = self._build_type_graph()
-            seen: set[tuple[str, str, str]] = {(e["source"], e["target"], e["field"]) for e in path_edges}
             for target in query.path_to:
                 target_edges = self._filter_edges_by_type(all_edges, target, query.depth)
                 for e in target_edges:
@@ -895,16 +907,48 @@ class QueryExecutor:
                         edges.append(e)
         # Build the graph based on view mode
         elif query.view_mode == "structure":
-            edges = self._build_structure_graph(query.focus_type, query.depth)
+            if not focus_types or len(focus_types) == 1:
+                edges = self._build_structure_graph(focus_types[0] if focus_types else None, query.depth)
+            else:
+                edges = []
+                seen = set()
+                for ft in focus_types:
+                    for e in self._build_structure_graph(ft, query.depth):
+                        key = (e["source"], e["target"], e["field"])
+                        if key not in seen:
+                            seen.add(key)
+                            edges.append(e)
         elif query.view_mode == "declared":
-            edges = self._build_declared_graph(query.focus_type, query.depth)
+            edges = []
+            seen = set()
+            for ft in (focus_types or []):
+                for e in self._build_declared_graph(ft, query.depth):
+                    key = (e["source"], e["target"], e["field"])
+                    if key not in seen:
+                        seen.add(key)
+                        edges.append(e)
         elif query.view_mode == "stored":
-            edges = self._build_stored_graph(query.focus_type, query.show_origin, query.depth)
+            edges = []
+            seen = set()
+            for ft in (focus_types or []):
+                for e in self._build_stored_graph(ft, query.show_origin, query.depth):
+                    key = (e["source"], e["target"], e["field"])
+                    if key not in seen:
+                        seen.add(key)
+                        edges.append(e)
         else:
             # full view (default)
             edges = self._build_type_graph()
-            if query.focus_type:
-                edges = self._filter_edges_by_type(edges, query.focus_type, query.depth)
+            if focus_types:
+                combined = []
+                seen = set()
+                for ft in focus_types:
+                    for e in self._filter_edges_by_type(edges, ft, query.depth):
+                        key = (e["source"], e["target"], e["field"])
+                        if key not in seen:
+                            seen.add(key)
+                            combined.append(e)
+                edges = combined
 
         # Apply showing/excluding filters
         if query.showing or query.excluding:
@@ -913,10 +957,12 @@ class QueryExecutor:
         if query.output_file:
             # File output: DOT or TTQ
             nodes = self._collect_graph_nodes(edges)
-            # Ensure focus type always appears as a node (even with depth 0 / no edges)
-            if query.focus_type and query.focus_type not in nodes:
-                td = self.registry.get(query.focus_type)
-                nodes[query.focus_type] = self._classify_type(td) if td else "Unknown"
+            # Ensure focus types always appear as nodes (even with depth 0 / no edges)
+            if focus_types:
+                for ft in focus_types:
+                    if ft not in nodes:
+                        td = self.registry.get(ft)
+                        nodes[ft] = self._classify_type(td) if td else "Unknown"
             ext = Path(query.output_file).suffix.lower()
             if ext == ".dot":
                 script = self._format_graph_dot(nodes, edges, query)
@@ -931,8 +977,8 @@ class QueryExecutor:
             columns = self._graph_table_columns(query)
             edges = self._sort_rows(edges, query.sort_by, defaults=self._graph_default_sort(query))
             message = None
-            if not edges and query.focus_type and query.depth == 0:
-                message = f"{query.focus_type} (no edges at depth 0)"
+            if not edges and focus_types and query.depth == 0:
+                message = f"{', '.join(focus_types)} (no edges at depth 0)"
             return QueryResult(columns=columns, rows=edges, message=message)
 
     def _graph_table_columns(self, query: GraphQuery) -> list[str]:
@@ -1366,7 +1412,7 @@ class QueryExecutor:
         lines.append("")
 
         # Compute node roles
-        focus_type = query.focus_type if query else None
+        focus_types = set(query.focus_type) if query and query.focus_type else set()
         path_targets = set(query.path_to) if query and query.path_to else set()
         # Sources in the graph (non-leaf nodes)
         source_names = {e["source"] for e in edges}
@@ -1377,7 +1423,7 @@ class QueryExecutor:
 
         for name in node_list:
             kind = nodes[name]
-            if name == focus_type:
+            if name in focus_types:
                 role = "focus"
             elif name in path_targets:
                 role = "endpoint"
@@ -1403,10 +1449,10 @@ class QueryExecutor:
         """Build a descriptive default title from query parameters."""
         parts: list[str] = []
 
-        # Focus type
+        # Focus type(s)
         focus = query.focus_type
         if focus:
-            parts.append(focus)
+            parts.append(", ".join(focus))
 
         # Path-to
         if query.path_to:
@@ -1547,7 +1593,7 @@ class QueryExecutor:
             kind = nodes[name]
             shape, color = kind_styles.get(kind, ('box', '#FFFFFF'))
             extra = ""
-            if query and query.focus_type and name == query.focus_type:
+            if query and query.focus_type and name in query.focus_type:
                 if focus_color:
                     color = focus_color
                 extra = ', penwidth=3'

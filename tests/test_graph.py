@@ -63,7 +63,7 @@ class TestParseGraph:
     def test_parse_graph_type(self, parser):
         q = parser.parse("graph Person")
         assert isinstance(q, GraphQuery)
-        assert q.focus_type == "Person"
+        assert q.focus_type == ["Person"]
 
     def test_parse_graph_sort_by(self, parser):
         q = parser.parse("graph sort by source")
@@ -73,7 +73,7 @@ class TestParseGraph:
     def test_parse_graph_type_sort_by(self, parser):
         q = parser.parse("graph Person sort by kind, field")
         assert isinstance(q, GraphQuery)
-        assert q.focus_type == "Person"
+        assert q.focus_type == ["Person"]
         assert q.sort_by == ["kind", "field"]
 
     def test_parse_graph_to(self, parser):
@@ -84,7 +84,7 @@ class TestParseGraph:
     def test_parse_graph_type_to(self, parser):
         q = parser.parse('graph Person > "types.dot"')
         assert isinstance(q, GraphQuery)
-        assert q.focus_type == "Person"
+        assert q.focus_type == ["Person"]
         assert q.output_file == "types.dot"
 
 
@@ -314,7 +314,7 @@ class TestGraphFileOutput:
         _run(executor, parser, 'type Point { x: float32, y: float32 }')
         _run(executor, parser, 'type Line { start: Point, end: Point }')
         _run(executor, parser, 'type Color { r: uint8, g: uint8, b: uint8 }')
-        result = executor.execute(GraphQuery(focus_type="Point", output_file="out.ttq"))
+        result = executor.execute(GraphQuery(focus_type=["Point"], output_file="out.ttq"))
         assert isinstance(result, DumpResult)
         script = result.script
         # Point-related nodes should be present
@@ -328,7 +328,7 @@ class TestGraphFileOutput:
         _run(executor, parser, 'type Point { x: float32, y: float32 }')
         _run(executor, parser, 'type Line { start: Point }')
         out_path = str(tmp_data_dir / "graph.dot")
-        result = executor.execute(GraphQuery(focus_type="Point", output_file=out_path))
+        result = executor.execute(GraphQuery(focus_type=["Point"], output_file=out_path))
         assert isinstance(result, DumpResult)
         assert "digraph" in result.script
         assert '"Point"' in result.script
@@ -430,7 +430,7 @@ class TestInheritanceEdges:
         """graph <type> also includes interface field edges."""
         _run(executor, parser, 'interface Styled { fill: string }')
         _run(executor, parser, 'type Circle from Styled { r: float32 }')
-        result = executor.execute(GraphQuery(focus_type="Circle", output_file="out.ttq"))
+        result = executor.execute(GraphQuery(focus_type=["Circle"], output_file="out.ttq"))
         assert isinstance(result, DumpResult)
         script = result.script
         assert 'name="Circle"' in script
@@ -826,13 +826,13 @@ class TestViewModeParser:
     def test_parse_type_structure(self, parser):
         q = parser.parse("graph Boss structure")
         assert isinstance(q, GraphQuery)
-        assert q.focus_type == "Boss"
+        assert q.focus_type == ["Boss"]
         assert q.view_mode == "structure"
 
     def test_parse_declared(self, parser):
         q = parser.parse("graph Boss declared")
         assert isinstance(q, GraphQuery)
-        assert q.focus_type == "Boss"
+        assert q.focus_type == ["Boss"]
         assert q.view_mode == "declared"
 
     def test_parse_stored(self, parser):
@@ -1007,7 +1007,7 @@ class TestStoredView:
     def test_stored_to_dot(self, executor, parser):
         _setup_boss_schema(executor, parser)
         result = executor.execute(GraphQuery(
-            focus_type="Boss", view_mode="stored", output_file="out.dot"))
+            focus_type=["Boss"], view_mode="stored", output_file="out.dot"))
         assert isinstance(result, DumpResult)
         assert "digraph" in result.script
 
@@ -1017,7 +1017,7 @@ class TestViewModeValidation:
     def test_origin_requires_stored(self, executor, parser):
         _setup_boss_schema(executor, parser)
         result = executor.execute(GraphQuery(
-            focus_type="Boss", view_mode="declared", show_origin=True))
+            focus_type=["Boss"], view_mode="declared", show_origin=True))
         assert "only valid with 'stored'" in result.message
 
     def test_declared_unknown_type(self, executor, parser):
@@ -1036,7 +1036,7 @@ class TestDepthParser:
     def test_parse_depth(self, parser):
         q = parser.parse("graph Boss depth 2")
         assert isinstance(q, GraphQuery)
-        assert q.focus_type == "Boss"
+        assert q.focus_type == ["Boss"]
         assert q.depth == 2
 
     def test_parse_depth_zero(self, parser):
@@ -1262,7 +1262,7 @@ class TestFilterParser:
 
     def test_parse_focus_with_filter(self, parser):
         r = parser.parse('graph Boss showing type uint8')
-        assert r.focus_type == "Boss"
+        assert r.focus_type == ["Boss"]
         assert r.showing[0].values == ["uint8"]
 
     def test_parse_view_mode_with_filter(self, parser):
@@ -1469,7 +1469,7 @@ class TestGraphMetaParser:
 
     def test_parse_title_with_focus(self, parser):
         r = parser.parse('graph{"title": "Boss"} Boss > "out.dot"')
-        assert r.focus_type == "Boss"
+        assert r.focus_type == ["Boss"]
         assert r.metadata == [("title", "Boss")]
 
     def test_parse_with_filters(self, parser):
@@ -1499,7 +1499,7 @@ class TestGraphMetaParser:
     def test_parse_meta_with_structure(self, parser):
         r = parser.parse('graph{"title": "Structure"} Person structure > "out.dot"')
         assert r.metadata == [("title", "Structure")]
-        assert r.focus_type == "Person"
+        assert r.focus_type == ["Person"]
         assert r.view_mode == "structure"
 
     def test_parse_style_then_override(self, parser):
@@ -1639,7 +1639,7 @@ class TestPathToParser:
     def test_parse_path_to_single(self, parser):
         r = parser.parse('graph Boss to NPC')
         assert isinstance(r, GraphQuery)
-        assert r.focus_type == "Boss"
+        assert r.focus_type == ["Boss"]
         assert r.path_to == ["NPC"]
 
     def test_parse_path_to_multiple(self, parser):
@@ -1757,3 +1757,133 @@ class TestPathToExecution:
         assert "Boss" in result.script
         assert "NPC" in result.script
         assert "Creature" in result.script
+
+
+# ==== Phase 6: Multi-Focus ====
+
+
+class TestMultiFocusParser:
+    """Test parsing of multi-focus syntax."""
+
+    def test_parse_multi_focus(self, parser):
+        r = parser.parse('graph [Person, Boss]')
+        assert isinstance(r, GraphQuery)
+        assert r.focus_type == ["Person", "Boss"]
+
+    def test_parse_multi_focus_structure(self, parser):
+        r = parser.parse('graph [Boss, NPC] structure')
+        assert isinstance(r, GraphQuery)
+        assert r.focus_type == ["Boss", "NPC"]
+        assert r.view_mode == "structure"
+
+    def test_parse_multi_focus_declared(self, parser):
+        r = parser.parse('graph [Boss, NPC] declared')
+        assert isinstance(r, GraphQuery)
+        assert r.focus_type == ["Boss", "NPC"]
+        assert r.view_mode == "declared"
+
+    def test_parse_multi_focus_stored(self, parser):
+        r = parser.parse('graph [Boss, NPC] stored')
+        assert isinstance(r, GraphQuery)
+        assert r.focus_type == ["Boss", "NPC"]
+        assert r.view_mode == "stored"
+
+    def test_parse_multi_focus_depth(self, parser):
+        r = parser.parse('graph [Boss, NPC] depth 1')
+        assert r.focus_type == ["Boss", "NPC"]
+        assert r.depth == 1
+
+    def test_parse_multi_focus_to_file(self, parser):
+        r = parser.parse('graph [Boss, NPC] > "out.dot"')
+        assert r.focus_type == ["Boss", "NPC"]
+        assert r.output_file == "out.dot"
+
+    def test_parse_multi_focus_with_meta(self, parser):
+        r = parser.parse('graph{"title": "Two"} [Boss, NPC] > "out.dot"')
+        assert r.focus_type == ["Boss", "NPC"]
+        assert r.metadata == [("title", "Two")]
+
+
+class TestMultiFocusExecution:
+    """Test execution of multi-focus graph queries."""
+
+    def test_multi_focus_full_view(self, executor, parser):
+        """Multi-focus full view combines edges from both types."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster from Creature { shield: health }')
+        result = _run(executor, parser, 'graph [Boss, Monster]')
+        edges = _edges(result)
+        # Boss edges
+        assert ("Boss", "Composite", "phase", "uint8") in edges
+        assert ("Boss", "Composite", "(extends)", "NPC") in edges
+        # Monster edges
+        assert ("Monster", "Composite", "shield", "health") in edges
+        assert ("Monster", "Composite", "(extends)", "Creature") in edges
+
+    def test_multi_focus_declared(self, executor, parser):
+        """Multi-focus declared view shows own fields for each type."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster from Creature { shield: health }')
+        result = _run(executor, parser, 'graph [Boss, Monster] declared')
+        edges = _edges(result)
+        # Boss's declared field
+        assert ("Boss", "Composite", "phase", "uint8") in edges
+        # Monster's declared field
+        assert ("Monster", "Composite", "shield", "health") in edges
+
+    def test_multi_focus_stored(self, executor, parser):
+        """Multi-focus stored view shows all fields for each type."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster from Creature { shield: health }')
+        result = _run(executor, parser, 'graph [Boss, Monster] stored')
+        edges = _edges(result)
+        # Boss has inherited fields from NPC → Creature → Entity
+        assert ("Boss", "Composite", "phase", "uint8") in edges
+        assert ("Boss", "Composite", "dialogue", "string") in edges
+        # Monster has inherited fields from Creature → Entity
+        assert ("Monster", "Composite", "shield", "health") in edges
+        assert ("Monster", "Composite", "hp", "int16") in edges
+
+    def test_multi_focus_structure(self, executor, parser):
+        """Multi-focus structure view combines inheritance edges."""
+        _setup_boss_schema(executor, parser)
+        _run(executor, parser, 'alias health = int16')
+        _run(executor, parser, 'type Monster from Creature { shield: health }')
+        result = _run(executor, parser, 'graph [Boss, Monster] structure')
+        edges = _edges(result)
+        # Boss chain
+        assert ("Boss", "Composite", "(extends)", "NPC") in edges
+        # Monster chain
+        assert ("Monster", "Composite", "(extends)", "Creature") in edges
+        # Shared chain node
+        assert ("NPC", "Composite", "(extends)", "Creature") in edges
+
+    def test_multi_focus_dedup(self, executor, parser):
+        """Multi-focus deduplicates shared edges."""
+        _setup_boss_schema(executor, parser)
+        result = _run(executor, parser, 'graph [Boss, NPC] structure')
+        edges = list(result.rows)
+        # NPC → Creature should appear exactly once
+        npc_creature = [e for e in edges
+                        if e["source"] == "NPC" and e["target"] == "Creature"]
+        assert len(npc_creature) == 1
+
+    def test_multi_focus_dot_output(self, executor, parser):
+        """Multi-focus DOT output highlights both focus types."""
+        _setup_boss_schema(executor, parser)
+        result = _run(executor, parser, 'graph [Boss, NPC] > "out.dot"')
+        assert isinstance(result, DumpResult)
+        # Both focus types should have penwidth=3
+        assert 'penwidth=3' in result.script
+        assert '"Boss"' in result.script
+        assert '"NPC"' in result.script
+
+    def test_multi_focus_depth_zero(self, executor, parser):
+        """Multi-focus with depth 0 shows message with both names."""
+        _setup_boss_schema(executor, parser)
+        result = _run(executor, parser, 'graph [Boss, NPC] depth 0')
+        assert "Boss" in result.message
+        assert "NPC" in result.message

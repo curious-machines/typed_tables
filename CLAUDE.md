@@ -759,6 +759,7 @@ Explore the type reference graph. The `graph` command is a unified tool for view
 ```ttq
 graph                            -- all type edges
 graph Person                     -- edges involving Person (as source or target)
+graph [Person, Employee]         -- edges involving either type (multi-focus)
 graph sort by source             -- sort by column
 ```
 

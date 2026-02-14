@@ -132,7 +132,7 @@ class GraphFilter:
 class GraphQuery:
     """A GRAPH query — unified schema exploration command."""
 
-    focus_type: str | None = None
+    focus_type: list[str] | None = None
     output_file: str | None = None  # None=table, .dot=DOT, else=TTQ
     sort_by: list[str] = field(default_factory=list)
     view_mode: str = "full"  # "full" | "structure" | "declared" | "stored"
@@ -635,7 +635,7 @@ class QueryParser:
     # 8 top-level rules: with/without focus type × 4 view modes (full/structure/declared/stored)
     # Each ends with graph_output (sort_clause | TO STRING | empty)
 
-    def _make_graph(self, focus: str | None, view: dict, output: dict,
+    def _make_graph(self, focus: list[str] | None, view: dict, output: dict,
                     meta: list[tuple[str, str]] | None = None) -> GraphQuery:
         return GraphQuery(
             focus_type=focus,
@@ -667,20 +667,30 @@ class QueryParser:
         p[0] = self._make_graph(None, {"view_mode": "stored", **p[4]}, p[5], meta=p[2])
 
     def p_query_graph_type(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta IDENTIFIER graph_output"""
+        """query : GRAPH graph_meta graph_focus graph_output"""
         p[0] = self._make_graph(p[3], {}, p[4], meta=p[2])
 
     def p_query_graph_type_structure(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta IDENTIFIER STRUCTURE graph_output"""
+        """query : GRAPH graph_meta graph_focus STRUCTURE graph_output"""
         p[0] = self._make_graph(p[3], {"view_mode": "structure"}, p[5], meta=p[2])
 
     def p_query_graph_type_declared(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta IDENTIFIER DECLARED graph_declared_mods graph_output"""
+        """query : GRAPH graph_meta graph_focus DECLARED graph_declared_mods graph_output"""
         p[0] = self._make_graph(p[3], {"view_mode": "declared", **p[5]}, p[6], meta=p[2])
 
     def p_query_graph_type_stored(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta IDENTIFIER STORED graph_stored_mods graph_output"""
+        """query : GRAPH graph_meta graph_focus STORED graph_stored_mods graph_output"""
         p[0] = self._make_graph(p[3], {"view_mode": "stored", **p[5]}, p[6], meta=p[2])
+
+    # ---- Graph focus: single type or bracketed list ----
+
+    def p_graph_focus_single(self, p: yacc.YaccProduction) -> None:
+        """graph_focus : IDENTIFIER"""
+        p[0] = [p[1]]
+
+    def p_graph_focus_list(self, p: yacc.YaccProduction) -> None:
+        """graph_focus : LBRACKET graph_filter_value_list RBRACKET"""
+        p[0] = p[2]
 
     # ---- Graph output: sort clause, file output, or empty ----
 
