@@ -1,8 +1,73 @@
 use "graph_tests"
 
+-- Aliases
+
 alias coordinate = float32
 alias length = float32
 alias uuid = uint128
+
+-- Enums
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+enum State {
+    AL,
+    AK,
+    AZ,
+    AR,
+    CA,
+    CO,
+    CT,
+    DE,
+    FL,
+    GA,
+    HI,
+    ID,
+    IL,
+    IN,
+    IA,
+    KS,
+    KY,
+    LA,
+    ME,
+    MD,
+    MA,
+    MI,
+    MN,
+    MS,
+    MO,
+    MT,
+    NE,
+    NV,
+    NH,
+    NJ,
+    NM,
+    NY,
+    NC,
+    ND,
+    OH,
+    OK,
+   `OR`,
+    PA,
+    RI,
+    SC,
+    SD,
+    TN,
+    TX,
+    UT,
+    VT,
+    VA,
+    WA,
+    WV,
+    WI,
+    WY
+}
+
+-- Interfaces
 
 interface Nameable {
     name: string
@@ -21,9 +86,11 @@ interface Sizeable {
 interface Address {
     street: string,
     city: string,
-    state: string,
+    state: State,
     zip: string
 }
+
+-- Composites
 
 type Base from Nameable, Positionable, Sizeable {
     age: uint8
@@ -31,10 +98,14 @@ type Base from Nameable, Positionable, Sizeable {
 
 type Root from Base {
     id: uuid,
-    address: Address
+    address: Address,
+    label_color: Color,
+    data: {string: string}
 }
 
 type Person from Nameable {
     id: uuid,
-    age: uint8
+    age: uint8,
+    nicknames: {string},
+    code: [uint8]
 }

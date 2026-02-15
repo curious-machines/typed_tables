@@ -1,50 +1,68 @@
--- show all for type
-graph Root > "all.dot"
+-- -- show all for type
+-- graph Root > "all.dot"
 
--- test all with depth control
-graph Root depth 0 > "all-d0.dot"
-graph Root depth 1 > "all-d1.dot"
-graph Root depth 2 > "all-d2.dot"
+-- -- test all with depth control
+-- graph Root depth 0 > "all-d0.dot"
+-- graph Root depth 1 > "all-d1.dot"
+-- graph Root depth 2 > "all-d2.dot"
 
--- test view modes with depth control
-graph Root structure > "structure.dot"
-graph Root structure depth 0 > "structure-d0.dot"
-graph Root structure depth 1 > "structure-d1.dot"
-graph Root structure depth 2 > "structure-d2.dot"
+-- -- test view modes with depth control
+-- graph Root structure > "structure.dot"
+-- graph Root structure depth 0 > "structure-d0.dot"
+-- graph Root structure depth 1 > "structure-d1.dot"
+-- graph Root structure depth 2 > "structure-d2.dot"
 
-graph Root declared > "declared.dot"
-graph Root declared depth 0 > "declared-d0.dot"
-graph Root declared depth 1 > "declared-d1.dot"
-graph Root declared depth 2 > "declared-d2.dot"
+-- graph Root declared > "declared.dot"
+-- graph Root declared depth 0 > "declared-d0.dot"
+-- graph Root declared depth 1 > "declared-d1.dot"
+-- graph Root declared depth 2 > "declared-d2.dot"
 
-graph Root stored > "stored.dot"
-graph Root stored depth 0 > "stored-d0.dot"
-graph Root stored depth 1 > "stored-d1.dot"
-graph Root stored depth 2 > "stored-d2.dot"
+-- graph Root stored > "stored.dot"
+-- graph Root stored depth 0 > "stored-d0.dot"
+-- graph Root stored depth 1 > "stored-d1.dot"
+-- graph Root stored depth 2 > "stored-d2.dot"
 
-graph Root stored origin > "stored-origin.dot"
-graph Root stored origin depth 0 > "stored-origin-d0.dot"
-graph Root stored origin depth 1 > "stored-origin-d1.dot"
-graph Root stored origin depth 2 > "stored-origin-d2.dot"
+-- graph Root stored origin > "stored-origin.dot"
+-- graph Root stored origin depth 0 > "stored-origin-d0.dot"
+-- graph Root stored origin depth 1 > "stored-origin-d1.dot"
+-- graph Root stored origin depth 2 > "stored-origin-d2.dot"
 
--- show path with depth control
-graph Root to Positionable > "path.dot"
-graph Root to Positionable depth 0 > "path-d0.dot"
-graph Root to Positionable depth 1 > "path-d1.dot"
-graph Root to Positionable depth 2 > "path-d2.dot"
+-- -- show path with depth control
+-- graph Root to Positionable > "path.dot"
+-- graph Root to Positionable depth 0 > "path-d0.dot"
+-- graph Root to Positionable depth 1 > "path-d1.dot"
+-- graph Root to Positionable depth 2 > "path-d2.dot"
 
-graph Root to [Sizeable, Positionable] > "path-multi.dot"
-graph Root to [Sizeable, Positionable] depth 0 > "path-multi-d0.dot"
-graph Root to [Sizeable, Positionable] depth 1 > "path-multi-d1.dot"
-graph Root to [Sizeable, Positionable] depth 2 > "path-multi-d2.dot"
+-- graph Root to [Sizeable, Positionable] > "path-multi.dot"
+-- graph Root to [Sizeable, Positionable] depth 0 > "path-multi-d0.dot"
+-- graph Root to [Sizeable, Positionable] depth 1 > "path-multi-d1.dot"
+-- graph Root to [Sizeable, Positionable] depth 2 > "path-multi-d2.dot"
 
--- multiple focus types
-graph [Root, Person] > "multi-focus.dot"
-graph [Root, Person] depth 0 > "multi-focus-d0.dot"
-graph [Root, Person] depth 1 > "multi-focus-d1.dot"
-graph [Root, Person] depth 2 > "multi-focus-d2.dot"
+-- -- multiple focus types
+-- graph [Root, Person] > "multi-focus.dot"
+-- graph [Root, Person] depth 0 > "multi-focus-d0.dot"
+-- graph [Root, Person] depth 1 > "multi-focus-d1.dot"
+-- graph [Root, Person] depth 2 > "multi-focus-d2.dot"
 
-graph [Root, Person] declared > "multi-focus-declared.dot"
-graph [Root, Person] stored > "multi-focus-stored.dot"
-graph [Root, Person] stored origin > "multi-focus-stored-origin.dot"
-graph [Root, Person] to Nameable > "multi-focus-path.dot"
+-- graph [Root, Person] declared > "multi-focus-declared.dot"
+-- graph [Root, Person] stored > "multi-focus-stored.dot"
+-- graph [Root, Person] stored origin > "multi-focus-stored-origin.dot"
+-- graph [Root, Person] to Nameable > "multi-focus-path.dot"
+
+-- graph showing type string > "string.dot"
+-- graph showing type float32 > "float32.dot"
+-- graph showing type [string, float32] > "string+float32.dot"
+-- graph showing type uint128 > "uint128.dot"
+-- graph showing kind Interface > "interface.dot"
+-- graph showing kind Composite > "composite.dot"
+-- graph showing field [name, age] > "fields.dot"
+
+-- Graph all of a kind
+graph all Composites > "composites.dot"
+graph all Interfaces > "interfaces.dot"
+graph all Enums > "enums.dot"
+graph all Aliases > "aliases.dot"
+graph all Arrays > "arrays.dot"
+graph all Sets > "sets.dot"
+graph all Dictionaries > "dictionaries.dot"
+graph all Primitives > "primitives.dot"
