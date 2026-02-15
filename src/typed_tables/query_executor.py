@@ -914,13 +914,14 @@ class QueryExecutor:
     def _collect_types_by_kind(self, kind_label: str) -> list[str]:
         """Collect all non-system type names matching a kind label.
 
-        For aliases, only includes those referenced by user-defined types
-        (same filter as _build_type_graph).
+        For aliases and primitives, only includes those referenced by
+        user-defined types (same filter as _build_type_graph).
         """
-        # For Alias kind, pre-collect which aliases are actually referenced
-        referenced_aliases: set[str] | None = None
-        if kind_label == "Alias":
-            referenced_aliases = set()
+        # Pre-collect referenced aliases/primitives if needed
+        referenced: set[str] | None = None
+        if kind_label in ("Alias", "Primitive"):
+            primitives: set[str] = set()
+            aliases: set[str] = set()
             for name in self.registry.list_types():
                 if name.startswith("_"):
                     continue
@@ -930,11 +931,12 @@ class QueryExecutor:
                 base = td.resolve_base_type()
                 if isinstance(base, (CompositeTypeDefinition, InterfaceTypeDefinition)):
                     for f in base.fields:
-                        self._collect_referenced_types(f.type_def, set(), referenced_aliases)
+                        self._collect_referenced_types(f.type_def, primitives, aliases)
                 elif isinstance(base, EnumTypeDefinition):
                     for v in base.variants:
                         for f in v.fields:
-                            self._collect_referenced_types(f.type_def, set(), referenced_aliases)
+                            self._collect_referenced_types(f.type_def, primitives, aliases)
+            referenced = aliases if kind_label == "Alias" else primitives
 
         result = []
         for name in self.registry.list_types():
@@ -942,7 +944,7 @@ class QueryExecutor:
                 continue
             td = self.registry.get(name)
             if td is not None and self._classify_type(td) == kind_label:
-                if referenced_aliases is not None and name not in referenced_aliases:
+                if referenced is not None and name not in referenced:
                     continue
                 result.append(name)
         return result
@@ -1049,8 +1051,11 @@ class QueryExecutor:
             if focus_types:
                 combined = []
                 seen = set()
-                # focus_kind expands outward only (don't pull in types that reference the focus)
-                source_only = query.focus_kind is not None
+                # focus_kind expands outward only — except for leaf kinds (Primitive)
+                # which have no outgoing edges and need incoming edges to be visible
+                _LEAF_KINDS = {"Primitive"}
+                source_only = (query.focus_kind is not None
+                               and self._resolve_kind(query.focus_kind) not in _LEAF_KINDS)
                 for ft in focus_types:
                     for e in self._filter_edges_by_type(edges, ft, query.depth, source_only=source_only):
                         key = (e["source"], e["target"], e["field"])
