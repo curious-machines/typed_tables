@@ -74,6 +74,15 @@ Metadata about types is stored in `_metadata.json` in the data directory.
 
 Newlines are treated as whitespace, so queries can be formatted freely across multiple lines. Semicolons are optional everywhere — statements are separated by keyword boundaries. In the REPL, a query can also be submitted by pressing Enter on an empty line during continuation. Semicolons are still accepted for backward compatibility.
 
+**Backtick-quoted identifiers**: Names that clash with reserved keywords can be wrapped in backticks to force identifier treatment. This works anywhere a name is expected — type names, field names, enum variant names, references:
+```ttq
+enum State { WA, `OR`, CA, `AS` }
+create Person(state=.`OR`)
+create Person(state=State.`OR`)
+from Person select * where state = .`OR`
+```
+The `dump` command automatically backtick-escapes names that are reserved keywords.
+
 ### Select Database
 
 This will create a new database if one does not exist already

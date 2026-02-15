@@ -205,6 +205,13 @@ class QueryLexer:
         t.value = t.value[1:-1].encode().decode("unicode_escape")
         return t
 
+    def t_BACKTICK_IDENTIFIER(self, t: lex.LexToken) -> lex.LexToken:
+        r"`[^`]+`"
+        # Strip backticks — always produces IDENTIFIER, bypassing keyword lookup
+        t.value = t.value[1:-1]
+        t.type = "IDENTIFIER"
+        return t
+
     def t_IDENTIFIER(self, t: lex.LexToken) -> lex.LexToken:
         r"[a-zA-Z_][a-zA-Z0-9_]*"
         # Check if it's a reserved word (case-insensitive)
@@ -270,3 +277,14 @@ class QueryLexer:
                 break
             tokens.append(tok)
         return tokens
+
+
+# Module-level set of reserved keywords (lowercase) for use by other modules
+RESERVED_KEYWORDS: frozenset[str] = frozenset(QueryLexer.reserved.keys())
+
+
+def escape_if_keyword(name: str) -> str:
+    """Wrap a name in backticks if it clashes with a reserved keyword."""
+    if name.lower() in RESERVED_KEYWORDS:
+        return f"`{name}`"
+    return name

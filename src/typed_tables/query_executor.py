@@ -6759,16 +6759,18 @@ class QueryExecutor:
             lines.append(f"alias {name} = {base_name}")
 
         # Emit enum type definitions
+        from typed_tables.parsing.query_lexer import escape_if_keyword
         for name, enum_def in enums:
             variant_strs = []
             for v in enum_def.variants:
+                vname = escape_if_keyword(v.name)
                 if v.fields:
-                    field_strs = [f"{f.name}: {f.type_def.name}" for f in v.fields]
-                    variant_strs.append(f"{v.name}({', '.join(field_strs)})")
+                    field_strs = [f"{escape_if_keyword(f.name)}: {f.type_def.name}" for f in v.fields]
+                    variant_strs.append(f"{vname}({', '.join(field_strs)})")
                 elif enum_def.has_explicit_values:
-                    variant_strs.append(f"{v.name} = {v.discriminant}")
+                    variant_strs.append(f"{vname} = {v.discriminant}")
                 else:
-                    variant_strs.append(v.name)
+                    variant_strs.append(vname)
             backing_clause = f" : {enum_def.backing_type.value}" if enum_def.backing_type else ""
             if pretty:
                 lines.append(f"enum {name}{backing_clause} {{")
@@ -8222,11 +8224,13 @@ class QueryExecutor:
 
     def _format_enum_value_ttq(self, ev: EnumValue, enum_def: EnumTypeDefinition) -> str:
         """Format an EnumValue as TTQ syntax: Color.red or Shape.circle(cx=50.0, ...)."""
+        from typed_tables.parsing.query_lexer import escape_if_keyword
+        vname = escape_if_keyword(ev.variant_name)
         if not ev.fields:
-            return f"{enum_def.name}.{ev.variant_name}"
+            return f"{enum_def.name}.{vname}"
         variant = enum_def.get_variant(ev.variant_name)
         if not variant or not variant.fields:
-            return f"{enum_def.name}.{ev.variant_name}"
+            return f"{enum_def.name}.{vname}"
         field_strs = []
         for vf in variant.fields:
             fval = ev.fields.get(vf.name)
