@@ -813,7 +813,8 @@ class QueryExecutor:
             return []
         names = {type_name, type_name + "[]"}
         if source_only:
-            filtered = [e for e in edges if e["source"] in names]
+            # Only match the exact type name, not its array variant
+            filtered = [e for e in edges if e["source"] == type_name]
         else:
             filtered = [e for e in edges if e["source"] in names or e["target"] in names]
         if depth is not None and depth <= 1:
