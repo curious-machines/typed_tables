@@ -1051,11 +1051,8 @@ class QueryExecutor:
             if focus_types:
                 combined = []
                 seen = set()
-                # focus_kind expands outward only — except for leaf kinds (Primitive)
-                # which have no outgoing edges and need incoming edges to be visible
-                _LEAF_KINDS = {"Primitive"}
-                source_only = (query.focus_kind is not None
-                               and self._resolve_kind(query.focus_kind) not in _LEAF_KINDS)
+                # focus_kind expands outward only (don't pull in types that reference the focus)
+                source_only = query.focus_kind is not None
                 for ft in focus_types:
                     for e in self._filter_edges_by_type(edges, ft, query.depth, source_only=source_only):
                         key = (e["source"], e["target"], e["field"])
