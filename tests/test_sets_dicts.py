@@ -627,12 +627,11 @@ class TestGraph:
         _run(executor, 'type Student { scores: {string: float64} }')
         result = _run(executor, 'graph')
         edges = result.rows
-        # {string: float64} → string edge
-        assert any(e["source"] == "{string: float64}" and e["target"] == "string" and e["field"] == "{key}" for e in edges)
-        # {string: float64} → float64 edge
-        assert any(e["source"] == "{string: float64}" and e["target"] == "float64" and e["field"] == "{value}" for e in edges)
-        # {string: float64} → Dict_string_float64 edge
+        # {string: float64} → Dict_string_float64 via (entry)
         assert any(e["source"] == "{string: float64}" and e["target"] == "Dict_string_float64" and e["field"] == "(entry)" for e in edges)
+        # Dict_string_float64 shows key/value fields
+        assert any(e["source"] == "Dict_string_float64" and e["target"] == "string" and e["field"] == "key" for e in edges)
+        assert any(e["source"] == "Dict_string_float64" and e["target"] == "float64" and e["field"] == "value" for e in edges)
 
 
 # ==============================================================

@@ -722,8 +722,6 @@ class QueryExecutor:
             elif isinstance(base, DictionaryTypeDefinition) and type_def.name not in visited_array_types:
                 visited_array_types.add(type_def.name)
                 dict_kind = self._classify_type(self.registry.get(type_def.name) or base)
-                add_edge(type_def.name, dict_kind, base.key_type.name, "{key}")
-                add_edge(type_def.name, dict_kind, base.value_type.name, "{value}")
                 add_edge(type_def.name, dict_kind, base.entry_type.name, "(entry)")
             elif isinstance(base, ArrayTypeDefinition) and type_def.name not in visited_array_types:
                 visited_array_types.add(type_def.name)
@@ -763,8 +761,6 @@ class QueryExecutor:
             elif isinstance(type_def, SetTypeDefinition):
                 add_edge(type_name, kind, type_def.element_type.name, "{}")
             elif isinstance(type_def, DictionaryTypeDefinition):
-                add_edge(type_name, kind, type_def.key_type.name, "{key}")
-                add_edge(type_name, kind, type_def.value_type.name, "{value}")
                 add_edge(type_name, kind, type_def.entry_type.name, "(entry)")
             elif isinstance(type_def, CompositeTypeDefinition):
                 # Collect inherited field names so we only emit own-field edges
@@ -790,7 +786,7 @@ class QueryExecutor:
             elif isinstance(type_def, FractionTypeDefinition):
                 pass
             elif isinstance(type_def, (BigIntTypeDefinition, BigUIntTypeDefinition)):
-                # Only show if referenced by user types (like string/path)
+                # Only show if referenced by user types (like string)
                 pass
             elif isinstance(type_def, ArrayTypeDefinition) and type_name not in visited_array_types:
                 visited_array_types.add(type_name)
@@ -799,11 +795,16 @@ class QueryExecutor:
         return edges
 
     def _filter_edges_by_type(self, edges: list[dict[str, str]], type_name: str,
-                              depth: int | None = None) -> list[dict[str, str]]:
+                              depth: int | None = None,
+                              source_only: bool = False) -> list[dict[str, str]]:
         """Filter edges to those involving a type, expanding outward via BFS.
 
         Depth = number of edges to traverse from the focus type:
         depth 0 = focus node only (no edges), depth 1 = direct edges only, etc.
+
+        When source_only=True, only include edges where the focus type is the
+        source (expands outward only, doesn't pull in types that reference
+        the focus type).
 
         The BFS follows inheritance and alias edges. Each edge traversal counts
         against the depth budget.
@@ -811,7 +812,10 @@ class QueryExecutor:
         if depth is not None and depth <= 0:
             return []
         names = {type_name, type_name + "[]"}
-        filtered = [e for e in edges if e["source"] in names or e["target"] in names]
+        if source_only:
+            filtered = [e for e in edges if e["source"] in names]
+        else:
+            filtered = [e for e in edges if e["source"] in names or e["target"] in names]
         if depth is not None and depth <= 1:
             return filtered
         # Build a quick lookup: source → list of edges
@@ -822,17 +826,28 @@ class QueryExecutor:
         # depth 1 = focus edges only (already collected above)
         # depth 2+ = one more level per depth increment
         expanded: set[str] = set(names)
-        # Seed frontier with all targets reachable via structural edges from focus
+        # Structural edges that always trigger expansion to their target node
+        _STRUCTURAL_FIELDS = {"(extends)", "(implements)", "(alias)"}
+        # Collection-internal edges that trigger expansion (entry, element)
+        _COLLECTION_FIELDS = {"(entry)", "{}", "[]"}
+        _EXPANSION_FIELDS = _STRUCTURAL_FIELDS | _COLLECTION_FIELDS
+        # Seed frontier with all targets reachable via expansion edges from focus
         frontier: set[str] = set()
         for e in filtered:
-            if e["field"] in ("(extends)", "(implements)", "(alias)") and e["source"] in names:
+            if e["field"] in _EXPANSION_FIELDS and e["source"] in names:
                 frontier.add(e["target"])
-            # Also follow targets that are aliases (they need expansion at depth 2)
             target = e["target"]
             if target not in names:
                 td = self.registry.get(target)
                 if td and isinstance(td, AliasTypeDefinition):
+                    # Follow aliases (they need expansion at depth 2)
                     frontier.add(target)
+                else:
+                    base = td.resolve_base_type() if td else None
+                    if (base and isinstance(base, (DictionaryTypeDefinition, SetTypeDefinition, ArrayTypeDefinition))
+                            and not isinstance(base, (StringTypeDefinition, BigIntTypeDefinition, BigUIntTypeDefinition))):
+                        # Follow collection types to include their internal structure
+                        frontier.add(target)
         current_depth = 1  # We've already traversed 1 edge (focus → targets)
         while frontier:
             current_depth += 1
@@ -848,8 +863,20 @@ class QueryExecutor:
                 for e in edges_by_source.get(node_name, []):
                     if e not in filtered:
                         filtered.append(e)
-                    if e["field"] in ("(extends)", "(implements)", "(alias)"):
+                    if e["field"] in _STRUCTURAL_FIELDS:
                         next_frontier.add(e["target"])
+                    elif e["field"] in _COLLECTION_FIELDS:
+                        # Only expand collection targets that have structure worth following
+                        t = e["target"]
+                        ttd = self.registry.get(t)
+                        if ttd:
+                            tb = ttd.resolve_base_type()
+                            if isinstance(tb, (CompositeTypeDefinition, AliasTypeDefinition,
+                                    DictionaryTypeDefinition, SetTypeDefinition, EnumTypeDefinition)):
+                                next_frontier.add(t)
+                            elif (isinstance(tb, ArrayTypeDefinition)
+                                    and not isinstance(tb, (StringTypeDefinition, BigIntTypeDefinition, BigUIntTypeDefinition))):
+                                next_frontier.add(t)
                 # If this node is an alias, generate an alias→base edge
                 td = self.registry.get(node_name)
                 if td and isinstance(td, AliasTypeDefinition):
@@ -885,13 +912,38 @@ class QueryExecutor:
         return self._KIND_LOOKUP.get(kind_value.lower())
 
     def _collect_types_by_kind(self, kind_label: str) -> list[str]:
-        """Collect all non-system type names matching a kind label."""
+        """Collect all non-system type names matching a kind label.
+
+        For aliases, only includes those referenced by user-defined types
+        (same filter as _build_type_graph).
+        """
+        # For Alias kind, pre-collect which aliases are actually referenced
+        referenced_aliases: set[str] | None = None
+        if kind_label == "Alias":
+            referenced_aliases = set()
+            for name in self.registry.list_types():
+                if name.startswith("_"):
+                    continue
+                td = self.registry.get(name)
+                if td is None:
+                    continue
+                base = td.resolve_base_type()
+                if isinstance(base, (CompositeTypeDefinition, InterfaceTypeDefinition)):
+                    for f in base.fields:
+                        self._collect_referenced_types(f.type_def, set(), referenced_aliases)
+                elif isinstance(base, EnumTypeDefinition):
+                    for v in base.variants:
+                        for f in v.fields:
+                            self._collect_referenced_types(f.type_def, set(), referenced_aliases)
+
         result = []
         for name in self.registry.list_types():
             if name.startswith("_"):
                 continue
             td = self.registry.get(name)
             if td is not None and self._classify_type(td) == kind_label:
+                if referenced_aliases is not None and name not in referenced_aliases:
+                    continue
                 result.append(name)
         return result
 
@@ -997,8 +1049,10 @@ class QueryExecutor:
             if focus_types:
                 combined = []
                 seen = set()
+                # focus_kind expands outward only (don't pull in types that reference the focus)
+                source_only = query.focus_kind is not None
                 for ft in focus_types:
-                    for e in self._filter_edges_by_type(edges, ft, query.depth):
+                    for e in self._filter_edges_by_type(edges, ft, query.depth, source_only=source_only):
                         key = (e["source"], e["target"], e["field"])
                         if key not in seen:
                             seen.add(key)
@@ -8381,10 +8435,10 @@ class QueryExecutor:
         """Lazily create the _ImportRecord system type if it doesn't exist."""
         if self.registry.get("_ImportRecord") is not None:
             return
-        path_type = self.registry.get_or_raise("path")
+        string_type = self.registry.get_or_raise("string")
         import_type = CompositeTypeDefinition(
             name="_ImportRecord",
-            fields=[FieldDefinition(name="script", type_def=path_type)],
+            fields=[FieldDefinition(name="script", type_def=string_type)],
         )
         self.registry.register(import_type)
         self.storage.save_metadata()

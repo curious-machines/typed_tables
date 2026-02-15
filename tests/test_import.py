@@ -1,4 +1,4 @@
-"""Tests for the import statement, system types, and path alias."""
+"""Tests for the import statement and system types."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 from typed_tables.parsing.query_parser import ImportQuery, QueryParser, ShowTypesQuery
 from typed_tables.query_executor import CreateResult, ImportResult, QueryExecutor, QueryResult
 from typed_tables.storage import StorageManager
-from typed_tables.types import AliasTypeDefinition, StringTypeDefinition, TypeRegistry
+from typed_tables.types import TypeRegistry
 
 
 @pytest.fixture
@@ -266,19 +266,6 @@ class TestSystemTypes:
         assert query.force is True
         assert query.where is not None
 
-    def test_graph_excludes_unreferenced_path(self, executor):
-        """path alias should not appear in graph when unused."""
-        result = _run(executor, 'graph')
-        sources = {row["source"] for row in result.rows}
-        assert "path" not in sources
-
-    def test_graph_includes_path_when_used(self, executor):
-        """path alias should appear in graph when a user type uses it."""
-        _run(executor, 'type Config { file: path }')
-        result = _run(executor, 'graph')
-        sources = {row["source"] for row in result.rows}
-        assert "path" in sources
-
     def test_graph_excludes_system_types(self, executor, db_dir):
         """_ImportRecord should not appear in graph."""
         script = db_dir / "setup.ttq"
@@ -290,25 +277,6 @@ class TestSystemTypes:
         targets = {row["target"] for row in result.rows}
         assert "_ImportRecord" not in sources
         assert "_ImportRecord" not in targets
-
-
-# --- Built-in path alias ---
-
-
-class TestPathAlias:
-    def test_path_alias_exists(self):
-        """TypeRegistry().get('path') returns an AliasTypeDefinition."""
-        registry = TypeRegistry()
-        path_type = registry.get("path")
-        assert path_type is not None
-        assert isinstance(path_type, AliasTypeDefinition)
-
-    def test_path_alias_resolves_to_string(self):
-        """path resolves to StringTypeDefinition."""
-        registry = TypeRegistry()
-        path_type = registry.get("path")
-        base = path_type.resolve_base_type()
-        assert isinstance(base, StringTypeDefinition)
 
 
 # --- Integration ---

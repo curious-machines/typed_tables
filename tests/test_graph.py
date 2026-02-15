@@ -1946,15 +1946,17 @@ class TestFocusKindExecution:
     """Test execution of graph all X queries."""
 
     def test_all_interfaces(self, executor, parser):
-        """graph all Interfaces expands all interfaces."""
+        """graph all Interfaces expands all interfaces — outward only."""
         _setup_boss_schema(executor, parser)
         result = _run(executor, parser, 'graph all Interfaces')
         edges = _edges(result)
-        # Interface field edges
+        # Interface field edges (outward from interfaces)
         assert ("Labelled", "Interface", "name", "string") in edges
         assert ("Positioned", "Interface", "x", "float32") in edges
-        # Composites implementing them (incoming edges)
-        assert ("Creature", "Composite", "(implements)", "Entity") in edges
+        assert ("Entity", "Interface", "(extends)", "Identifiable") in edges
+        # Composites implementing them should NOT appear (they are incoming)
+        assert ("Creature", "Composite", "(implements)", "Entity") not in edges
+        assert ("Boss", "Composite", "(implements)", "Positioned") not in edges
 
     def test_all_composites(self, executor, parser):
         """graph all Composites expands all composites."""
@@ -1965,14 +1967,14 @@ class TestFocusKindExecution:
         assert ("Boss", "Composite", "phase", "uint8") in edges
 
     def test_all_aliases(self, executor, parser):
-        """graph all Aliases shows alias forest."""
+        """graph all Aliases shows alias forest — outward only."""
         _run(executor, parser, 'alias health = int16')
         _run(executor, parser, 'type Monster { hp: health }')
         result = _run(executor, parser, 'graph all Aliases')
         edges = _edges(result)
         assert ("health", "Alias", "(alias)", "int16") in edges
-        # Composites using the alias show up as incoming edges
-        assert ("Monster", "Composite", "hp", "health") in edges
+        # Composites using the alias should NOT appear (incoming)
+        assert ("Monster", "Composite", "hp", "health") not in edges
 
     def test_all_enums_empty(self, executor, parser):
         """graph all Enums with no enums gives a message."""
@@ -1980,12 +1982,15 @@ class TestFocusKindExecution:
         assert "No types of kind" in result.message
 
     def test_all_enums(self, executor, parser):
-        """graph all Enums expands enum types."""
+        """graph all Enums expands enum types — outward only."""
         _run(executor, parser, 'enum Color { red, green, blue }')
         _run(executor, parser, 'type Pixel { color: Color }')
         result = _run(executor, parser, 'graph all Enums')
         edges = _edges(result)
-        assert ("Pixel", "Composite", "color", "Color") in edges
+        # C-style enums have no outgoing edges (no fields, no aliases)
+        assert len(edges) == 0
+        # Composites using the enum should NOT appear (incoming)
+        assert ("Pixel", "Composite", "color", "Color") not in edges
 
     def test_singleton_rejected(self, executor, parser):
         """Singleton kinds give a helpful error."""

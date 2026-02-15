@@ -31,7 +31,6 @@ BUILTIN_TYPES: dict[str, str] = {
     "float64": "64-bit IEEE 754 float (8 bytes)",
     "string": "Variable-length UTF-8 string (stored as character[])",
     "boolean": "Boolean value (stored as bit, displayed as true/false)",
-    "path": "File path (alias for string)",
     "bigint": "Arbitrary-precision signed integer",
     "biguint": "Arbitrary-precision unsigned integer",
     "fraction": "Exact rational number (e.g., fraction(355, 113))",

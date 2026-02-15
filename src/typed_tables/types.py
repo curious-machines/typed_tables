@@ -587,8 +587,6 @@ class TypeRegistry:
         self._types["biguint"] = BigUIntTypeDefinition(name="biguint", element_type=uint8_prim)
         # Register built-in fraction type (exact rational, stored as numerator + denominator bytes)
         self._types["fraction"] = FractionTypeDefinition(name="fraction")
-        # Register built-in path alias (alias for string)
-        self._types["path"] = AliasTypeDefinition(name="path", base_type=self._types["string"])
 
     def _invalidate_caches(self) -> None:
         """Invalidate lazily-computed caches (e.g. after type registration)."""
