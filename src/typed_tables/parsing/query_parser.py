@@ -36,8 +36,16 @@ class DictTypeSpec:
     value_type: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
 
 
+@dataclass
+class OverflowTypeSpec:
+    """Structured type spec for overflow-modified types: saturating int8."""
+
+    overflow: str  # "saturating" or "wrapping"
+    base_type: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec | OverflowTypeSpec
+
+
 # Union type for all type specifications
-TypeSpec = str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
+TypeSpec = str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec | OverflowTypeSpec
 
 
 @dataclass
@@ -203,9 +211,8 @@ class FieldDef:
     """A field definition for create type."""
 
     name: str
-    type_name: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
+    type_name: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec | OverflowTypeSpec
     default_value: Any = None
-    overflow: str | None = None  # "saturating" or "wrapping"
 
 
 @dataclass
@@ -238,7 +245,7 @@ class CreateAliasQuery:
     """A CREATE ALIAS query."""
 
     name: str
-    base_type: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec
+    base_type: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec | OverflowTypeSpec
 
 
 @dataclass
@@ -1284,13 +1291,9 @@ class QueryParser:
         """type_field_def : IDENTIFIER COLON type_spec EQ instance_value"""
         p[0] = FieldDef(name=p[1], type_name=p[3], default_value=p[5])
 
-    def p_type_field_def_overflow(self, p: yacc.YaccProduction) -> None:
-        """type_field_def : IDENTIFIER COLON overflow_modifier type_spec"""
-        p[0] = FieldDef(name=p[1], type_name=p[4], overflow=p[3])
-
-    def p_type_field_def_overflow_default(self, p: yacc.YaccProduction) -> None:
-        """type_field_def : IDENTIFIER COLON overflow_modifier type_spec EQ instance_value"""
-        p[0] = FieldDef(name=p[1], type_name=p[4], default_value=p[6], overflow=p[3])
+    def p_type_spec_overflow(self, p: yacc.YaccProduction) -> None:
+        """type_spec : overflow_modifier type_spec"""
+        p[0] = OverflowTypeSpec(overflow=p[1], base_type=p[2])
 
     def p_overflow_modifier(self, p: yacc.YaccProduction) -> None:
         """overflow_modifier : SATURATING
@@ -2137,6 +2140,8 @@ class QueryParser:
 
     def parse_program(self, data: str) -> list[Query]:
         """Parse multiple statements."""
+        if not data or not data.strip():
+            return []
         if self.parser is None:
             self.build(debug=False)
 

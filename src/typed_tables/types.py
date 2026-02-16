@@ -142,6 +142,10 @@ class TypeDefinition:
         """Resolve through aliases to get the underlying type."""
         return self
 
+    def resolve_overflow(self) -> str | None:
+        """Resolve overflow policy through the type chain."""
+        return None
+
 
 @dataclass
 class PrimitiveTypeDefinition(TypeDefinition):
@@ -184,6 +188,32 @@ class AliasTypeDefinition(TypeDefinition):
     def resolve_base_type(self) -> TypeDefinition:
         """Resolve through aliases to get the underlying type."""
         return self.base_type.resolve_base_type()
+
+    def resolve_overflow(self) -> str | None:
+        """Resolve overflow policy through the type chain."""
+        return self.base_type.resolve_overflow()
+
+
+@dataclass
+class OverflowTypeDefinition(TypeDefinition):
+    """Type definition wrapping a base type with an overflow policy."""
+
+    base_type: TypeDefinition
+    overflow: str  # "saturating" or "wrapping"
+
+    @property
+    def size_bytes(self) -> int:
+        return self.base_type.size_bytes
+
+    @property
+    def reference_size(self) -> int:
+        return self.base_type.reference_size
+
+    def resolve_base_type(self) -> TypeDefinition:
+        return self.base_type.resolve_base_type()
+
+    def resolve_overflow(self) -> str | None:
+        return self.overflow
 
 
 @dataclass
@@ -343,6 +373,7 @@ class TypedValue:
 
     value: int | float
     type_name: str  # "int8", "uint16", "float32", etc.
+    overflow: str | None = None  # "saturating" or "wrapping"
 
     def __repr__(self) -> str:
         return f"TypedValue({self.value!r}, {self.type_name!r})"
@@ -355,7 +386,6 @@ class FieldDefinition:
     name: str
     type_def: TypeDefinition
     default_value: Any = None  # None = NULL default (current behavior)
-    overflow: str | None = None  # "saturating" or "wrapping"
 
 
 @dataclass
@@ -530,6 +560,8 @@ class EnumTypeDefinition(TypeDefinition):
 
 def _type_def_to_type_string(td: TypeDefinition) -> str:
     """Convert a TypeDefinition back to its TTQ type string representation."""
+    if isinstance(td, OverflowTypeDefinition):
+        return f"{td.overflow} {_type_def_to_type_string(td.base_type)}"
     if isinstance(td, FractionTypeDefinition):
         return td.name
     if isinstance(td, SetTypeDefinition):
@@ -609,6 +641,18 @@ class TypeRegistry:
         if type_def is None:
             raise KeyError(f"Type '{name}' not found")
         return type_def
+
+    def get_or_create_overflow_type(self, overflow: str, base_type: TypeDefinition) -> OverflowTypeDefinition:
+        """Get or create an overflow type wrapping the given base type."""
+        name = f"{overflow} {base_type.name}"
+        existing = self._types.get(name)
+        if existing is not None:
+            if not isinstance(existing, OverflowTypeDefinition):
+                raise TypeError(f"Type '{name}' exists but is not an overflow type")
+            return existing
+        td = OverflowTypeDefinition(name=name, base_type=base_type, overflow=overflow)
+        self._types[name] = td
+        return td
 
     def get_array_type(self, element_type_name: str) -> ArrayTypeDefinition:
         """Get or create an array type for the given element type."""

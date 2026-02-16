@@ -54,6 +54,7 @@ from typed_tables.parsing.query_parser import (
     MethodCallExpr,
     MethodChainValue,
     NullValue,
+    OverflowTypeSpec,
     SetLiteral,
     SetTypeSpec,
     Query,
@@ -92,6 +93,7 @@ from typed_tables.types import (
     FractionTypeDefinition,
     InterfaceTypeDefinition,
     NULL_REF,
+    OverflowTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
     SetTypeDefinition,
@@ -306,8 +308,6 @@ class QueryExecutor:
         # Script execution tracking
         self._script_stack: list[Path] = []  # stack of script directories for relative path resolution
         self._loaded_scripts: set[str] = set()  # absolute paths of scripts loaded via execute
-        # Current overflow policy context (set during CREATE/UPDATE per target field)
-        self._current_overflow_policy: str | None = None
 
     @staticmethod
     def _sort_rows(rows: list[dict[str, Any]], sort_by: list[str], defaults: list[str] | None = None) -> list[dict[str, Any]]:
@@ -532,6 +532,10 @@ class QueryExecutor:
 
             base = type_def.resolve_base_type()
 
+            # Skip auto-created overflow types
+            if isinstance(type_def, OverflowTypeDefinition):
+                continue
+
             # Classify the type
             if isinstance(type_def, InterfaceTypeDefinition):
                 kind = "Interface"
@@ -625,7 +629,9 @@ class QueryExecutor:
         aliases: set[str],
     ) -> None:
         """Recursively collect primitive and alias type names referenced by a field type."""
-        if isinstance(type_def, AliasTypeDefinition):
+        if isinstance(type_def, OverflowTypeDefinition):
+            self._collect_referenced_types(type_def.base_type, primitives, aliases)
+        elif isinstance(type_def, AliasTypeDefinition):
             aliases.add(type_def.name)
             self._collect_referenced_types(type_def.base_type, primitives, aliases)
         elif isinstance(type_def, FractionTypeDefinition):
@@ -648,6 +654,8 @@ class QueryExecutor:
 
     def _classify_type(self, type_def: TypeDefinition) -> str:
         """Return the kind label for a type definition."""
+        if isinstance(type_def, OverflowTypeDefinition):
+            return "Alias"  # Treat overflow types like aliases for graph purposes
         if isinstance(type_def, InterfaceTypeDefinition):
             return "Interface"
         if isinstance(type_def, EnumTypeDefinition):
@@ -1824,7 +1832,7 @@ class QueryExecutor:
                     "type": field.type_def.name,
                     "size": field.type_def.reference_size,
                     "default": default_val,
-                    "overflow": field.overflow or "",
+                    "overflow": field.type_def.resolve_overflow() or "",
                 })
             # List parent interfaces
             if base.interfaces:
@@ -1856,7 +1864,7 @@ class QueryExecutor:
                     "type": field.type_def.name,
                     "size": field.type_def.reference_size,
                     "default": default_val,
-                    "overflow": field.overflow or "",
+                    "overflow": field.type_def.resolve_overflow() or "",
                 })
             if base.parent:
                 rows.append({
@@ -1949,12 +1957,17 @@ class QueryExecutor:
             message=f"Dropping database: {query.path}",
         )
 
-    def _resolve_type_spec(self, spec: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec) -> TypeDefinition | None:
+    def _resolve_type_spec(self, spec: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec | OverflowTypeSpec) -> TypeDefinition | None:
         """Resolve a type specification (string or structured TypeSpec) to a TypeDefinition.
 
         Returns None if the type cannot be resolved.
         """
-        if isinstance(spec, str):
+        if isinstance(spec, OverflowTypeSpec):
+            base_td = self._resolve_type_spec(spec.base_type)
+            if base_td is None:
+                return None
+            return self.registry.get_or_create_overflow_type(spec.overflow, base_td)
+        elif isinstance(spec, str):
             if spec.endswith("[]"):
                 base_name = spec[:-2]
                 return self.registry.get_array_type(base_name)
@@ -1977,9 +1990,11 @@ class QueryExecutor:
             return self.registry.get_or_create_dict_type(key_td, val_td)
         return None
 
-    def _type_spec_to_string(self, spec: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec) -> str:
+    def _type_spec_to_string(self, spec: str | ArrayTypeSpec | SetTypeSpec | DictTypeSpec | OverflowTypeSpec) -> str:
         """Convert a TypeSpec AST node back to a human-readable string."""
-        if isinstance(spec, str):
+        if isinstance(spec, OverflowTypeSpec):
+            return f"{spec.overflow} {self._type_spec_to_string(spec.base_type)}"
+        elif isinstance(spec, str):
             return spec
         elif isinstance(spec, ArrayTypeSpec):
             return "[" + self._type_spec_to_string(spec.element_type) + "]"
@@ -2114,12 +2129,12 @@ class QueryExecutor:
                     type_name=query.name,
                 )
 
-            fd = FieldDefinition(name=field_def.name, type_def=field_type)
-            if field_def.overflow is not None:
-                err = self._validate_overflow_modifier(field_def.overflow, field_type, field_def.name)
+            if isinstance(field_type, OverflowTypeDefinition):
+                err = self._validate_overflow_modifier(field_type.overflow, field_type.base_type, field_def.name)
                 if err:
                     return CreateResult(columns=[], rows=[], message=err, type_name=query.name)
-                fd.overflow = field_def.overflow
+
+            fd = FieldDefinition(name=field_def.name, type_def=field_type)
             if field_def.default_value is not None:
                 try:
                     fd.default_value = self._resolve_default_value(field_def.default_value, field_type)
@@ -2274,12 +2289,12 @@ class QueryExecutor:
                     type_name=query.name,
                 )
 
-            fd = FieldDefinition(name=field_def.name, type_def=field_type)
-            if field_def.overflow is not None:
-                err = self._validate_overflow_modifier(field_def.overflow, field_type, field_def.name)
+            if isinstance(field_type, OverflowTypeDefinition):
+                err = self._validate_overflow_modifier(field_type.overflow, field_type.base_type, field_def.name)
                 if err:
                     return CreateResult(columns=[], rows=[], message=err, type_name=query.name)
-                fd.overflow = field_def.overflow
+
+            fd = FieldDefinition(name=field_def.name, type_def=field_type)
             if field_def.default_value is not None:
                 try:
                     fd.default_value = self._resolve_default_value(field_def.default_value, field_type)
@@ -4485,9 +4500,14 @@ class QueryExecutor:
                 effective_op = "//"
 
             result = self._apply_raw_binary(lv, rv, effective_op)
-            # Enforce overflow on the typed result
-            result = self._enforce_overflow(result, result_type, self._current_overflow_policy)
-            return TypedValue(value=result, type_name=result_type)
+            # Determine overflow policy from typed values
+            overflow_policy = None
+            if left_typed and left.overflow:
+                overflow_policy = left.overflow
+            elif right_typed and right.overflow:
+                overflow_policy = right.overflow
+            result = self._enforce_overflow(result, result_type, overflow_policy)
+            return TypedValue(value=result, type_name=result_type, overflow=overflow_policy)
 
         return self._apply_raw_binary(left, right, op)
 
@@ -4534,7 +4554,9 @@ class QueryExecutor:
         if isinstance(operand, TypedValue):
             raw = operand.value
             if op == "-":
-                return TypedValue(value=-raw, type_name=operand.type_name)
+                result = -raw
+                result = self._enforce_overflow(result, operand.type_name, operand.overflow)
+                return TypedValue(value=result, type_name=operand.type_name, overflow=operand.overflow)
             if op == "+":
                 return operand
             raise RuntimeError(f"Unknown unary operator: {op}")
@@ -4712,6 +4734,21 @@ class QueryExecutor:
             if len(args) != 1:
                 raise RuntimeError(f"{name}() requires exactly 1 argument")
             return self._convert_to_type(args[0], name_lower)
+
+        # Alias/overflow type conversion: sint8(127) where alias sint8 = saturating int8
+        resolved_type = self.registry.get(name)
+        if resolved_type is not None:
+            overflow = resolved_type.resolve_overflow()
+            base = resolved_type.resolve_base_type()
+            if isinstance(base, PrimitiveTypeDefinition) and base.name in PRIMITIVE_TYPE_NAMES and overflow is not None:
+                if len(args) != 1:
+                    raise RuntimeError(f"{name}() requires exactly 1 argument")
+                result = self._convert_to_type(args[0], base.name)
+                if isinstance(result, TypedValue):
+                    result = TypedValue(value=result.value, type_name=result.type_name, overflow=overflow)
+                elif isinstance(result, list):
+                    result = [TypedValue(value=v.value, type_name=v.type_name, overflow=overflow) if isinstance(v, TypedValue) else v for v in result]
+                return result
 
         # Enum conversion: Color(0) → Color.red, Color("red") → Color.red
         enum_def = self.registry.get(name)
@@ -6581,6 +6618,20 @@ class QueryExecutor:
             return f"{start}:{end}"
         return ""
 
+    @staticmethod
+    def _dump_field_type_name(type_def: TypeDefinition) -> tuple[str, str]:
+        """Return (type_name, overflow_prefix) for a field's type in dump output."""
+        if isinstance(type_def, OverflowTypeDefinition):
+            base_name = type_def.base_type.name
+            if base_name.endswith("[]"):
+                base_name = f"{base_name[:-2]}[]"
+            return base_name, f"{type_def.overflow} "
+        field_type_name = type_def.name
+        if field_type_name.endswith("[]"):
+            base_elem = field_type_name[:-2]
+            field_type_name = f"{base_elem}[]"
+        return field_type_name, ""
+
     def _format_default_for_dump(self, value: Any, type_def: TypeDefinition) -> str:
         """Format a default value for dump output."""
         if value is None:
@@ -6701,6 +6752,8 @@ class QueryExecutor:
                 continue
             if isinstance(type_def, PrimitiveTypeDefinition):
                 continue
+            if isinstance(type_def, OverflowTypeDefinition):
+                continue  # auto-created overflow types (e.g. "saturating int8")
             if isinstance(type_def, DictionaryTypeDefinition):
                 continue  # auto-generated dict types
             if isinstance(type_def, ArrayTypeDefinition):
@@ -6753,7 +6806,10 @@ class QueryExecutor:
         # TTQ format output
         # Emit aliases
         for name, alias_def in aliases:
-            base_name = alias_def.base_type.name
+            if isinstance(alias_def.base_type, OverflowTypeDefinition):
+                base_name = f"{alias_def.base_type.overflow} {alias_def.base_type.base_type.name}"
+            else:
+                base_name = alias_def.base_type.name
             lines.append(f"alias {name} = {base_name}")
 
         # Emit enum type definitions
@@ -6797,11 +6853,7 @@ class QueryExecutor:
             for f in iface_def.fields:
                 if f.name in inherited_fields:
                     continue
-                field_type_name = f.type_def.name
-                if field_type_name.endswith("[]"):
-                    base_elem = field_type_name[:-2]
-                    field_type_name = f"{base_elem}[]"
-                overflow_prefix = f"{f.overflow} " if f.overflow else ""
+                field_type_name, overflow_prefix = self._dump_field_type_name(f.type_def)
                 fs = f"{f.name}: {overflow_prefix}{field_type_name}"
                 if f.default_value is not None:
                     fs += f" = {self._format_default_for_dump(f.default_value, f.type_def)}"
@@ -6867,11 +6919,7 @@ class QueryExecutor:
             for f in comp_def.fields:
                 if f.name in inherited_fields:
                     continue
-                field_type_name = f.type_def.name
-                if field_type_name.endswith("[]"):
-                    base_elem = field_type_name[:-2]
-                    field_type_name = f"{base_elem}[]"
-                overflow_prefix = f"{f.overflow} " if f.overflow else ""
+                field_type_name, overflow_prefix = self._dump_field_type_name(f.type_def)
                 fs = f"{f.name}: {overflow_prefix}{field_type_name}"
                 if f.default_value is not None:
                     fs += f" = {self._format_default_for_dump(f.default_value, f.type_def)}"

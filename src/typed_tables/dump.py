@@ -23,6 +23,7 @@ from typed_tables.types import (
     FieldDefinition,
     FractionTypeDefinition,
     InterfaceTypeDefinition,
+    OverflowTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
     SetTypeDefinition,
@@ -130,6 +131,9 @@ def _create_type_from_spec(
     if kind == "primitive":
         # Already registered by _register_primitives
         return None
+    elif kind == "overflow":
+        base_type = registry.get_or_raise(spec["base_type"])
+        return OverflowTypeDefinition(name=name, base_type=base_type, overflow=spec["overflow"])
     elif kind == "alias":
         base_type = registry.get_or_raise(spec["base_type"])
         return AliasTypeDefinition(name=name, base_type=base_type)
@@ -264,8 +268,7 @@ def _populate_interface_from_spec(
     for field_spec in spec.get("fields", []):
         field_type = _resolve_type_string(field_spec["type"], registry)
         default = _deserialize_default_value(field_spec.get("default"), field_type)
-        overflow = field_spec.get("overflow")
-        fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type, default_value=default, overflow=overflow))
+        fields.append(FieldDefinition(name=field_spec["name"], type_def=field_type, default_value=default))
     stub.fields = fields
     stub.interfaces = spec.get("interfaces", [])
 
@@ -291,8 +294,7 @@ def _populate_composite_from_spec(
     for field_spec in spec["fields"]:
         field_type = _resolve_type_string(field_spec["type"], registry)
         default = _deserialize_default_value(field_spec.get("default"), field_type)
-        overflow = field_spec.get("overflow")
-        fields.append(FD(name=field_spec["name"], type_def=field_type, default_value=default, overflow=overflow))
+        fields.append(FD(name=field_spec["name"], type_def=field_type, default_value=default))
     stub.fields = fields
     stub.interfaces = spec.get("interfaces", [])
     stub.parent = spec.get("parent")

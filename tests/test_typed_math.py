@@ -12,6 +12,7 @@ from typed_tables.dump import load_registry_from_metadata
 from typed_tables.parsing.query_parser import (
     CreateEnumQuery,
     FieldDef,
+    OverflowTypeSpec,
     QueryParser,
     TypedLiteral,
 )
@@ -26,6 +27,7 @@ from typed_tables.types import (
     EnumTypeDefinition,
     EnumValue,
     FieldDefinition,
+    OverflowTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
     TypedValue,
@@ -75,32 +77,41 @@ class TestOverflowParsing:
         query = parser.parse("type T { x: saturating uint8 }")
         assert len(query.fields) == 1
         assert query.fields[0].name == "x"
-        assert query.fields[0].type_name == "uint8"
-        assert query.fields[0].overflow == "saturating"
+        spec = query.fields[0].type_name
+        assert isinstance(spec, OverflowTypeSpec)
+        assert spec.overflow == "saturating"
+        assert spec.base_type == "uint8"
 
     def test_parse_wrapping_field(self, parser):
         query = parser.parse("type T { x: wrapping uint16 }")
-        assert query.fields[0].overflow == "wrapping"
+        spec = query.fields[0].type_name
+        assert isinstance(spec, OverflowTypeSpec)
+        assert spec.overflow == "wrapping"
 
     def test_parse_no_overflow_field(self, parser):
         query = parser.parse("type T { x: uint8 }")
-        assert query.fields[0].overflow is None
+        assert not isinstance(query.fields[0].type_name, OverflowTypeSpec)
 
     def test_parse_overflow_with_default(self, parser):
         query = parser.parse("type T { x: saturating int8 = 10 }")
-        assert query.fields[0].overflow == "saturating"
+        spec = query.fields[0].type_name
+        assert isinstance(spec, OverflowTypeSpec)
+        assert spec.overflow == "saturating"
         assert query.fields[0].default_value == 10
 
     def test_parse_overflow_array_field(self, parser):
         query = parser.parse("type T { x: saturating int8[] }")
-        assert query.fields[0].overflow == "saturating"
-        assert query.fields[0].type_name == "int8[]"
+        spec = query.fields[0].type_name
+        assert isinstance(spec, OverflowTypeSpec)
+        assert spec.overflow == "saturating"
 
     def test_parse_multiple_overflow_fields(self, parser):
         query = parser.parse("type T { x: saturating uint8, y: wrapping int16, z: uint32 }")
-        assert query.fields[0].overflow == "saturating"
-        assert query.fields[1].overflow == "wrapping"
-        assert query.fields[2].overflow is None
+        assert isinstance(query.fields[0].type_name, OverflowTypeSpec)
+        assert query.fields[0].type_name.overflow == "saturating"
+        assert isinstance(query.fields[1].type_name, OverflowTypeSpec)
+        assert query.fields[1].type_name.overflow == "wrapping"
+        assert not isinstance(query.fields[2].type_name, OverflowTypeSpec)
 
 
 class TestOverflowExecution:
@@ -150,8 +161,10 @@ class TestOverflowExecution:
         sensor = registry2.get("Sensor")
         reading_field = sensor.fields[0]
         count_field = sensor.fields[1]
-        assert reading_field.overflow == "saturating"
-        assert count_field.overflow == "wrapping"
+        assert isinstance(reading_field.type_def, OverflowTypeDefinition)
+        assert reading_field.type_def.overflow == "saturating"
+        assert isinstance(count_field.type_def, OverflowTypeDefinition)
+        assert count_field.type_def.overflow == "wrapping"
 
     def test_dump_emits_overflow(self, executor):
         _run(executor, "type Sensor { reading: saturating int8, count: wrapping uint16 }")
@@ -172,8 +185,10 @@ class TestOverflowExecution:
             _run(executor2, dump_result.script)
 
             sensor = registry2.get("Sensor")
-            assert sensor.fields[0].overflow == "saturating"
-            assert sensor.fields[1].overflow == "wrapping"
+            assert isinstance(sensor.fields[0].type_def, OverflowTypeDefinition)
+            assert sensor.fields[0].type_def.overflow == "saturating"
+            assert isinstance(sensor.fields[1].type_def, OverflowTypeDefinition)
+            assert sensor.fields[1].type_def.overflow == "wrapping"
         finally:
             shutil.rmtree(tmp2, ignore_errors=True)
 
@@ -461,6 +476,125 @@ class TestOverflowEnforcement:
         """Float overflow is not enforced."""
         result = QueryExecutor._enforce_overflow(1e40, "float32", None)
         assert result == 1e40
+
+
+class TestRuntimeOverflowEnforcement:
+    """Tests that overflow policies on types actually enforce during arithmetic."""
+
+    def test_saturating_addition_via_alias(self, executor):
+        """alias sint8 = saturating int8 → sint8(127) + sint8(1) → 127."""
+        _run(executor, "alias sint8 = saturating int8")
+        result = _run(executor, "sint8(127) + sint8(1)")
+        val = list(result.rows[0].values())[0]
+        raw = val.value if isinstance(val, TypedValue) else val
+        assert raw == 127
+
+    def test_wrapping_addition_via_alias(self, executor):
+        """alias wint8 = wrapping int8 → wint8(127) + wint8(1) → -128."""
+        _run(executor, "alias wint8 = wrapping int8")
+        result = _run(executor, "wint8(127) + wint8(1)")
+        val = list(result.rows[0].values())[0]
+        raw = val.value if isinstance(val, TypedValue) else val
+        assert raw == -128
+
+    def test_saturating_underflow_via_alias(self, executor):
+        _run(executor, "alias sint8 = saturating int8")
+        result = _run(executor, "sint8(-128) - sint8(1)")
+        val = list(result.rows[0].values())[0]
+        raw = val.value if isinstance(val, TypedValue) else val
+        assert raw == -128
+
+    def test_wrapping_uint8_via_alias(self, executor):
+        _run(executor, "alias wu8 = wrapping uint8")
+        result = _run(executor, "wu8(255) + wu8(1)")
+        val = list(result.rows[0].values())[0]
+        raw = val.value if isinstance(val, TypedValue) else val
+        assert raw == 0
+
+    def test_overflow_propagates_through_unary(self, executor):
+        _run(executor, "alias sint8 = saturating int8")
+        result = _run(executor, "-sint8(-128)")
+        val = list(result.rows[0].values())[0]
+        # -(-128) = 128, saturating clamps to 127
+        raw = val.value if isinstance(val, TypedValue) else val
+        assert raw == 127
+
+    def test_default_error_on_typed_overflow(self, executor):
+        """Without overflow type, arithmetic overflow raises error."""
+        with pytest.raises(RuntimeError, match="[Oo]verflow"):
+            _run(executor, "127i8 + 1i8")
+
+
+class TestAliasOverflow:
+    """Tests for alias to overflow type behavior."""
+
+    def test_alias_overflow_describe(self, executor):
+        _run(executor, "alias sint8 = saturating int8")
+        _run(executor, "type S { x: sint8 }")
+        result = _run(executor, "describe S")
+        x_row = next(r for r in result.rows if r.get("property") == "x")
+        assert x_row.get("overflow") == "saturating"
+
+    def test_alias_overflow_dump_roundtrip(self, executor, db_dir):
+        _run(executor, "alias sint8 = saturating int8")
+        _run(executor, "type S { x: sint8 }")
+        dump_result = _run(executor, "dump")
+        assert "alias sint8 = saturating int8" in dump_result.script
+
+        tmp2 = tempfile.mkdtemp()
+        try:
+            registry2 = TypeRegistry()
+            storage2 = StorageManager(Path(tmp2), registry2)
+            executor2 = QueryExecutor(storage2, registry2)
+            _run(executor2, dump_result.script)
+
+            sint8 = registry2.get("sint8")
+            from typed_tables.types import AliasTypeDefinition
+            assert isinstance(sint8, AliasTypeDefinition)
+            assert isinstance(sint8.base_type, OverflowTypeDefinition)
+            assert sint8.base_type.overflow == "saturating"
+        finally:
+            shutil.rmtree(tmp2, ignore_errors=True)
+
+    def test_inline_overflow_dump_roundtrip(self, executor, db_dir):
+        _run(executor, "type S { x: saturating int8 }")
+        dump_result = _run(executor, "dump")
+        assert "saturating int8" in dump_result.script
+
+        tmp2 = tempfile.mkdtemp()
+        try:
+            registry2 = TypeRegistry()
+            storage2 = StorageManager(Path(tmp2), registry2)
+            executor2 = QueryExecutor(storage2, registry2)
+            _run(executor2, dump_result.script)
+
+            sensor = registry2.get("S")
+            assert isinstance(sensor.fields[0].type_def, OverflowTypeDefinition)
+            assert sensor.fields[0].type_def.overflow == "saturating"
+        finally:
+            shutil.rmtree(tmp2, ignore_errors=True)
+
+    def test_create_instance_with_overflow_field(self, executor):
+        _run(executor, "type S { x: saturating int8 }")
+        _run(executor, "create S(x=100)")
+        result = _run(executor, "from S select *")
+        assert result.rows[0]["x"] == 100
+
+    def test_interface_overflow_inherited(self, executor):
+        _run(executor, "interface I { x: saturating uint8 }")
+        _run(executor, "type T from I { y: uint8 }")
+        result = _run(executor, "describe T")
+        x_row = next(r for r in result.rows if r.get("property") == "x")
+        assert x_row.get("overflow") == "saturating"
+
+    def test_parse_alias_overflow(self):
+        parser = QueryParser()
+        from typed_tables.parsing.query_parser import CreateAliasQuery
+        query = parser.parse("alias sint8 = saturating int8")
+        assert isinstance(query, CreateAliasQuery)
+        assert isinstance(query.base_type, OverflowTypeSpec)
+        assert query.base_type.overflow == "saturating"
+        assert query.base_type.base_type == "int8"
 
 
 class TestTypedDivision:
@@ -767,8 +901,10 @@ class TestCrossPhaseIntegration:
             sensor = registry2.get("Sensor")
             reading_field = next(f for f in sensor.fields if f.name == "reading")
             count_field = next(f for f in sensor.fields if f.name == "count")
-            assert reading_field.overflow == "saturating"
-            assert count_field.overflow == "wrapping"
+            assert isinstance(reading_field.type_def, OverflowTypeDefinition)
+            assert reading_field.type_def.overflow == "saturating"
+            assert isinstance(count_field.type_def, OverflowTypeDefinition)
+            assert count_field.type_def.overflow == "wrapping"
 
             # Verify data
             result = _run(executor2, "from Sensor select *")

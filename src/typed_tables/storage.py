@@ -22,6 +22,7 @@ from typed_tables.types import (
     FieldDefinition,
     FractionTypeDefinition,
     InterfaceTypeDefinition,
+    OverflowTypeDefinition,
     PrimitiveType,
     PrimitiveTypeDefinition,
     SetTypeDefinition,
@@ -83,7 +84,9 @@ class StorageManager:
         referenced: set[str] = set()
 
         def walk(td: TypeDefinition) -> None:
-            if isinstance(td, AliasTypeDefinition):
+            if isinstance(td, OverflowTypeDefinition):
+                walk(td.base_type)
+            elif isinstance(td, AliasTypeDefinition):
                 if td.base_type.name in _BUILTIN_TYPE_NAMES:
                     referenced.add(td.base_type.name)
                 walk(td.base_type)
@@ -144,7 +147,9 @@ class StorageManager:
 
     def _serialize_type_def(self, type_def: TypeDefinition) -> dict[str, Any]:
         """Serialize a single type definition."""
-        if isinstance(type_def, BooleanTypeDefinition):
+        if isinstance(type_def, OverflowTypeDefinition):
+            return {"kind": "overflow", "base_type": type_def.base_type.name, "overflow": type_def.overflow}
+        elif isinstance(type_def, BooleanTypeDefinition):
             return {"kind": "boolean"}
         elif isinstance(type_def, PrimitiveTypeDefinition):
             return {
@@ -222,8 +227,6 @@ class StorageManager:
     def _serialize_field_def(self, f: FieldDefinition) -> dict[str, Any]:
         """Serialize a field definition including optional default value."""
         entry: dict[str, Any] = {"name": f.name, "type": f.type_def.name}
-        if f.overflow is not None:
-            entry["overflow"] = f.overflow
         if f.default_value is not None:
             entry["default"] = self._serialize_default_value(f.default_value, f.type_def)
         return entry
