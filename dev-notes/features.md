@@ -10,6 +10,10 @@ I'm confused why compact shrinks files below the 4096 initial size. It makes sen
 
 # For Consideration
 
+## Allow tables to be used like a relational database
+
+We lose the ability to track types, unless there is metadata telling what the relations are. For consideration only, at this point
+
 ## Reduce shift/reduce Conflicts
 
 ## Create Examples for Graph Command

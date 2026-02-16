@@ -1,0 +1,61 @@
+# Deferred Topics Index
+
+Consolidated index of all topics explicitly deferred for future discussion. Each entry links to its source file.
+
+---
+
+## Graph Query Language
+
+Source: [scratch/graphs/graph-query-language.md](../../../../../scratch/graphs/graph-query-language.md)
+
+| Topic | Summary | Notes |
+|-------|---------|-------|
+| D2 — Syntactic sugar | Shorthand for common graph patterns (`graph Person` etc.) | Build explicit language first, sugar later |
+| D6 — Expression variables | Naming intermediate graph results for reuse | Deferred to future scripting/language design discussion |
+| D10 — Node display properties | How nodes look when rendered (residual after D12 resolved compact/expanded) | Fold into rendering/style discussion |
+| D19 — Data query generalization | Could expression language extend to data traversal? | Reframed by D22: not about extending the language, but plugging in a different schema |
+
+## Typed Math
+
+Source: MEMORY.md, dev-notes/features.md
+
+| Topic | Summary | Notes |
+|-------|---------|-------|
+| Phase 7 — Bitwise operators | `&`, `|`, `^`, `~` | Grammar conflict with graph `&` operator TBD |
+| Phase 8 — Lambda expressions | `map(lambda)`, `filter(lambda)` for arrays | |
+
+## Type System & Storage
+
+Source: MEMORY.md, dev-notes/features.md, dev-notes/known-bugs.md
+
+| Topic | Summary | Notes |
+|-------|---------|-------|
+| Indexes | Database indexing for sets, dicts, and queries | |
+| Nested arrays | General `int32[][]` support; only `string[]` works today | Needs recursive element pre-storage |
+
+## Planned Capabilities (Unscoped)
+
+Source: CLAUDE.md ("To be determined" section)
+
+| Topic | Summary |
+|-------|---------|
+| Transitive closure | Return a type and all types it references, recursively |
+| Value location | Given a value, emit its table and index |
+| Reverse reference lookup | Given a table and index, find all composites that reference it |
+| Storage size calculation | Calculate total bytes for a type instance (with/without metadata) |
+
+## For Consideration (Exploratory)
+
+Source: dev-notes/features.md
+
+| Topic | Summary |
+|-------|---------|
+| Executor as VM | Turn executor into bytecode-based VM with instruction set |
+| Reduce keyword count | Simplify the grammar |
+| Packed bit arrays | Handle bit streams across byte boundaries |
+| Relational DB mode | Allow tables to be used relationally |
+| Complete trig functions | Full set of trigonometric functions |
+
+---
+
+*Last updated: 2026-02-16*
