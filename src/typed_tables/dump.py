@@ -128,24 +128,26 @@ def _create_type_from_spec(
     kind = spec.get("kind")
 
     if kind == "primitive":
-        # Already registered
+        # Already registered by _register_primitives
         return None
     elif kind == "alias":
         base_type = registry.get_or_raise(spec["base_type"])
         return AliasTypeDefinition(name=name, base_type=base_type)
     elif kind == "string":
-        element_type = registry.get_or_raise(spec["element_type"])
-        return StringTypeDefinition(name=name, element_type=element_type)
+        # Already registered by _register_primitives; kept for backward compat
+        return None
     elif kind == "boolean":
-        return BooleanTypeDefinition(name=name, primitive=PrimitiveType.BIT)
+        # Already registered by _register_primitives; kept for backward compat
+        return None
     elif kind == "fraction":
-        return FractionTypeDefinition(name=name)
+        # Already registered by _register_primitives; kept for backward compat
+        return None
     elif kind == "bigint":
-        element_type = registry.get_or_raise(spec["element_type"])
-        return BigIntTypeDefinition(name=name, element_type=element_type)
+        # Already registered by _register_primitives; kept for backward compat
+        return None
     elif kind == "biguint":
-        element_type = registry.get_or_raise(spec["element_type"])
-        return BigUIntTypeDefinition(name=name, element_type=element_type)
+        # Already registered by _register_primitives; kept for backward compat
+        return None
     elif kind == "array":
         element_type = registry.get_or_raise(spec["element_type"])
         return ArrayTypeDefinition(name=name, element_type=element_type)

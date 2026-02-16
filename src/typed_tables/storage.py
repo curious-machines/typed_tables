@@ -35,6 +35,12 @@ if TYPE_CHECKING:
     pass
 
 
+_BUILTIN_TYPE_NAMES: frozenset[str] = frozenset(
+    [pt.value for pt in PrimitiveType]
+    + ["string", "boolean", "bigint", "biguint", "fraction"]
+)
+
+
 class StorageManager:
     """Manages all tables for a schema."""
 
@@ -72,13 +78,64 @@ class StorageManager:
         """Public method to save type metadata to disk."""
         self._save_metadata()
 
+    def _collect_referenced_builtins(self) -> set[str]:
+        """Collect built-in type names referenced by any user-defined type."""
+        referenced: set[str] = set()
+
+        def walk(td: TypeDefinition) -> None:
+            if isinstance(td, AliasTypeDefinition):
+                if td.base_type.name in _BUILTIN_TYPE_NAMES:
+                    referenced.add(td.base_type.name)
+                walk(td.base_type)
+            elif isinstance(td, FractionTypeDefinition):
+                referenced.add(td.name)
+            elif isinstance(td, (BigIntTypeDefinition, BigUIntTypeDefinition)):
+                referenced.add(td.name)
+            elif isinstance(td, StringTypeDefinition):
+                referenced.add(td.name)
+            elif isinstance(td, BooleanTypeDefinition):
+                referenced.add(td.name)
+            elif isinstance(td, SetTypeDefinition):
+                walk(td.element_type)
+            elif isinstance(td, DictionaryTypeDefinition):
+                walk(td.key_type)
+                walk(td.value_type)
+            elif isinstance(td, PrimitiveTypeDefinition):
+                referenced.add(td.name)
+            elif isinstance(td, ArrayTypeDefinition):
+                walk(td.element_type)
+
+        for type_name in self.registry.list_types():
+            if type_name in _BUILTIN_TYPE_NAMES:
+                continue
+            type_def = self.registry.get(type_name)
+            if type_def is None:
+                continue
+            base = type_def.resolve_base_type()
+            if isinstance(base, (CompositeTypeDefinition, InterfaceTypeDefinition)):
+                for f in base.fields:
+                    walk(f.type_def)
+            if isinstance(base, EnumTypeDefinition):
+                if base.backing_type is not None:
+                    # backing type is a PrimitiveType enum, not a TypeDefinition
+                    referenced.add(base.backing_type.value)
+                for v in base.variants:
+                    for f in v.fields:
+                        walk(f.type_def)
+
+        return referenced
+
     def _serialize_type_registry(self) -> dict[str, Any]:
         """Serialize the type registry to JSON-compatible format."""
+        referenced_builtins = self._collect_referenced_builtins()
         result: dict[str, Any] = {}
 
         for type_name in self.registry.list_types():
             type_def = self.registry.get(type_name)
             if type_def is None:
+                continue
+
+            if type_name in _BUILTIN_TYPE_NAMES and type_name not in referenced_builtins:
                 continue
 
             result[type_name] = self._serialize_type_def(type_def)
@@ -100,20 +157,11 @@ class StorageManager:
                 "base_type": type_def.base_type.name,
             }
         elif isinstance(type_def, StringTypeDefinition):
-            return {
-                "kind": "string",
-                "element_type": type_def.element_type.name,
-            }
+            return {"kind": "string"}
         elif isinstance(type_def, BigIntTypeDefinition):
-            return {
-                "kind": "bigint",
-                "element_type": type_def.element_type.name,
-            }
+            return {"kind": "bigint"}
         elif isinstance(type_def, BigUIntTypeDefinition):
-            return {
-                "kind": "biguint",
-                "element_type": type_def.element_type.name,
-            }
+            return {"kind": "biguint"}
         elif isinstance(type_def, FractionTypeDefinition):
             return {"kind": "fraction"}
         elif isinstance(type_def, SetTypeDefinition):
