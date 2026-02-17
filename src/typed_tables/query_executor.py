@@ -586,13 +586,14 @@ class QueryExecutor:
                 kind = "Primitive"
                 count = None
             elif isinstance(type_def, CompositeTypeDefinition):
-                table_file = self.storage.data_dir / f"{type_name}.bin"
-                if not table_file.exists():
-                    continue
                 kind = "Composite"
-                try:
-                    count = self.storage.get_table(type_name).count
-                except Exception:
+                table_file = self.storage.data_dir / f"{type_name}.bin"
+                if table_file.exists():
+                    try:
+                        count = self.storage.get_table(type_name).count
+                    except Exception:
+                        count = 0
+                else:
                     count = 0
             else:
                 continue
