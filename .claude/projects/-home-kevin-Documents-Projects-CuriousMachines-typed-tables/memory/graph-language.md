@@ -1,7 +1,7 @@
 # Graph Expression Language — Memory Pointer
 
 **This file is superseded by the full design document:**
-[scratch/graphs/graph-query-language.md](../../../../../scratch/graphs/graph-query-language.md)
+[scratch/graphs/graph-expression-language.md](../../../../../scratch/graphs/graph-expression-language.md)
 
 ## Quick Summary
 

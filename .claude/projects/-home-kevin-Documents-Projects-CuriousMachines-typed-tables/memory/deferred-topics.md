@@ -4,9 +4,9 @@ Consolidated index of all topics explicitly deferred for future discussion. Each
 
 ---
 
-## Graph Query Language
+## Graph Expression Language
 
-Source: [scratch/graphs/graph-query-language.md](../../../../../scratch/graphs/graph-query-language.md)
+Source: [scratch/graphs/graph-expression-language.md](../../../../../scratch/graphs/graph-expression-language.md)
 
 | Topic | Summary | Notes |
 |-------|---------|-------|

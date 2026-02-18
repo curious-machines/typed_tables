@@ -1,0 +1,100 @@
+-- Entity selectors: selector_name: SchemaType
+selector {
+    composites: CompositeDef,
+    interfaces: InterfaceDef,
+    enums: EnumDef,
+    fields: FieldDef,
+    variants: VariantDef,
+    aliases: AliasDef,
+    arrays: ArrayDef,
+    sets: SetDef,
+    dictionaries: DictDef,
+    overflows: OverflowDef,
+    bit: BitDef,
+    character: CharacterDef,
+    uint8: UInt8Def,
+    int8: Int8Def,
+    uint16: UInt16Def,
+    int16: Int16Def,
+    uint32: UInt32Def,
+    int32: Int32Def,
+    uint64: UInt64Def,
+    int64: Int64Def,
+    uint128: UInt128Def,
+    int128: Int128Def,
+    float16: Float16Def,
+    float32: Float32Def,
+    float64: Float64Def,
+    boolean: BooleanDef,
+    string: StringDef,
+    bigint: BigIntDef,
+    biguint: BigUIntDef,
+    fraction: FractionDef
+}
+
+-- Selector groupings: group_name: [selector/group names]
+group {
+    integers: [uint8, int8, uint16, int16, uint32, int32, uint64, int64, uint128, int128, bigint, biguint],
+    floats: [float16, float32, float64],
+    primitives: [integers, floats, bit, character],
+    types: [composites, interfaces, enums, aliases, arrays, sets, dictionaries, overflows, primitives, boolean, string, fraction],
+    all: [types, fields, variants]
+}
+
+-- Forward axes: axis_name: selector.field or [selector.field, ...]
+axis {
+    fields: [composites.fields, interfaces.fields, variants.fields],
+    extends: [composites.parent, interfaces.extends],
+    interfaces: composites.interfaces,
+    variants: enums.variants,
+    backing: enums.backing_type,
+    type: fields.type,
+    alias: aliases.base_type,
+    base: overflows.base_type,
+    element: [arrays.element_type, sets.element_type],
+    key: dictionaries.key_type,
+    value: dictionaries.value_type
+}
+
+-- Reverse axes: reverse_name: forward_axis_name
+reverse {
+    children: extends,
+    implementers: interfaces,
+    owner: fields,
+    enum: variants,
+    typedBy: type,
+    aliasedBy: alias,
+    backedBy: backing,
+    wrappedBy: base,
+    elementOf: element,
+    keyOf: key,
+    valueOf: value
+}
+
+-- Axis groupings: group_name: [axis names]
+axis_group {
+    all: [fields, extends, interfaces, variants, backing, type, alias, base, element, key, value],
+    allReverse: [children, implementers, owner, enum, typedBy, aliasedBy, backedBy, wrappedBy, elementOf, keyOf, valueOf],
+    referencedBy: [typedBy, aliasedBy, backedBy, wrappedBy, elementOf, keyOf, valueOf]
+}
+
+-- Node identity: per selector, with default
+-- Any field referenced here is also available as a predicate
+identity {
+    default: name
+}
+
+-- Predicates: scalar fields on schema types are implicitly available
+-- as predicates (any field not mapped to an axis). For example,
+-- EnumDef.has_explicit_values, FieldDef.default_value, etc.
+--
+-- GAP: computed predicates like 'declared' and 'stored' on fields
+-- (is this field declared on the owning type vs inherited from parent)
+-- cannot be expressed yet. Needs language support for expressions
+-- that reference the traversal context (the owning type).
+
+-- Shortcuts (contain TTGE expressions)
+shortcut {
+    "": types + .fields{label=.name, result=.type} + .extends + .interfaces
+    "all": all
+}

@@ -1,6 +1,6 @@
-# Graph Query Language — Design Document
+# TTGE (Typed Tables Graph Expression) Language — Design Document
 
-## Status: Active Discussion (2026-02-15)
+## Status: Active Discussion (2026-02-18)
 
 ## Motivation
 
@@ -20,9 +20,11 @@ XPath-like semantics — not the syntax, but the idea of:
 
 ## Entity Catalog
 
+**Note:** This catalog describes the built-in meta-schema entities. Per D22 (Schema-Driven Identifiers), all selectors, axes, and predicates are resolved at runtime against the loaded config. The catalog below is the concrete instance for the type-system schema (`meta-schema.ttgc`). Other schemas would define their own entity kinds and relationships.
+
 ### Entity Kinds
 
-These are the concrete node types that can appear in a graph:
+These are the concrete node types that can appear in a graph (for the meta-schema):
 
 | Entity Kind | Description | Has Outgoing Edges? |
 |-------------|-------------|---------------------|
@@ -31,6 +33,7 @@ These are the concrete node types that can appear in a graph:
 | **Enum** | User-defined enumeration | Yes |
 | **Variant** | A single variant of an enum | Yes (Swift-style) or No (C-style) |
 | **Alias** | Named type alias | Yes (points to base) |
+| **Overflow** | Overflow-wrapped type (e.g., `saturating int8`) | Yes (points to base + policy) |
 | **Array** | Array type (e.g., `uint8[]`) | Yes (element type) |
 | **Set** | Set type (e.g., `{string}`) | Yes (element type) |
 | **Dictionary** | Dictionary type (e.g., `{string: int32}`) | Yes (key + value types) |
@@ -93,6 +96,13 @@ C-style variants have no outgoing edges — they are leaf-like nodes with a name
 | Edge | Target | Cardinality | Description |
 |------|--------|-------------|-------------|
 | resolves | any type | 1 | Base type (can be another Alias) |
+
+**Overflow:**
+| Edge | Target | Cardinality | Description |
+|------|--------|-------------|-------------|
+| base | integer primitive | 1 | Base integer type |
+
+Overflow entities also carry a `policy` attribute (`saturating` or `wrapping`) that is not an edge but may be displayed as a node label.
 
 **Array:**
 | Edge | Target | Cardinality | Description |
@@ -246,6 +256,7 @@ Axes traverse relationships from nodes in the current node set. Each traversal p
 | `.variants` | variant | Enum | Produces Variant nodes |
 | `.backing` | backing_type | Enum | Produces integer primitive node |
 | `.alias` | resolves | Alias | Produces base type node |
+| `.base` | base | Overflow | Produces base integer type node |
 | `.element` | element | Array, Set | Produces element type node |
 | `.key` | key | Dictionary | Produces key type node |
 | `.value` | value | Dictionary | Produces value type node |
@@ -265,14 +276,15 @@ Axes traverse relationships from nodes in the current node set. Each traversal p
 | `.valueOf` | which Dict has me as value? | any type | `.value` |
 | `.typedBy` | which Fields have me as their type? | any type | `.type` |
 | `.backedBy` | which Enums use me as backing type? | integer primitives | `.backing` |
+| `.wrappedBy` | which Overflow types wrap me? | integer primitives | `.base` |
 
 **Axis groupings** (analogous to type groupings like `integers`, `floats`):
 
 | Grouping | Expands To | Meaning |
 |----------|-----------|---------|
-| `.all` | `{.fields, .extends, .interfaces, .variants, .backing, .alias, .element, .key, .value, .type}` | Every forward axis |
-| `.allReverse` | `{.children, .implementers, .owner, .enum, .aliasedBy, .elementOf, .keyOf, .valueOf, .typedBy, .backedBy}` | Every reverse axis |
-| `.referencedBy` | `{.typedBy, .aliasedBy, .elementOf, .keyOf, .valueOf, .backedBy}` | Everything that references me through any edge |
+| `.all` | `{.fields, .extends, .interfaces, .variants, .backing, .type, .alias, .base, .element, .key, .value}` | Every forward axis |
+| `.allReverse` | `{.children, .implementers, .owner, .enum, .typedBy, .aliasedBy, .backedBy, .wrappedBy, .elementOf, .keyOf, .valueOf}` | Every reverse axis |
+| `.referencedBy` | `{.typedBy, .aliasedBy, .backedBy, .wrappedBy, .elementOf, .keyOf, .valueOf}` | Everything that references me through any edge |
 
 More axis groupings can be added as patterns emerge.
 
@@ -573,7 +585,7 @@ This works for any relationship type, not just structural — field references, 
 | `graph excluding type [uint8, uint16]` | `... - primitives{name=uint8\|uint16}` | Subtract |
 | `graph Boss to Entity` | `(composites{name=Boss} + .all{depth=inf} & interfaces{name=Entity} + .allReverse{depth=inf}) \| (interfaces{name=Entity} + .fields{label=.name, result=.type})` | Intersection + union |
 | `graph > "file.dot"` | `graph > "file.dot"` (empty shortcut + output) | Schema shortcut (D23) |
-| `graph{"title":"X"} > "f.dot"` | `graph > "f.dot" @{title="X"}` (empty shortcut + metadata) | Trailing `@{...}` (D3) |
+| `graph{"title":"X"} > "f.dot"` | `graph style { "title": "X" }` then `graph > "f.dot"` (empty shortcut + session style) | Session-level style (D3) |
 
 ---
 
@@ -652,56 +664,126 @@ Key pattern — collapsing Field to reproduce current compact graph:
 .fields{label=.name, result=.type}  -- Person --name--> string (one hop, not two)
 ```
 
-### D3: Metadata Syntax
+### D3: Config, Style, and the `metadata` Prefix
 
-Trailing `@{...}` after the output clause. The expression defines what's in the graph, `>` defines where it goes, `@{...}` defines how it's rendered. Reads left-to-right: what → where → how.
+Configuration and style are **session state**, not persisted per-database. There is no registry. The user sets config and style before running expressions.
+
+**Two independent contexts**, selected by the `metadata` prefix:
+
+- **Data context** (no prefix) — the active database. Config and style start empty; must be set explicitly.
+- **Metadata context** (`metadata` prefix) — the active database's schema. Has built-in defaults (`meta-schema.ttgc` and a default style, bundled with the package).
+
+**Switching databases** (TTQ `use`) clears both contexts. Metadata reinitializes with built-in defaults for the new database.
+
+**Config** validates against the target database's schema at load time:
+```
+graph config "social-graph.ttgc"              -- set data config (from TTQ/REPL)
+graph metadata config "custom-meta.ttgc"      -- override built-in meta-schema config (rare)
+```
+
+**Style** supports three forms, in both data and metadata contexts:
+1. `[metadata] style "file"` — load file, replace current style entirely.
+2. `[metadata] style "file" { "key": "val" }` — load file, then apply inline overrides.
+3. `[metadata] style { "key": "val" }` — amend current style in place. Error if no config active.
 
 ```
-graph composites{name=Person} + .fields{label=.name, result=.type} > "out.dot" @{title="My Schema", direction="LR"}
+-- From the REPL
+graph config "social-graph.ttgc"
+graph style "light.style"
+graph style { "direction": "LR" }                      -- amend data style
+graph metadata style { "direction": "LR" }             -- amend meta-schema style
+graph users + .friends{label=.name}                    -- data query
+graph metadata composites + .fields{label=.name, result=.type}  -- schema query
 ```
 
-The `@` sigil disambiguates from set notation and makes metadata entirely optional without affecting the expression grammar. Metadata is only meaningful for rendered output (DOT files).
+This separates concerns: the expression defines what's in the graph, `>` defines where it goes, and session-level config/style define how it's rendered.
 
 ### D6: Expression Variables
 
-Deferred to a future scripting/language design discussion. Expression variables push the graph command from "single expression" into "mini-script" territory (multiple lines of expressions), which doesn't fit the REPL model well.
+Deferred to a future scripting/language design discussion. Expression variables push the graph command from "single expression" into "mini-script" territory (multiple lines of expressions), which doesn't fit the REPL model well. Note: TTGE scripts (D31) partially address the multi-line need by allowing sequences of commands.
 
-### D7: Table Output Format
+### D31: TTGE Scripts
 
-Three columns: `source | edge | target`. One row per edge. Isolated nodes (no edges) get a row with empty `edge` and `target` columns.
+TTGE scripts (`.ttge` files) bundle config, style, and expressions into executable files. They provide the multi-line capability that D6 deferred, without requiring expression variables.
 
-**Entity kind qualification:** When Field entities appear in the table, they are prefixed with their entity kind to avoid ambiguity with type names (e.g., `Field:name` not just `name`).
+**Invocation:**
+- From TTQ context: `graph execute "file.ttge"`
+- From TTGE context (inside `.ttge` files): `execute "file.ttge"`
 
-**Examples:**
+**Inside `.ttge` files**, no `graph` prefix — everything is TTGE context. Available commands: `config`, `style`, `metadata config`, `metadata style`, `metadata <expr>`, `<expr>`, `execute`.
+
+**Scripts assume a database is already selected** (database selection is a TTQ concern). Scripts can set their own config/style, or inherit whatever the caller set. Scripts can execute other scripts. Scripts stop on errors.
+
+**Cycle detection and relative paths** follow the same patterns as TTQ's `execute` command.
+
+```
+-- schema-report.ttge
+metadata style { "direction": "LR" }
+metadata composites + .fields{label=.name, result=.type} > "composites.dot"
+metadata enums + .variants > "enums.dot"
+```
+
+### D7: Result Type and Table Rendering
+
+**TTGE's native result type** (`GraphResult`) is defined in the TTGE module with no dependency on TTQ or the REPL:
+
+```python
+@dataclass
+class GraphEdge:
+    source: str      # node identity (e.g., type name)
+    label: str       # axis name or custom label
+    target: str      # node identity
+
+@dataclass
+class GraphResult:
+    edges: list[GraphEdge]       # sorted if sort by was specified
+    isolated_nodes: list[str]    # nodes with no edges
+```
+
+**Two output paths:**
+
+1. **File output** (`> "file.dot"`): TTGE serializes to DOT/TTQ format and writes the file. Returns a status message (e.g., `FileResult(path, edge_count)`) or `None`.
+2. **No file output**: TTGE returns a `GraphResult`. The caller (TTQ executor or REPL) renders it as a table, mapping `source`→column 1, `label`→column 2, `target`→column 3.
+
+**Dependency direction is strictly one-way:**
+- TTQ/REPL → calls TTGE, reads `GraphResult`
+- TTGE → uses storage layer (reads databases)
+- TTGE → does NOT depend on TTQ or REPL
+
+TTGE does not know about tables. It returns its native result type. The caller decides how to display it.
+
+**Entity kind qualification:** When Field entities appear in results, they are prefixed with their entity kind to avoid ambiguity with type names (e.g., `Field:name` not just `name`). This qualification is part of the node identity string in `GraphResult`.
+
+**Examples** (as rendered by the REPL):
 
 Nodes only (`graph composites`):
 ```
-source | edge | target
--------+------+-------
-Base   |      |
-Root   |      |
-Person |      |
+source | label | target
+-------+-------+-------
+Base   |       |
+Root   |       |
+Person |       |
 ```
 
 Two-hop with Field entities (`graph composites{name=Person} + .fields + .type`):
 ```
-source         | edge | target
----------------+------+-----------
-Person         | has  | Field:name
-Person         | has  | Field:id
-Person         | has  | Field:age
-Person         | has  | Field:nicknames
-Person         | has  | Field:code
-Field:name     | type | string
-Field:id       | type | uuid
-Field:age      | type | uint8
-Field:nicknames| type | {string}
-Field:code     | type | [uint8]
+source         | label | target
+---------------+-------+-----------
+Person         | has   | Field:name
+Person         | has   | Field:id
+Person         | has   | Field:age
+Person         | has   | Field:nicknames
+Person         | has   | Field:code
+Field:name     | type  | string
+Field:id       | type  | uuid
+Field:age      | type  | uint8
+Field:nicknames| type  | {string}
+Field:code     | type  | [uint8]
 ```
 
 Compact form (`graph composites{name=Person} + .fields{label=.name, result=.type}`):
 ```
-source | edge      | target
+source | label     | target
 -------+-----------+---------
 Person | name      | string
 Person | id        | uuid
@@ -710,9 +792,9 @@ Person | nicknames | {string}
 Person | code      | [uint8]
 ```
 
-Mixed — isolated nodes get empty rows (`graph composites + .extends`):
+Mixed — isolated nodes appear with empty label and target (`graph composites + .extends`):
 ```
-source | edge    | target
+source | label   | target
 -------+---------+--------
 Root   | extends | Base
 Base   |         |
@@ -851,7 +933,7 @@ Eager evaluation — no lazy optimization needed. The expression language operat
 
 ### D17: Style Files
 
-Style file format (TTQ dict syntax) and loading mechanism (`@{style="file"}`) unchanged. Key set expanded to cover all entity kinds:
+Style file format (TTQ dict syntax) unchanged. Style files are loaded via session-level style commands (see D3). Three forms: file only, file with inline overrides, inline amendment. The `metadata` prefix targets the meta-schema style context. Key set expanded to cover all entity kinds:
 
 ```
 {
@@ -873,33 +955,201 @@ Style file format (TTQ dict syntax) and loading mechanism (`@{style="file"}`) un
 
 ### D16: Output File and Format
 
-Unchanged from current behavior. `> "file"` after the expression, format determined by extension (`.dot` for DOT, `.ttq` for TTQ, no extension defaults to `.ttq`). No `>` means table output to stdout.
+`> "file"` after the expression, format determined by extension (`.dot` for DOT, `.ttq` for TTQ, no extension defaults to `.ttq`). No `>` means table output to stdout.
 
-Full statement structure:
+Full statement structure from TTQ context (REPL or TTQ scripts), prefixed with `graph`:
 ```
-graph <expression> [sort by ...] [> "file"] [@{...}]
+graph config "file.ttgc"
+graph [metadata] style "file.style" [{ "key": "value", ... }]
+graph [metadata] style { "key": "value", ... }
+graph metadata config "file.ttgc"
+graph [metadata] <expression> [sort by ...] [> "file"]
+graph execute "file.ttge"
 ```
 
-`sort by` only applies to table output (no `>`). `@{...}` only applies to DOT output. Both silently ignored when irrelevant. TTQ output schema details (adapting for Field/Variant entities) are an implementation concern, not a language design question.
+From TTGE context (`.ttge` scripts), no `graph` prefix:
+```
+config "file.ttgc"
+[metadata] style "file.style" [{ "key": "value", ... }]
+[metadata] style { "key": "value", ... }
+metadata config "file.ttgc"
+[metadata] <expression> [sort by ...] [> "file"]
+execute "file.ttge"
+```
+
+`sort by` only applies when no file output (no `>`) — it orders the `GraphResult.edges` list that TTGE returns to the caller. Rendering metadata (title, direction, colors) is set via session-level config and style commands (see D3), not per-expression. TTQ output schema details (adapting for Field/Variant entities) are an implementation concern, not a language design question.
 
 ### D15: Sorting
 
-`sort by column[, column]` after the expression, before `>` (if present). Ascending default. Columns: `source`, `edge`, `target`.
+`sort by field[, field]` after the expression, before `>` (if present). Ascending default. Fields correspond to `GraphEdge` attributes: `source`, `label`, `target`.
 
 ```
 graph composites + .fields{label=.name, result=.type} sort by source
-graph composites + .fields sort by source, edge
+graph composites + .fields sort by source, label
 ```
 
-Silently ignored when outputting to a file. `asc`/`desc` modifiers deferred — add only if needed.
+TTGE applies the sort to its `GraphResult.edges` list before returning it. No default sort order — results come in whatever order the evaluation produces (D29). Silently ignored when outputting to a file. `asc`/`desc` modifiers deferred — add only if needed.
 
 ---
 
-## Open Discussion Points
+## Formal Grammar (EBNF)
 
-### Formal Grammar (BNF)
+This grammar serves as the implementation specification for the TTGE parser. Notation: `{ x }` means zero or more repetitions, `[ x ]` means optional, `|` separates alternatives, `(* ... *)` are comments. Terminal tokens are in `CAPS` or quoted strings.
 
-Deferred until the design is considered complete. Once all language features are settled, produce a formal BNF/EBNF grammar in this document to serve as the implementation specification.
+### Statement Grammar
+
+A TTGE statement is the unit parsed by the TTGE parser. From TTQ context, the `graph` prefix has already been stripped before reaching TTGE.
+
+```ebnf
+statement       = config_stmt
+                | meta_config_stmt
+                | style_stmt
+                | meta_style_stmt
+                | execute_stmt
+                | meta_expr_stmt
+                | expr_stmt ;
+
+config_stmt     = "config" , STRING ;
+meta_config_stmt = "metadata" , "config" , STRING ;
+
+style_stmt      = "style" , style_args ;
+meta_style_stmt = "metadata" , "style" , style_args ;
+
+style_args      = STRING , [ dict_literal ]
+                | dict_literal ;
+
+execute_stmt    = "execute" , STRING ;
+
+meta_expr_stmt  = "metadata" , expression , [ sort_clause ] , [ output_clause ] ;
+expr_stmt       = expression , [ sort_clause ] , [ output_clause ] ;
+
+sort_clause     = "sort" , "by" , sort_key , { "," , sort_key } ;
+sort_key        = "source" | "label" | "target" ;
+
+output_clause   = ">" , STRING ;
+
+dict_literal    = "{" , [ dict_entry , { "," , dict_entry } ] , "}" ;
+dict_entry      = STRING , ":" , STRING ;
+```
+
+### Expression Grammar
+
+Precedence from tightest to loosest: `.` (dot) → `+` `/` `-` (chain) → `&` (intersection) → `|` (union). All left-to-right associative.
+
+```ebnf
+expression      = union_expr ;
+
+union_expr      = isect_expr , { "|" , isect_expr } ;
+
+isect_expr      = chain_expr , { "&" , chain_expr } ;
+
+chain_expr      = dot_expr , { chain_op } ;
+
+chain_op        = "+" , axis_operand
+                | "/" , axis_operand
+                | "-" , subtract_operand ;
+
+(* "-" can subtract axis results OR selector/set nodes *)
+subtract_operand = axis_operand
+                 | atom ;
+
+dot_expr        = atom , { "." , axis } ;
+
+atom            = selector
+                | "(" , expression , ")"
+                | set_literal ;
+
+set_literal     = "{" , expression , { "," , expression } , "}" ;
+
+selector        = IDENTIFIER , [ pred_dict ] ;
+```
+
+### Axis Grammar
+
+```ebnf
+axis            = IDENTIFIER , [ pred_dict ] ;
+
+(* Single axis chain or compound axis set *)
+axis_operand    = "." , axis , { "." , axis }
+                | "{" , "." , axis , { "," , "." , axis } , "}" ;
+```
+
+### Predicate Grammar
+
+Predicate values use a generic syntax. The TTGE engine validates value types against the loaded config (D22 — schema-driven identifiers, no reserved words in expressions).
+
+```ebnf
+pred_dict       = "{" , predicate , { "," , predicate } , "}" ;
+
+predicate       = IDENTIFIER , "=" , pred_value ;
+
+pred_value      = name_expr
+                | axis_path
+                | join_expr
+                | INTEGER
+                | INFINITY
+                | BOOLEAN
+                | STRING ;
+
+(* Name matching with OR and NOT — used for filtering predicates *)
+name_expr       = name_term , { "|" , name_term } ;
+
+name_term       = "!" , name_atom
+                | name_atom ;
+
+name_atom       = IDENTIFIER
+                | "(" , name_expr , ")" ;
+
+(* Axis path — used for label= and result= *)
+axis_path       = "." , IDENTIFIER , { "." , IDENTIFIER } ;
+
+(* Aggregation — used for label= *)
+join_expr       = "join" , "(" , STRING , "," , axis_path , ")" ;
+```
+
+### Terminals
+
+```ebnf
+IDENTIFIER      = letter , { letter | digit | "_" } ;
+STRING          = '"' , { any_char - '"' } , '"' ;
+INTEGER         = digit , { digit } ;
+INFINITY        = "inf" | "infinity" ;
+BOOLEAN         = "true" | "false" ;
+COMMENT         = "--" , { any_char - newline } , newline ;
+```
+
+### Disambiguation Rules
+
+Curly braces `{` have four roles depending on context. These are syntactically unambiguous:
+
+| Context | Meaning | Distinguished By |
+|---------|---------|-----------------|
+| After IDENTIFIER (no whitespace) | Predicate dict | Contents: `IDENTIFIER = ...` |
+| After `+` `/` `-` | Compound axis set | Contents start with `.` |
+| As atom (start of expression, after operator, after `(`, after `,` in set) | Set literal | Contents are expressions (no leading `.`, no `=`) |
+| After `style` or as `style` argument | Dict literal | Contents: `STRING : STRING` |
+
+In an LALR(1) parser, the key disambiguations:
+- **pred_dict vs set_literal:** `{` immediately following an IDENTIFIER is always a pred_dict (part of the `selector` or `axis` production). Standalone `{` is a set_literal.
+- **compound axis set vs set_literal:** After a chain operator, `{` followed by `.` is a compound axis set. `{` followed by IDENTIFIER is a set_literal (for `- {composites, interfaces}`).
+- **dict_literal:** Only appears in `style_args`, never in expression context.
+
+### Contextual Keywords
+
+Per D22, no words are reserved in the expression grammar — all selector names, axis names, and predicate keys are identifiers resolved at runtime against the loaded config.
+
+The following are **contextual keywords**, recognized only in specific positions:
+
+| Keyword | Context |
+|---------|---------|
+| `config`, `style`, `execute`, `metadata` | Statement start only |
+| `sort`, `by` | After expression, before `>` |
+| `source`, `label`, `target` | After `sort by` |
+| `inf`, `infinity` | Predicate value position |
+| `true`, `false` | Predicate value position |
+| `join` | Predicate value position |
+
+All of these can be used as identifiers in other positions (e.g., `composites{name=sort}` is valid).
 
 ---
 
@@ -917,7 +1167,7 @@ Details to resolve during implementation, not requiring design decisions:
 
 - **`result=` can produce multiple nodes** from a single traversal step. E.g., `.variants{result=.fields.type}` on a Swift-style variant with multiple fields produces multiple type nodes. Each becomes a separate edge from the source. Works naturally with set semantics.
 
-- **`{}` parsing context:** Curly braces have three meanings depending on position. After `graph` or `,` inside a set → set construction (`{composites, interfaces}`). After an identifier → predicate dict (`composites{name=Person}`). After `+`/`/`/`-` → axis set (`+ {.fields, .extends}`). Context is always unambiguous, but the BNF must handle this carefully.
+- **`{}` parsing context:** See Disambiguation Rules in the Formal Grammar section for the four roles of `{` and how they are syntactically distinguished.
 
 ---
 
@@ -959,3 +1209,7 @@ Details to resolve during implementation, not requiring design decisions:
 - 2026-02-16: Decided D29 — default sort order unspecified; use `sort by` for predictable output
 - 2026-02-16: Decided D30 — depth=0 allowed as no-op
 - 2026-02-16: Fixed mapping table (bare `graph` uses "" shortcut, not `all`); added Implementation Notes section
+- 2026-02-18: Renamed GQL to TTGE; replaced @{...} metadata with global `graph config` and `graph style` commands; added three-parser architecture (TTQ, TTGC, TTGE)
+- 2026-02-18: Reconciliation pass — D3 rewritten for session-state config/style with `metadata` prefix and two contexts; D16 updated with full statement structure for TTQ and TTGE contexts; D17 updated for three style forms; D31 added for TTGE scripts; added Overflow entity to catalog and axes; added `.base`/`.wrappedBy` axes; entity catalog noted as schema-driven per D22
+- 2026-02-18: D7 rewritten — TTGE returns `GraphResult` (edges + isolated nodes), not a table; one-way dependency (TTQ/REPL → TTGE, not reverse); table column renamed `edge` → `label` to match `GraphEdge.label`; D15 updated for `GraphResult` sorting semantics; D16 updated to reference `GraphResult`
+- 2026-02-18: Formal EBNF grammar added — statement grammar (config, style, metadata, execute, expressions), expression grammar (union/intersection/chain/dot precedence), axis grammar, predicate grammar with generic value syntax, disambiguation rules for `{}`, contextual keywords table

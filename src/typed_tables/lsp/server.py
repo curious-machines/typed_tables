@@ -179,6 +179,11 @@ def _validate_document(uri: str) -> None:
     doc = server.workspace.get_text_document(uri)
     source = doc.source
     diagnostics: list[types.Diagnostic] = []
+    if not source or not source.strip():
+        server.text_document_publish_diagnostics(
+            types.PublishDiagnosticsParams(uri=uri, diagnostics=[])
+        )
+        return
     try:
         _parser.parse_program(source)
     except SyntaxError as exc:

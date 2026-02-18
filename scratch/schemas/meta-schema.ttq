@@ -1,0 +1,84 @@
+-- Meta-schema: describes the structure of any typed_tables database schema
+
+enum OverflowPolicy { `saturating`, `wrapping` }
+
+-- Common interface for all type definitions
+interface TypeDef {
+    name: string
+}
+
+-- Tagging interfaces for type categories
+interface IntegerDef { }
+interface FloatDef { }
+
+-- A field within a composite, interface, or enum variant
+type FieldDef {
+    name: string,
+    `type`: TypeDef,
+    default_value: string       -- TTQ text representation, null if no default
+}
+
+-- A single variant within an enum
+type VariantDef {
+    name: string,
+    discriminant: uint32,
+    fields: FieldDef[]
+}
+
+-- Primitive types
+type BitDef from TypeDef { }
+type CharacterDef from TypeDef { }
+
+type UInt8Def from TypeDef, IntegerDef { }
+type Int8Def from TypeDef, IntegerDef { }
+type UInt16Def from TypeDef, IntegerDef { }
+type Int16Def from TypeDef, IntegerDef { }
+type UInt32Def from TypeDef, IntegerDef { }
+type Int32Def from TypeDef, IntegerDef { }
+type UInt64Def from TypeDef, IntegerDef { }
+type Int64Def from TypeDef, IntegerDef { }
+type UInt128Def from TypeDef, IntegerDef { }
+type Int128Def from TypeDef, IntegerDef { }
+
+type Float16Def from TypeDef, FloatDef { }
+type Float32Def from TypeDef, FloatDef { }
+type Float64Def from TypeDef, FloatDef { }
+
+-- Built-in special types
+type BooleanDef from TypeDef { }
+type StringDef from TypeDef { }
+type BigIntDef from TypeDef { }
+type BigUIntDef from TypeDef { }
+type FractionDef from TypeDef { }
+
+-- Wrapping types (one outgoing type reference)
+type AliasDef from TypeDef { base_type: TypeDef }
+type OverflowDef from TypeDef { base_type: IntegerDef, policy: OverflowPolicy }
+type ArrayDef from TypeDef { element_type: TypeDef }
+type SetDef from TypeDef { element_type: TypeDef }
+
+-- Dictionary (two outgoing type references)
+type DictDef from TypeDef {
+    key_type: TypeDef,
+    value_type: TypeDef
+}
+
+-- Enum
+type EnumDef from TypeDef {
+    variants: VariantDef[],
+    has_explicit_values: boolean = false,
+    backing_type: IntegerDef
+}
+
+-- Interface
+type InterfaceDef from TypeDef {
+    fields: FieldDef[],
+    extends: InterfaceDef[]
+}
+
+-- Composite
+type CompositeDef from TypeDef {
+    fields: FieldDef[],
+    parent: CompositeDef,
+    `interfaces`: InterfaceDef[]
+}
