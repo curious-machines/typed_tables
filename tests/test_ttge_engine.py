@@ -89,7 +89,6 @@ class TestBuiltinMetaConfig:
 
     def test_meta_config_shortcuts(self, engine):
         cfg = engine._meta_config
-        assert "" in cfg.shortcuts
         assert "all" in cfg.shortcuts
 
 
@@ -184,10 +183,10 @@ class TestResetSession:
 
 class TestExprStubRequiresConfig:
     def test_data_expr_without_config(self, engine):
-        """Expression evaluation requires a loaded config."""
-        # Data context has no config
-        with pytest.raises(RuntimeError, match="no config loaded"):
-            engine.execute("composites")
+        """Expression evaluation falls back to meta config when no data config."""
+        # Data context has no config, but falls back to meta config
+        result = engine.execute("composites")
+        assert isinstance(result, GraphResult)
 
     def test_metadata_expr_uses_builtin_config(self, engine):
         """metadata expressions use the built-in meta-schema config."""

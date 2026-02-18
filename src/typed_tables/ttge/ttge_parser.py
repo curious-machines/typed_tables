@@ -79,7 +79,7 @@ class TTGEParser:
             self.build()
         text = text.strip()
         if not text:
-            return None
+            return ExprStmt(expression=None)
 
         # Pre-process: detect statement type by leading keyword
         return self._parse_statement(text)
@@ -158,7 +158,10 @@ class TTGEParser:
             text = text[:m.start()].strip()
 
         # Parse the remaining text as an expression
-        expr = self._parser.parse(text, lexer=self._lexer.lexer)
+        if not text:
+            expr = None
+        else:
+            expr = self._parser.parse(text, lexer=self._lexer.lexer)
         return ExprStmt(metadata=metadata, expression=expr, sort_by=sort_by, output_file=output_file)
 
     def _parse_string(self, text: str) -> str:

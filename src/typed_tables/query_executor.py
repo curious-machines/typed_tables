@@ -985,7 +985,7 @@ class QueryExecutor:
             # Status message (config/style/execute commands)
             return QueryResult(columns=[], rows=[], message=result)
         elif isinstance(result, FileResult):
-            return DumpResult(script=f"Wrote {result.edge_count} edges to {result.path}")
+            return DumpResult(columns=[], rows=[], script=f"Wrote {result.edge_count} edges to {result.path}")
         elif isinstance(result, GraphResult):
             # Convert GraphResult to QueryResult table
             if not result.edges and not result.isolated_nodes:

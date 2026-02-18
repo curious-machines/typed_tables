@@ -271,11 +271,14 @@ class TTGEngine:
             provider = self._get_meta_provider()  # For now, always use meta provider
 
         if config is None:
-            context_name = "metadata" if stmt.metadata else "data"
-            raise RuntimeError(
-                f"TTGE: no config loaded for {context_name} context. "
-                f"Use 'graph config \"file.ttgc\"' first."
-            )
+            if not stmt.metadata and self._meta_config is not None:
+                config = self._meta_config
+            else:
+                context_name = "metadata" if stmt.metadata else "data"
+                raise RuntimeError(
+                    f"TTGE: no config loaded for {context_name} context. "
+                    f"Use 'graph config \"file.ttgc\"' first."
+                )
 
         if provider is None:
             return GraphResult(edges=[], isolated_nodes=[])
@@ -1063,7 +1066,6 @@ class TTGEngine:
         }
         config.identity = {"default": "name"}
         config.shortcuts = {
-            "": "types + .fields{label=.name, result=.type} + .extends + .interfaces",
-            "all": "all",
+            "all": "types + .fields{label=.name, result=.type} + .extends + .interfaces",
         }
         return config
