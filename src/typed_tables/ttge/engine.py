@@ -787,21 +787,21 @@ class TTGEngine:
 
     # Selector → (shape, default_color)
     _SELECTOR_STYLES: dict[str, tuple[str, str]] = {
-        "composites": ("box", "#ADD8E6"),
-        "interfaces": ("box", "#FFB347"),
-        "enums": ("box", "#90EE90"),
-        "aliases": ("box", "#D3D3D3"),
-        "fields": ("ellipse", "#E8E8E8"),
-        "variants": ("ellipse", "#B0FFB0"),
-        "arrays": ("ellipse", "#FFD700"),
-        "sets": ("ellipse", "#FFD700"),
-        "dictionaries": ("ellipse", "#FFD700"),
-        "overflows": ("box", "#D3D3D3"),
-        "boolean": ("ellipse", "#FFFFE0"),
-        "string": ("ellipse", "#FFFFE0"),
-        "fraction": ("ellipse", "#DDA0DD"),
-        "bigint": ("ellipse", "#DDA0DD"),
-        "biguint": ("ellipse", "#DDA0DD"),
+        "composites": ("box", "#4A90D9"),
+        "interfaces": ("box", "#7B68EE"),
+        "enums": ("box", "#66BB6A"),
+        "aliases": ("box", "#B0BEC5"),
+        "fields": ("ellipse", "#E0E0E0"),
+        "variants": ("ellipse", "#A5D6A7"),
+        "arrays": ("ellipse", "#FFB74D"),
+        "sets": ("ellipse", "#FFB74D"),
+        "dictionaries": ("ellipse", "#FFB74D"),
+        "overflows": ("box", "#B0BEC5"),
+        "boolean": ("ellipse", "#FFF59D"),
+        "string": ("ellipse", "#CE93D8"),
+        "fraction": ("ellipse", "#F48FB1"),
+        "bigint": ("ellipse", "#EF9A9A"),
+        "biguint": ("ellipse", "#EF9A9A"),
     }
 
     # Style key → selector
@@ -819,7 +819,7 @@ class TTGEngine:
     }
 
     # Default primitive style
-    _PRIMITIVE_STYLE = ("ellipse", "#FFFFE0")
+    _PRIMITIVE_STYLE = ("ellipse", "#FFF9C4")
 
     def _format_dot(self, result: GraphResult, style: dict[str, str]) -> str:
         """Format a GraphResult as DOT for Graphviz."""
@@ -828,7 +828,16 @@ class TTGEngine:
 
         direction = style.get("direction", "LR")
         lines.append(f"    rankdir={direction};")
-        lines.append("    node [style=filled];")
+        lines.append('    bgcolor="#FAFAFA";')
+        lines.append('    fontname="Helvetica";')
+        lines.append(
+            "    node [style=\"filled,rounded\", fontname=\"Helvetica\","
+            " fontsize=11, fontcolor=\"#333333\", penwidth=0.8];"
+        )
+        lines.append(
+            "    edge [fontname=\"Helvetica\", fontsize=9,"
+            ' color="#666666", fontcolor="#444444"];'
+        )
 
         title = style.get("title")
         if title:
@@ -869,12 +878,20 @@ class TTGEngine:
         # Emit edges
         for e in result.edges:
             label = e.label.replace('"', '\\"')
-            if label in ("extends", "implements"):
-                edge_style = "dashed" if label == "extends" else "dotted"
-                lines.append(f'    "{e.source}" -> "{e.target}" [style={edge_style}];')
+            if label == "extends":
+                lines.append(
+                    f'    "{e.source}" -> "{e.target}"'
+                    f' [style=dashed, color="#1565C0", arrowhead=empty];'
+                )
+            elif label == "implements":
+                lines.append(
+                    f'    "{e.source}" -> "{e.target}"'
+                    f' [style=dotted, color="#7B68EE", arrowhead=empty];'
+                )
             elif label == "alias":
                 lines.append(
-                    f'    "{e.source}" -> "{e.target}" [style=dashed, arrowhead=empty];'
+                    f'    "{e.source}" -> "{e.target}"'
+                    f' [style=dashed, color="#78909C", arrowhead=empty];'
                 )
             elif label:
                 lines.append(f'    "{e.source}" -> "{e.target}" [label="{label}"];')
