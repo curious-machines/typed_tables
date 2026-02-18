@@ -369,3 +369,77 @@ class TestCompactExecution:
         assert items_lists[0]["items"] == []
         assert items_lists[1]["items"] == [1, 2]
         storage2.close()
+
+    def test_compact_dict_fields(self, executor, db_dir):
+        """Dictionary fields are compacted and remapped correctly."""
+        _run(executor, """
+            type Student { name: string, scores: {string: float64} }
+            create Student(name="Alice", scores={"math": 95.0, "english": 88.0})
+            create Student(name="Bob", scores={"math": 72.0})
+            create Student(name="Charlie", scores={"english": 91.0, "science": 85.0})
+            delete Student where name="Bob"
+        """)
+        out = db_dir / "compacted"
+        result = _run(executor, f'compact > "{out}"')
+        assert isinstance(result, CompactResult)
+
+        reg2 = load_registry_from_metadata(out)
+        storage2 = StorageManager(out, reg2)
+        exec2 = QueryExecutor(storage2, reg2)
+        parser = QueryParser()
+        res = exec2.execute(parser.parse("from Student select *"))
+        assert len(res.rows) == 2
+        rows_by_name = {r["name"]: r for r in res.rows}
+        alice_scores = rows_by_name["Alice"]["scores"]
+        assert alice_scores["math"] == 95.0
+        assert alice_scores["english"] == 88.0
+        charlie_scores = rows_by_name["Charlie"]["scores"]
+        assert charlie_scores["english"] == 91.0
+        assert charlie_scores["science"] == 85.0
+        storage2.close()
+
+    def test_compact_dict_with_deleted_entries(self, executor, db_dir):
+        """Dict array table and entry composites remapped when records deleted."""
+        _run(executor, """
+            type Bag { label: string, data: {string: uint8} }
+            create Bag(label="A", data={"x": 1, "y": 2})
+            create Bag(label="B", data={"z": 3})
+            create Bag(label="C", data={"w": 4, "v": 5})
+            delete Bag where label="B"
+        """)
+        out = db_dir / "compacted"
+        result = _run(executor, f'compact > "{out}"')
+        assert isinstance(result, CompactResult)
+
+        reg2 = load_registry_from_metadata(out)
+        storage2 = StorageManager(out, reg2)
+        exec2 = QueryExecutor(storage2, reg2)
+        parser = QueryParser()
+        res = exec2.execute(parser.parse("from Bag select *"))
+        assert len(res.rows) == 2
+        rows_by_label = {r["label"]: r for r in res.rows}
+        assert rows_by_label["A"]["data"] == {"x": 1, "y": 2}
+        assert rows_by_label["C"]["data"] == {"w": 4, "v": 5}
+        storage2.close()
+
+    def test_compact_empty_dict(self, executor, db_dir):
+        """Empty dictionaries preserved correctly through compaction."""
+        _run(executor, """
+            type Item { name: string, tags: {string: uint8} }
+            create Item(name="A", tags={:})
+            create Item(name="B", tags={"x": 1})
+        """)
+        out = db_dir / "compacted"
+        result = _run(executor, f'compact > "{out}"')
+        assert isinstance(result, CompactResult)
+
+        reg2 = load_registry_from_metadata(out)
+        storage2 = StorageManager(out, reg2)
+        exec2 = QueryExecutor(storage2, reg2)
+        parser = QueryParser()
+        res = exec2.execute(parser.parse("from Item select *"))
+        assert len(res.rows) == 2
+        rows_by_name = {r["name"]: r for r in res.rows}
+        assert rows_by_name["A"]["tags"] == {}
+        assert rows_by_name["B"]["tags"] == {"x": 1}
+        storage2.close()

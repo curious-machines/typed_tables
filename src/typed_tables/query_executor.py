@@ -8681,6 +8681,13 @@ class QueryExecutor:
                         if "_frac_den" not in array_refs:
                             array_refs["_frac_den"] = set()
                         array_refs["_frac_den"].add((den_start, den_len))
+                elif isinstance(fld_base, DictionaryTypeDefinition):
+                    start_idx, length = val
+                    if length > 0:
+                        arr_type_name = fld.type_def.name
+                        if arr_type_name not in array_refs:
+                            array_refs[arr_type_name] = set()
+                        array_refs[arr_type_name].add((start_idx, length))
                 elif isinstance(fld_base, ArrayTypeDefinition):
                     start_idx, length = val
                     if length > 0:
@@ -8774,6 +8781,24 @@ class QueryExecutor:
                 if type_def is None:
                     continue
                 base = type_def.resolve_base_type()
+                # Dict array tables store uint32 entry composite indices
+                if isinstance(base, DictionaryTypeDefinition):
+                    entry_type_name = base.entry_type.name
+                    src_array_table = self.storage.get_array_table_for_type(type_def)
+                    dst_array_table = out_storage.get_array_table_for_type(type_def)
+                    for old_start, length in sorted_ranges:
+                        elements = src_array_table.get(old_start, length)
+                        if entry_type_name in comp_index_map:
+                            remapped_elements = []
+                            for elem in elements:
+                                new_idx = comp_index_map[entry_type_name].get(elem)
+                                if new_idx is not None:
+                                    remapped_elements.append(new_idx)
+                                else:
+                                    remapped_elements.append(NULL_REF)
+                            elements = remapped_elements
+                        dst_array_table.insert(elements)
+                    continue
                 element_base = base.element_type.resolve_base_type() if isinstance(base, ArrayTypeDefinition) else None
                 src_array_table = self.storage.get_array_table_for_type(type_def)
                 dst_array_table = out_storage.get_array_table_for_type(type_def)
@@ -8890,6 +8915,16 @@ class QueryExecutor:
                 if den_len > 0 and "_frac_den" in array_start_map and den_start in array_start_map["_frac_den"]:
                     new_den_start = array_start_map["_frac_den"][den_start]
                 remapped[fld.name] = (new_num_start, num_len, new_den_start, den_len)
+            elif isinstance(fld_base, DictionaryTypeDefinition):
+                old_start, length = val
+                if length == 0:
+                    remapped[fld.name] = (0, 0)
+                else:
+                    arr_type_name = fld.type_def.name
+                    if arr_type_name in array_start_map and old_start in array_start_map[arr_type_name]:
+                        remapped[fld.name] = (array_start_map[arr_type_name][old_start], length)
+                    else:
+                        remapped[fld.name] = val
             elif isinstance(fld_base, ArrayTypeDefinition):
                 old_start, length = val
                 if length == 0:
