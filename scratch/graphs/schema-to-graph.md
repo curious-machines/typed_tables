@@ -168,7 +168,7 @@ Config and style are **session state**, not persisted per-database. There is no 
 ```
 -- From the REPL (graph prefix required in TTQ context)
 graph config "social-graph.ttgc"                       -- set data config
-graph style "light.style"                              -- set data style
+graph style "light.tts"                              -- set data style
 graph style { "direction": "LR" }                      -- amend data style
 graph metadata style { "direction": "LR" }             -- amend meta-schema style
 graph users + .friends{label=.name}                    -- data query
@@ -197,7 +197,7 @@ TTGE scripts (`.ttge` files) bundle config, style, and expressions. They are exe
 ```
 -- schema-report.ttge
 config "meta-schema.ttgc"
-style "dark.style"
+style "dark.tts"
 metadata composites + .fields{label=.name, result=.type} > "composites.dot"
 metadata enums + .variants > "enums.dot"
 ```
@@ -214,7 +214,7 @@ graph execute "schema-report.ttge"
 
 -- Or set config interactively, then run a simpler script
 graph config "social-graph.ttgc"
-graph style "light.style"
+graph style "light.tts"
 graph execute "data-report.ttge"
 ```
 
@@ -242,7 +242,7 @@ The `meta-schema.ttq` file is **generated programmatically** from the type syste
 From TTQ context (REPL or TTQ scripts), all prefixed with `graph`:
 ```
 graph config "file.ttgc"
-graph [metadata] style "file.style" [{ "key": "value", ... }]
+graph [metadata] style "file.tts" [{ "key": "value", ... }]
 graph [metadata] style { "key": "value", ... }
 graph metadata config "file.ttgc"
 graph [metadata] <expression> [sort by ...] [> "file"]
@@ -252,7 +252,7 @@ graph execute "file.ttge"
 From TTGE context (`.ttge` scripts), no `graph` prefix:
 ```
 config "file.ttgc"
-[metadata] style "file.style" [{ "key": "value", ... }]
+[metadata] style "file.tts" [{ "key": "value", ... }]
 [metadata] style { "key": "value", ... }
 metadata config "file.ttgc"
 [metadata] <expression> [sort by ...] [> "file"]

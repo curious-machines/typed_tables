@@ -62,15 +62,15 @@ class TestConfigStmt:
 
 class TestStyleStmt:
     def test_style_file(self, parser):
-        r = parser.parse('style "dark.style"')
+        r = parser.parse('style "dark.tts"')
         assert isinstance(r, StyleStmt)
-        assert r.file_path == "dark.style"
+        assert r.file_path == "dark.tts"
         assert r.inline is None
 
     def test_style_file_inline(self, parser):
-        r = parser.parse('style "base.style" {"direction": "TB"}')
+        r = parser.parse('style "base.tts" {"direction": "TB"}')
         assert isinstance(r, StyleStmt)
-        assert r.file_path == "base.style"
+        assert r.file_path == "base.tts"
         assert r.inline == [("direction", "TB")]
 
     def test_style_inline_only(self, parser):
@@ -80,9 +80,9 @@ class TestStyleStmt:
         assert r.inline == [("direction", "LR"), ("composite.color", "#FF0000")]
 
     def test_meta_style_file(self, parser):
-        r = parser.parse('metadata style "dark.style"')
+        r = parser.parse('metadata style "dark.tts"')
         assert isinstance(r, MetaStyleStmt)
-        assert r.file_path == "dark.style"
+        assert r.file_path == "dark.tts"
 
     def test_meta_style_inline(self, parser):
         r = parser.parse('metadata style {"direction": "TB"}')

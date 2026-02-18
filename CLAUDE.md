@@ -855,10 +855,10 @@ Target types are expanded with their full transitive closure by default. Use `de
 
 ```ttq
 graph{"title": "My Schema"} > "types.dot"
-graph{"style": "custom.style"} > "types.dot"
-graph{"title": "Schema", "style": "dark.style"} > "types.dot"
+graph{"style": "custom.tts"} > "types.dot"
+graph{"title": "Schema", "style": "dark.tts"} > "types.dot"
 graph{"direction": "TB", "composite.color": "#FF0000"} > "types.dot"
-graph{"style": "base.style", "direction": "TB"} > "types.dot"  -- TB overrides file
+graph{"style": "base.tts", "direction": "TB"} > "types.dot"  -- TB overrides file
 graph{"title": "Boss"} Boss > "out.dot"
 ```
 

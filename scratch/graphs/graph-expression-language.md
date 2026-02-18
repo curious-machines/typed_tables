@@ -689,7 +689,7 @@ graph metadata config "custom-meta.ttgc"      -- override built-in meta-schema c
 ```
 -- From the REPL
 graph config "social-graph.ttgc"
-graph style "light.style"
+graph style "light.tts"
 graph style { "direction": "LR" }                      -- amend data style
 graph metadata style { "direction": "LR" }             -- amend meta-schema style
 graph users + .friends{label=.name}                    -- data query
@@ -960,7 +960,7 @@ Style file format (TTQ dict syntax) unchanged. Style files are loaded via sessio
 Full statement structure from TTQ context (REPL or TTQ scripts), prefixed with `graph`:
 ```
 graph config "file.ttgc"
-graph [metadata] style "file.style" [{ "key": "value", ... }]
+graph [metadata] style "file.tts" [{ "key": "value", ... }]
 graph [metadata] style { "key": "value", ... }
 graph metadata config "file.ttgc"
 graph [metadata] <expression> [sort by ...] [> "file"]
@@ -970,7 +970,7 @@ graph execute "file.ttge"
 From TTGE context (`.ttge` scripts), no `graph` prefix:
 ```
 config "file.ttgc"
-[metadata] style "file.style" [{ "key": "value", ... }]
+[metadata] style "file.tts" [{ "key": "value", ... }]
 [metadata] style { "key": "value", ... }
 metadata config "file.ttgc"
 [metadata] <expression> [sort by ...] [> "file"]

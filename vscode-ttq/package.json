@@ -1,7 +1,7 @@
 {
   "name": "ttq-language",
   "displayName": "TTQ Language Support",
-  "description": "Syntax highlighting and language server for Typed Tables Query (.ttq) files",
+  "description": "Syntax highlighting for Typed Tables (.ttq, .ttgc, .ttge, .tts) files",
   "version": "0.2.0",
   "publisher": "curious-machines",
   "engines": {
@@ -23,6 +23,39 @@
           ".ttq"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "ttgc",
+        "aliases": [
+          "TTGC",
+          "Typed Tables Graph Config"
+        ],
+        "extensions": [
+          ".ttgc"
+        ],
+        "configuration": "./language-configuration-ttgc.json"
+      },
+      {
+        "id": "ttge",
+        "aliases": [
+          "TTGE",
+          "Typed Tables Graph Expression"
+        ],
+        "extensions": [
+          ".ttge"
+        ],
+        "configuration": "./language-configuration-ttge.json"
+      },
+      {
+        "id": "tts",
+        "aliases": [
+          "TTS",
+          "Typed Tables Style"
+        ],
+        "extensions": [
+          ".tts"
+        ],
+        "configuration": "./language-configuration-tts.json"
       }
     ],
     "grammars": [
@@ -30,12 +63,35 @@
         "language": "ttq",
         "scopeName": "source.ttq",
         "path": "./syntaxes/ttq.tmLanguage.json"
+      },
+      {
+        "language": "ttgc",
+        "scopeName": "source.ttgc",
+        "path": "./syntaxes/ttgc.tmLanguage.json"
+      },
+      {
+        "language": "ttge",
+        "scopeName": "source.ttge",
+        "path": "./syntaxes/ttge.tmLanguage.json"
+      },
+      {
+        "language": "tts",
+        "scopeName": "source.tts",
+        "path": "./syntaxes/tts.tmLanguage.json"
       }
     ],
     "snippets": [
       {
         "language": "ttq",
         "path": "./snippets/ttq.json"
+      },
+      {
+        "language": "ttgc",
+        "path": "./snippets/ttgc.json"
+      },
+      {
+        "language": "ttge",
+        "path": "./snippets/ttge.json"
       }
     ],
     "configuration": {
@@ -50,6 +106,15 @@
     },
     "configurationDefaults": {
       "[ttq]": {
+        "editor.wordBasedSuggestions": "off"
+      },
+      "[ttgc]": {
+        "editor.wordBasedSuggestions": "off"
+      },
+      "[ttge]": {
+        "editor.wordBasedSuggestions": "off"
+      },
+      "[tts]": {
         "editor.wordBasedSuggestions": "off"
       }
     }

@@ -1,0 +1,19 @@
+-- Typed Tables Style — default values
+-- These are the built-in defaults used when no style file is loaded.
+-- Copy this file and modify to customize graph appearance.
+{
+    -- Graph layout direction (LR, TB, RL, BT)
+    "direction": "LR",
+
+    -- Node colors by type kind
+    "composite.color": "#4A90D9",
+    "interface.color": "#7B68EE",
+    "enum.color": "#66BB6A",
+    "alias.color": "#B0BEC5",
+    "field.color": "#E0E0E0",
+    "variant.color": "#A5D6A7",
+    "array.color": "#FFB74D",
+    "set.color": "#FFB74D",
+    "dictionary.color": "#FFB74D",
+    "primitive.color": "#FFF9C4"
+}

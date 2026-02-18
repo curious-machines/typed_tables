@@ -1,0 +1,72 @@
+{
+  "Config Statement": {
+    "prefix": "config",
+    "body": "config \"${1:schema.ttgc}\"",
+    "description": "Load a TTGC config file"
+  },
+  "Metadata Config": {
+    "prefix": "metaconfig",
+    "body": "metadata config \"${1:schema.ttgc}\"",
+    "description": "Load a metadata TTGC config file"
+  },
+  "Style Statement": {
+    "prefix": "style",
+    "body": "style \"${1:theme.tts}\"",
+    "description": "Load a style file"
+  },
+  "Inline Style": {
+    "prefix": "istyle",
+    "body": "style {\"direction\": \"${1|LR,TB,BT,RL|}\"}",
+    "description": "Inline style dict"
+  },
+  "Execute Script": {
+    "prefix": "execute",
+    "body": "execute \"${1:script.ttge}\"",
+    "description": "Execute another TTGE script"
+  },
+  "Selector with Predicate": {
+    "prefix": "sel",
+    "body": "${1:selector}{${2:name}=${3:value}}",
+    "description": "Selector with predicate filter"
+  },
+  "Chain with Fields": {
+    "prefix": "chain",
+    "body": "${1:selector} + .${2:fields}{label=.${3:name}, result=.${4:type}}",
+    "description": "Chain expression with labeled field axis"
+  },
+  "Dot Navigation": {
+    "prefix": "dot",
+    "body": "${1:selector}.${2:fields}",
+    "description": "Dot navigation (replace current set with axis targets)"
+  },
+  "Output to DOT": {
+    "prefix": "out",
+    "body": "${1:expression} > \"${2:output}.dot\"",
+    "description": "Expression with DOT file output"
+  },
+  "Metadata Expression": {
+    "prefix": "meta",
+    "body": "metadata ${1:composites} + .${2:fields}{label=.name, result=.type}",
+    "description": "Metadata graph expression"
+  },
+  "Sort and Output": {
+    "prefix": "sortout",
+    "body": "${1:expression} sort by ${2|source,label,target|} > \"${3:output}.dot\"",
+    "description": "Expression with sort and file output"
+  },
+  "Multi-axis Traversal": {
+    "prefix": "multi",
+    "body": "${1:selector} + {.${2:fields}, .${3:extends}, .${4:interfaces}}",
+    "description": "Traverse multiple axes at once"
+  },
+  "Depth-limited Traversal": {
+    "prefix": "depth",
+    "body": "${1:selector} + .${2:axis}{depth=${3:2}}",
+    "description": "Axis traversal with depth limit"
+  },
+  "Infinite Depth": {
+    "prefix": "infdepth",
+    "body": "${1:selector} + .${2:axis}{depth=inf}",
+    "description": "Axis traversal with infinite depth"
+  }
+}

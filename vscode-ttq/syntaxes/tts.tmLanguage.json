@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TTS",
+  "scopeName": "source.tts",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#dict-entry" },
+    { "include": "#string" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "--.*$",
+      "name": "comment.line.double-dash.tts"
+    },
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.tts",
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.tts"
+        }
+      ]
+    },
+    "dict-entry": {
+      "begin": "(\"[^\"]*\")\\s*(:)",
+      "beginCaptures": {
+        "1": { "name": "support.type.property-name.tts" },
+        "2": { "name": "punctuation.separator.colon.tts" }
+      },
+      "end": "(?=,|\\}|--)",
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#color-value" },
+        { "include": "#string" }
+      ]
+    },
+    "color-value": {
+      "match": "\"(#[0-9A-Fa-f]{3,8})\"",
+      "name": "constant.other.color.tts"
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "match": "[{}]",
+          "name": "punctuation.section.braces.tts"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.tts"
+        },
+        {
+          "match": ":",
+          "name": "punctuation.separator.colon.tts"
+        }
+      ]
+    }
+  }
+}

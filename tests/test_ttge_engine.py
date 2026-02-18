@@ -134,7 +134,7 @@ class TestStyleLoading:
         assert engine._data_style["composite.color"] == "#FF0000"
 
     def test_style_file(self, engine):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".style", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tts", delete=False) as f:
             f.write('-- Test style\n{"direction": "LR", "title": "Test"}\n')
             style_path = f.name
 
@@ -147,7 +147,7 @@ class TestStyleLoading:
             os.unlink(style_path)
 
     def test_style_file_with_inline_override(self, engine):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".style", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tts", delete=False) as f:
             f.write('{"direction": "LR"}\n')
             style_path = f.name
 
@@ -161,7 +161,7 @@ class TestStyleLoading:
 
     def test_style_file_not_found(self, engine):
         with pytest.raises(FileNotFoundError, match="style file not found"):
-            engine.execute('style "nonexistent.style"')
+            engine.execute('style "nonexistent.tts"')
 
     def test_meta_style_inline(self, engine):
         result = engine.execute('metadata style {"direction": "TB"}')
@@ -241,13 +241,13 @@ class TestScriptExecution:
         """Scripts resolve paths relative to their own directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a style file and a script that references it
-            style_path = os.path.join(tmpdir, "my.style")
+            style_path = os.path.join(tmpdir, "my.tts")
             with open(style_path, "w") as f:
                 f.write('{"direction": "LR"}\n')
 
             script_path = os.path.join(tmpdir, "setup.ttge")
             with open(script_path, "w") as f:
-                f.write('style "my.style"\n')
+                f.write('style "my.tts"\n')
 
             result = engine.execute(f'execute "{script_path}"')
             assert "executed" in result
