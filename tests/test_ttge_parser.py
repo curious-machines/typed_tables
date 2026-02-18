@@ -55,22 +55,22 @@ class TestConfigStmt:
         assert r.file_path == "meta-schema.ttgc"
 
     def test_execute(self, parser):
-        r = parser.parse('execute "setup.ttge"')
+        r = parser.parse('execute "setup.ttg"')
         assert isinstance(r, ExecuteStmt)
-        assert r.file_path == "setup.ttge"
+        assert r.file_path == "setup.ttg"
 
 
 class TestStyleStmt:
     def test_style_file(self, parser):
-        r = parser.parse('style "dark.tts"')
+        r = parser.parse('style "dark.ttgs"')
         assert isinstance(r, StyleStmt)
-        assert r.file_path == "dark.tts"
+        assert r.file_path == "dark.ttgs"
         assert r.inline is None
 
     def test_style_file_inline(self, parser):
-        r = parser.parse('style "base.tts" {"direction": "TB"}')
+        r = parser.parse('style "base.ttgs" {"direction": "TB"}')
         assert isinstance(r, StyleStmt)
-        assert r.file_path == "base.tts"
+        assert r.file_path == "base.ttgs"
         assert r.inline == [("direction", "TB")]
 
     def test_style_inline_only(self, parser):
@@ -80,9 +80,9 @@ class TestStyleStmt:
         assert r.inline == [("direction", "LR"), ("composite.color", "#FF0000")]
 
     def test_meta_style_file(self, parser):
-        r = parser.parse('metadata style "dark.tts"')
+        r = parser.parse('metadata style "dark.ttgs"')
         assert isinstance(r, MetaStyleStmt)
-        assert r.file_path == "dark.tts"
+        assert r.file_path == "dark.ttgs"
 
     def test_meta_style_inline(self, parser):
         r = parser.parse('metadata style {"direction": "TB"}')

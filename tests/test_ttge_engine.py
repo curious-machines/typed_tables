@@ -134,7 +134,7 @@ class TestStyleLoading:
         assert engine._data_style["composite.color"] == "#FF0000"
 
     def test_style_file(self, engine):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".tts", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ttgs", delete=False) as f:
             f.write('-- Test style\n{"direction": "LR", "title": "Test"}\n')
             style_path = f.name
 
@@ -147,7 +147,7 @@ class TestStyleLoading:
             os.unlink(style_path)
 
     def test_style_file_with_inline_override(self, engine):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".tts", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ttgs", delete=False) as f:
             f.write('{"direction": "LR"}\n')
             style_path = f.name
 
@@ -161,7 +161,7 @@ class TestStyleLoading:
 
     def test_style_file_not_found(self, engine):
         with pytest.raises(FileNotFoundError, match="style file not found"):
-            engine.execute('style "nonexistent.tts"')
+            engine.execute('style "nonexistent.ttgs"')
 
     def test_meta_style_inline(self, engine):
         result = engine.execute('metadata style {"direction": "TB"}')
@@ -196,7 +196,7 @@ class TestExprStubRequiresConfig:
 
 class TestScriptExecution:
     def test_execute_script(self, engine):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".ttge", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ttg", delete=False) as f:
             f.write('style {"direction": "LR"}\n')
             script_path = f.name
 
@@ -209,11 +209,11 @@ class TestScriptExecution:
 
     def test_execute_auto_extension(self, engine):
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".ttge", delete=False, dir=tempfile.gettempdir()
+            mode="w", suffix=".ttg", delete=False, dir=tempfile.gettempdir()
         ) as f:
             f.write('style {"direction": "TB"}\n')
             full_path = f.name
-            base_path = full_path[:-5]  # strip .ttge
+            base_path = full_path[:-4]  # strip .ttg
 
         try:
             result = engine.execute(f'execute "{base_path}"')
@@ -222,7 +222,7 @@ class TestScriptExecution:
             os.unlink(full_path)
 
     def test_execute_cycle_detection(self, engine):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".ttge", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ttg", delete=False) as f:
             # Script that tries to execute itself
             f.write(f'execute "{f.name}"\n')
             script_path = f.name
@@ -235,19 +235,19 @@ class TestScriptExecution:
 
     def test_execute_not_found(self, engine):
         with pytest.raises(FileNotFoundError, match="script not found"):
-            engine.execute('execute "nonexistent.ttge"')
+            engine.execute('execute "nonexistent.ttg"')
 
     def test_execute_relative_path(self, engine):
         """Scripts resolve paths relative to their own directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a style file and a script that references it
-            style_path = os.path.join(tmpdir, "my.tts")
+            style_path = os.path.join(tmpdir, "my.ttgs")
             with open(style_path, "w") as f:
                 f.write('{"direction": "LR"}\n')
 
-            script_path = os.path.join(tmpdir, "setup.ttge")
+            script_path = os.path.join(tmpdir, "setup.ttg")
             with open(script_path, "w") as f:
-                f.write('style "my.tts"\n')
+                f.write('style "my.ttgs"\n')
 
             result = engine.execute(f'execute "{script_path}"')
             assert "executed" in result
@@ -255,7 +255,7 @@ class TestScriptExecution:
 
     def test_execute_multi_statement_script(self, engine):
         """Scripts can contain multiple statements."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".ttge", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ttg", delete=False) as f:
             f.write('-- Setup script\n')
             f.write('style {"direction": "TB"}\n')
             f.write('style {"title": "My Graph"}\n')
@@ -272,14 +272,14 @@ class TestScriptExecution:
     def test_execute_nested_scripts(self, engine):
         """Scripts can execute other scripts."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            inner_path = os.path.join(tmpdir, "inner.ttge")
+            inner_path = os.path.join(tmpdir, "inner.ttg")
             with open(inner_path, "w") as f:
                 f.write('style {"title": "Nested"}\n')
 
-            outer_path = os.path.join(tmpdir, "outer.ttge")
+            outer_path = os.path.join(tmpdir, "outer.ttg")
             with open(outer_path, "w") as f:
                 f.write('style {"direction": "TB"}\n')
-                f.write(f'execute "inner.ttge"\n')
+                f.write(f'execute "inner.ttg"\n')
 
             result = engine.execute(f'execute "{outer_path}"')
             assert "executed" in result
@@ -288,7 +288,7 @@ class TestScriptExecution:
 
     def test_execute_via_ttq_graph(self, db_engine, tmp_path):
         """Test graph execute via TTQ parser."""
-        script_path = str(tmp_path / "setup.ttge")
+        script_path = str(tmp_path / "setup.ttg")
         with open(script_path, "w") as f:
             f.write('metadata style {"title": "Via TTQ"}\n')
 

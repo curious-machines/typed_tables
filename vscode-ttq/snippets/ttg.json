@@ -11,7 +11,7 @@
   },
   "Style Statement": {
     "prefix": "style",
-    "body": "style \"${1:theme.tts}\"",
+    "body": "style \"${1:theme.ttgs}\"",
     "description": "Load a style file"
   },
   "Inline Style": {
@@ -21,7 +21,7 @@
   },
   "Execute Script": {
     "prefix": "execute",
-    "body": "execute \"${1:script.ttge}\"",
+    "body": "execute \"${1:script.ttg}\"",
     "description": "Execute another TTGE script"
   },
   "Selector with Predicate": {

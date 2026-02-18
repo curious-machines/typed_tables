@@ -230,8 +230,8 @@ class TTGEngine:
     def _execute_execute(self, stmt: ExecuteStmt) -> str:
         resolved = self._resolve_path(stmt.file_path)
         if not os.path.exists(resolved):
-            if not resolved.endswith(".ttge") and not resolved.endswith(".ttge.gz"):
-                for ext in (".ttge", ".ttge.gz"):
+            if not resolved.endswith(".ttg") and not resolved.endswith(".ttg.gz"):
+                for ext in (".ttg", ".ttg.gz"):
                     candidate = resolved + ext
                     if os.path.exists(candidate):
                         resolved = candidate

@@ -689,7 +689,7 @@ graph metadata config "custom-meta.ttgc"      -- override built-in meta-schema c
 ```
 -- From the REPL
 graph config "social-graph.ttgc"
-graph style "light.tts"
+graph style "light.ttgs"
 graph style { "direction": "LR" }                      -- amend data style
 graph metadata style { "direction": "LR" }             -- amend meta-schema style
 graph users + .friends{label=.name}                    -- data query
@@ -704,20 +704,20 @@ Deferred to a future scripting/language design discussion. Expression variables 
 
 ### D31: TTGE Scripts
 
-TTGE scripts (`.ttge` files) bundle config, style, and expressions into executable files. They provide the multi-line capability that D6 deferred, without requiring expression variables.
+TTGE scripts (`.ttg` files) bundle config, style, and expressions into executable files. They provide the multi-line capability that D6 deferred, without requiring expression variables.
 
 **Invocation:**
-- From TTQ context: `graph execute "file.ttge"`
-- From TTGE context (inside `.ttge` files): `execute "file.ttge"`
+- From TTQ context: `graph execute "file.ttg"`
+- From TTGE context (inside `.ttg` files): `execute "file.ttg"`
 
-**Inside `.ttge` files**, no `graph` prefix — everything is TTGE context. Available commands: `config`, `style`, `metadata config`, `metadata style`, `metadata <expr>`, `<expr>`, `execute`.
+**Inside `.ttg` files**, no `graph` prefix — everything is TTGE context. Available commands: `config`, `style`, `metadata config`, `metadata style`, `metadata <expr>`, `<expr>`, `execute`.
 
 **Scripts assume a database is already selected** (database selection is a TTQ concern). Scripts can set their own config/style, or inherit whatever the caller set. Scripts can execute other scripts. Scripts stop on errors.
 
 **Cycle detection and relative paths** follow the same patterns as TTQ's `execute` command.
 
 ```
--- schema-report.ttge
+-- schema-report.ttg
 metadata style { "direction": "LR" }
 metadata composites + .fields{label=.name, result=.type} > "composites.dot"
 metadata enums + .variants > "enums.dot"
@@ -960,21 +960,21 @@ Style file format (TTQ dict syntax) unchanged. Style files are loaded via sessio
 Full statement structure from TTQ context (REPL or TTQ scripts), prefixed with `graph`:
 ```
 graph config "file.ttgc"
-graph [metadata] style "file.tts" [{ "key": "value", ... }]
+graph [metadata] style "file.ttgs" [{ "key": "value", ... }]
 graph [metadata] style { "key": "value", ... }
 graph metadata config "file.ttgc"
 graph [metadata] <expression> [sort by ...] [> "file"]
-graph execute "file.ttge"
+graph execute "file.ttg"
 ```
 
-From TTGE context (`.ttge` scripts), no `graph` prefix:
+From TTGE context (`.ttg` scripts), no `graph` prefix:
 ```
 config "file.ttgc"
-[metadata] style "file.tts" [{ "key": "value", ... }]
+[metadata] style "file.ttgs" [{ "key": "value", ... }]
 [metadata] style { "key": "value", ... }
 metadata config "file.ttgc"
 [metadata] <expression> [sort by ...] [> "file"]
-execute "file.ttge"
+execute "file.ttg"
 ```
 
 `sort by` only applies when no file output (no `>`) — it orders the `GraphResult.edges` list that TTGE returns to the caller. Rendering metadata (title, direction, colors) is set via session-level config and style commands (see D3), not per-expression. TTQ output schema details (adapting for Field/Variant entities) are an implementation concern, not a language design question.

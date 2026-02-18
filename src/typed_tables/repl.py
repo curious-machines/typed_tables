@@ -1493,9 +1493,9 @@ GRAPH (schema exploration):
 
   Metadata dict (DOT output — inline properties and style files):
     graph{"title": "My Schema"} > "f.dot"
-    graph{"style": "custom.tts"} > "f.dot"
+    graph{"style": "custom.ttgs"} > "f.dot"
     graph{"title": "Schema", "direction": "TB"} > "f.dot"
-    graph{"style": "base.tts", "direction": "TB"} > "f.dot"
+    graph{"style": "base.ttgs", "direction": "TB"} > "f.dot"
 
   Style files use TTQ dictionary syntax:
     { "direction": "LR",            Graph direction (LR, TB, etc.)

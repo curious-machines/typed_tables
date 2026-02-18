@@ -227,7 +227,7 @@ class MetaStyleStmt:
 
 @dataclass
 class ExecuteStmt:
-    """graph execute "file.ttge" """
+    """graph execute "file.ttg" """
     file_path: str
 
 

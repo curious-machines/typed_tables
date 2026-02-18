@@ -151,7 +151,7 @@ All lines starting with `graph` are passed entirely to the TTGE infrastructure. 
 
 - `graph config`, `graph style`, and `graph <expression>` are all TTGE commands
 - TTGE manages its own command parsing, config state, and expression evaluation
-- TTGE scripts (`.ttge` files) can contain graph commands without involving the TTQ parser
+- TTGE scripts (`.ttg` files) can contain graph commands without involving the TTQ parser
 - The TTQ executor simply delegates to the TTGE subsystem
 
 ### Config and Style as Session State
@@ -168,7 +168,7 @@ Config and style are **session state**, not persisted per-database. There is no 
 ```
 -- From the REPL (graph prefix required in TTQ context)
 graph config "social-graph.ttgc"                       -- set data config
-graph style "light.tts"                              -- set data style
+graph style "light.ttgs"                              -- set data style
 graph style { "direction": "LR" }                      -- amend data style
 graph metadata style { "direction": "LR" }             -- amend meta-schema style
 graph users + .friends{label=.name}                    -- data query
@@ -192,35 +192,35 @@ Inline properties use TTQ dictionary syntax. Style persists for the session (unt
 
 ### TTGE Scripts
 
-TTGE scripts (`.ttge` files) bundle config, style, and expressions. They are executed via `graph execute` from TTQ context, or just `execute` from within TTGE context (including other TTGE scripts).
+TTGE scripts (`.ttg` files) bundle config, style, and expressions. They are executed via `graph execute` from TTQ context, or just `execute` from within TTGE context (including other TTGE scripts).
 
 ```
--- schema-report.ttge
+-- schema-report.ttg
 config "meta-schema.ttgc"
-style "dark.tts"
+style "dark.ttgs"
 metadata composites + .fields{label=.name, result=.type} > "composites.dot"
 metadata enums + .variants > "enums.dot"
 ```
 
 ```
--- data-report.ttge (assumes config/style already set by caller)
+-- data-report.ttg (assumes config/style already set by caller)
 users + .friends{label=.name} > "social.dot"
 ```
 
 ```
 -- From the REPL
 use mydb
-graph execute "schema-report.ttge"
+graph execute "schema-report.ttg"
 
 -- Or set config interactively, then run a simpler script
 graph config "social-graph.ttgc"
-graph style "light.tts"
-graph execute "data-report.ttge"
+graph style "light.ttgs"
+graph execute "data-report.ttg"
 ```
 
 Scripts can execute other scripts. A script assumes a database is already selected (database selection is a TTQ concern). Scripts stop on errors.
 
-Inside `.ttge` files, no `graph` prefix — everything is TTGE context. Commands available: `config`, `style`, `metadata config`, `metadata style`, `metadata <expr>`, `<expr>`, `execute`.
+Inside `.ttg` files, no `graph` prefix — everything is TTGE context. Commands available: `config`, `style`, `metadata config`, `metadata style`, `metadata <expr>`, `<expr>`, `execute`.
 
 ### Edge Labels
 
@@ -242,21 +242,21 @@ The `meta-schema.ttq` file is **generated programmatically** from the type syste
 From TTQ context (REPL or TTQ scripts), all prefixed with `graph`:
 ```
 graph config "file.ttgc"
-graph [metadata] style "file.tts" [{ "key": "value", ... }]
+graph [metadata] style "file.ttgs" [{ "key": "value", ... }]
 graph [metadata] style { "key": "value", ... }
 graph metadata config "file.ttgc"
 graph [metadata] <expression> [sort by ...] [> "file"]
-graph execute "file.ttge"
+graph execute "file.ttg"
 ```
 
-From TTGE context (`.ttge` scripts), no `graph` prefix:
+From TTGE context (`.ttg` scripts), no `graph` prefix:
 ```
 config "file.ttgc"
-[metadata] style "file.tts" [{ "key": "value", ... }]
+[metadata] style "file.ttgs" [{ "key": "value", ... }]
 [metadata] style { "key": "value", ... }
 metadata config "file.ttgc"
 [metadata] <expression> [sort by ...] [> "file"]
-execute "file.ttge"
+execute "file.ttg"
 ```
 
 ### TTGE→Caller Interface

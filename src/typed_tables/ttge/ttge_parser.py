@@ -97,7 +97,7 @@ class TTGEParser:
                 return ConfigStmt(file_path=self._parse_string(rest))
 
             if first_word == "execute":
-                # execute "file.ttge"
+                # execute "file.ttg"
                 return ExecuteStmt(file_path=self._parse_string(rest))
 
             if first_word == "style":
@@ -223,7 +223,7 @@ class TTGEParser:
         return entries
 
     def parse_program(self, text: str) -> list:
-        """Parse multiple TTGE statements (for .ttge scripts).
+        """Parse multiple TTGE statements (for .ttg scripts).
 
         Statements are separated by newlines or semicolons.
         Comments (-- to end of line) are stripped.
