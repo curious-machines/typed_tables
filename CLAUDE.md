@@ -761,6 +761,8 @@ This shows the type and all of its properties along with their types
 
 ### Graph
 
+> **Legacy documentation**: The keyword-driven graph command described below has been removed and replaced by TTGE (Typed Tables Graph Expression) language. This section is kept as reference for the TTGE implementation. The `graph` keyword now delegates to the TTGE engine.
+
 Explore the type reference graph. The `graph` command is a unified tool for viewing schema structure as a table, DOT file, or TTQ script.
 
 **Basic usage** — table output with columns `kind`, `source`, `field`, `target`:

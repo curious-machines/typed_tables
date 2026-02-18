@@ -266,18 +266,16 @@ class TestBooleanMetadata:
 # --- Boolean classify ---
 
 class TestBooleanClassify:
-    def test_classify_type(self, executor):
-        """_classify_type returns 'Boolean' for boolean type."""
-        bool_def = executor.registry.get("boolean")
-        assert executor._classify_type(bool_def) == "Boolean"
-
     def test_graph_boolean(self, executor):
         """graph includes boolean type when used by a composite."""
         _run(executor, 'type Toggle { active: boolean }')
-        result = _run(executor, 'graph2 Toggle')
+        result = _run(executor, 'graph all')
         assert isinstance(result, QueryResult)
-        targets = [row["target"] for row in result.rows]
-        assert "boolean" in targets
+        # TTGE graph all shows field edges with source/label/target
+        assert any(
+            row["source"] == "Toggle" and row["label"] == "active" and row["target"] == "boolean"
+            for row in result.rows
+        )
 
 
 # --- boolean() cast ---

@@ -52,7 +52,6 @@ class QueryLexer:
         "primitives": "PRIMITIVES",
         "aliases": "ALIASES",
         "graph": "GRAPH",
-        "graph2": "GRAPH2",
         "yaml": "YAML",
         "json": "JSON",
         "xml": "XML",
@@ -70,12 +69,6 @@ class QueryLexer:
         "wrapping": "WRAPPING",
         "true": "TRUE",
         "false": "FALSE",
-        "structure": "STRUCTURE",
-        "declared": "DECLARED",
-        "stored": "STORED",
-        "depth": "DEPTH",
-        "showing": "SHOWING",
-        "excluding": "EXCLUDING",
     }
 
     # Token list
