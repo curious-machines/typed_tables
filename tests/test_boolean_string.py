@@ -274,7 +274,7 @@ class TestBooleanClassify:
     def test_graph_boolean(self, executor):
         """graph includes boolean type when used by a composite."""
         _run(executor, 'type Toggle { active: boolean }')
-        result = _run(executor, 'graph Toggle')
+        result = _run(executor, 'graph2 Toggle')
         assert isinstance(result, QueryResult)
         targets = [row["target"] for row in result.rows]
         assert "boolean" in targets

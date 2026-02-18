@@ -154,6 +154,13 @@ class GraphQuery:
 
 
 @dataclass
+class TTGEQuery:
+    """A TTGE graph expression query — delegates to TTGE engine."""
+
+    raw_text: str
+
+
+@dataclass
 class CompactQuery:
     """A COMPACT TO query."""
 
@@ -665,36 +672,52 @@ class QueryParser:
             path_to=output.get("path_to"),
         )
 
+    # --- TTGE delegation: GRAPH keyword captures rest as raw TTGE text ---
+
+    def p_query_ttge(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH TTGE_RAW"""
+        p[0] = TTGEQuery(raw_text=p[2])
+
+    def p_query_ttge_empty(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH"""
+        # Bare "graph" with no expression — delegate as empty string
+        p[0] = TTGEQuery(raw_text="")
+
+    # graph_keyword matches GRAPH2 only (legacy graph command during TTGE development)
+    def p_graph_keyword_graph(self, p: yacc.YaccProduction) -> None:
+        """graph_keyword : GRAPH2"""
+        p[0] = p[1]
+
     def p_query_graph(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta graph_output"""
+        """query : graph_keyword graph_meta graph_output"""
         p[0] = self._make_graph(None, {}, p[3], meta=p[2])
 
     def p_query_graph_structure(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta STRUCTURE graph_output"""
+        """query : graph_keyword graph_meta STRUCTURE graph_output"""
         p[0] = self._make_graph(None, {"view_mode": "structure"}, p[4], meta=p[2])
 
     def p_query_graph_declared(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta DECLARED graph_declared_mods graph_output"""
+        """query : graph_keyword graph_meta DECLARED graph_declared_mods graph_output"""
         p[0] = self._make_graph(None, {"view_mode": "declared", **p[4]}, p[5], meta=p[2])
 
     def p_query_graph_stored(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta STORED graph_stored_mods graph_output"""
+        """query : graph_keyword graph_meta STORED graph_stored_mods graph_output"""
         p[0] = self._make_graph(None, {"view_mode": "stored", **p[4]}, p[5], meta=p[2])
 
     def p_query_graph_type(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta graph_focus graph_output"""
+        """query : graph_keyword graph_meta graph_focus graph_output"""
         p[0] = self._make_graph(p[3], {}, p[4], meta=p[2])
 
     def p_query_graph_type_structure(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta graph_focus STRUCTURE graph_output"""
+        """query : graph_keyword graph_meta graph_focus STRUCTURE graph_output"""
         p[0] = self._make_graph(p[3], {"view_mode": "structure"}, p[5], meta=p[2])
 
     def p_query_graph_type_declared(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta graph_focus DECLARED graph_declared_mods graph_output"""
+        """query : graph_keyword graph_meta graph_focus DECLARED graph_declared_mods graph_output"""
         p[0] = self._make_graph(p[3], {"view_mode": "declared", **p[5]}, p[6], meta=p[2])
 
     def p_query_graph_type_stored(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH graph_meta graph_focus STORED graph_stored_mods graph_output"""
+        """query : graph_keyword graph_meta graph_focus STORED graph_stored_mods graph_output"""
         p[0] = self._make_graph(p[3], {"view_mode": "stored", **p[5]}, p[6], meta=p[2])
 
     # ---- Graph focus: single type or bracketed list ----

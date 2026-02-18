@@ -607,7 +607,7 @@ class TestGraph:
     def test_graph_set_edges(self, tmp_db):
         executor, db_dir, registry, storage = tmp_db
         _run(executor, 'type Student { name: string, tags: {string} }')
-        result = _run(executor, 'graph')
+        result = _run(executor, 'graph2')
         edges = result.rows
         # Student → {string} edge
         assert any(e["source"] == "Student" and e["target"] == "{string}" for e in edges)
@@ -617,7 +617,7 @@ class TestGraph:
     def test_graph_dict_edges(self, tmp_db):
         executor, db_dir, registry, storage = tmp_db
         _run(executor, 'type Student { scores: {string: float64} }')
-        result = _run(executor, 'graph')
+        result = _run(executor, 'graph2')
         edges = result.rows
         # Student → {string: float64} edge
         assert any(e["source"] == "Student" and e["target"] == "{string: float64}" for e in edges)
@@ -625,7 +625,7 @@ class TestGraph:
     def test_graph_dict_type_edges(self, tmp_db):
         executor, db_dir, registry, storage = tmp_db
         _run(executor, 'type Student { scores: {string: float64} }')
-        result = _run(executor, 'graph')
+        result = _run(executor, 'graph2')
         edges = result.rows
         # {string: float64} → Dict_string_float64 via (entry)
         assert any(e["source"] == "{string: float64}" and e["target"] == "Dict_string_float64" and e["field"] == "(entry)" for e in edges)

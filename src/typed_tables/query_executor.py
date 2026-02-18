@@ -65,6 +65,7 @@ from typed_tables.parsing.query_parser import (
     SortKeyExpr,
     SelectQuery,
     ShowTypesQuery,
+    TTGEQuery,
     TagReference,
     TypedLiteral,
     UnaryExpr,
@@ -328,6 +329,8 @@ class QueryExecutor:
             return self._execute_show_types(query)
         elif isinstance(query, GraphQuery):
             return self._execute_graph(query)
+        elif isinstance(query, TTGEQuery):
+            return self._execute_ttge(query)
         elif isinstance(query, DescribeQuery):
             return self._execute_describe(query)
         elif isinstance(query, SelectQuery):
@@ -958,6 +961,44 @@ class QueryExecutor:
                     continue
                 result.append(name)
         return result
+
+    def _execute_ttge(self, query: TTGEQuery) -> QueryResult:
+        """Execute a TTGE graph expression query."""
+        from typed_tables.ttge.engine import TTGEngine
+        from typed_tables.ttge.types import GraphResult, FileResult
+
+        if not hasattr(self, "_ttge_engine") or self._ttge_engine is None:
+            self._ttge_engine = TTGEngine(self.storage, self.registry)
+
+        if not query.raw_text:
+            # Bare "graph" — use empty shortcut if available
+            raw = ""
+        else:
+            raw = query.raw_text
+
+        try:
+            result = self._ttge_engine.execute(raw)
+        except (SyntaxError, FileNotFoundError, RuntimeError) as e:
+            return QueryResult(columns=[], rows=[], message=str(e))
+
+        if isinstance(result, str):
+            # Status message (config/style/execute commands)
+            return QueryResult(columns=[], rows=[], message=result)
+        elif isinstance(result, FileResult):
+            return DumpResult(script=f"Wrote {result.edge_count} edges to {result.path}")
+        elif isinstance(result, GraphResult):
+            # Convert GraphResult to QueryResult table
+            if not result.edges and not result.isolated_nodes:
+                return QueryResult(columns=[], rows=[], message="TTGE: no results")
+            columns = ["source", "label", "target"]
+            rows: list[dict[str, Any]] = []
+            for edge in result.edges:
+                rows.append({"source": edge.source, "label": edge.label, "target": edge.target})
+            for node in result.isolated_nodes:
+                rows.append({"source": node, "label": "", "target": ""})
+            return QueryResult(columns=columns, rows=rows)
+        else:
+            return QueryResult(columns=[], rows=[], message=f"TTGE: unexpected result type: {type(result).__name__}")
 
     def _execute_graph(self, query: GraphQuery) -> QueryResult | DumpResult:
         """Execute GRAPH query — unified schema exploration."""

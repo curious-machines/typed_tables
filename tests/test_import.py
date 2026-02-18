@@ -272,7 +272,7 @@ class TestSystemTypes:
         script.write_text('type Foo { x: uint8 }')
         _run(executor, f'import "{script}"')
 
-        result = _run(executor, 'graph')
+        result = _run(executor, 'graph2')
         sources = {row["source"] for row in result.rows}
         targets = {row["target"] for row in result.rows}
         assert "_ImportRecord" not in sources
