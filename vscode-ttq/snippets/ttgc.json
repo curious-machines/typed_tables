@@ -1,0 +1,94 @@
+{
+  "Selector Block": {
+    "prefix": "selector",
+    "body": [
+      "selector {",
+      "\t${1:name}: ${2:SchemaDef}",
+      "}"
+    ],
+    "description": "Define entity selectors mapping names to schema types"
+  },
+  "Group Block": {
+    "prefix": "group",
+    "body": [
+      "group {",
+      "\t${1:name}: [${2:selectors}]",
+      "}"
+    ],
+    "description": "Define named unions of selectors"
+  },
+  "Axis Block": {
+    "prefix": "axis",
+    "body": [
+      "axis {",
+      "\t${1:name}: ${2:selector}.${3:field}",
+      "}"
+    ],
+    "description": "Define forward axes (traversable relationships)"
+  },
+  "Reverse Block": {
+    "prefix": "reverse",
+    "body": [
+      "reverse {",
+      "\t${1:name}: ${2:forward_axis}",
+      "}"
+    ],
+    "description": "Define reverse axes (inverse relationships)"
+  },
+  "Axis Group Block": {
+    "prefix": "axis_group",
+    "body": [
+      "axis_group {",
+      "\t${1:name}: [${2:axes}]",
+      "}"
+    ],
+    "description": "Define named sets of axes"
+  },
+  "Identity Block": {
+    "prefix": "identity",
+    "body": [
+      "identity {",
+      "\tdefault: ${1:name}",
+      "}"
+    ],
+    "description": "Define node identity fields"
+  },
+  "Shortcut Block": {
+    "prefix": "shortcut",
+    "body": [
+      "shortcut {",
+      "\t\"${1:}\": ${2:expression}",
+      "}"
+    ],
+    "description": "Define named TTGE expression shortcuts"
+  },
+  "Full Config Template": {
+    "prefix": "ttgc",
+    "body": [
+      "selector {",
+      "\t${1:entities}: ${2:EntityDef}",
+      "}",
+      "",
+      "group {",
+      "\t${3:all}: [${4:$1}]",
+      "}",
+      "",
+      "axis {",
+      "\t${5:fields}: $1.${6:fields}",
+      "}",
+      "",
+      "reverse {",
+      "\t${7:owner}: $5",
+      "}",
+      "",
+      "identity {",
+      "\tdefault: name",
+      "}",
+      "",
+      "shortcut {",
+      "\t\"\": $3 + .$5",
+      "}"
+    ],
+    "description": "Full TTGC config file template"
+  }
+}

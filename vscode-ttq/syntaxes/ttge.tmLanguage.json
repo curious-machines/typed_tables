@@ -1,0 +1,223 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TTGE",
+  "scopeName": "source.ttge",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#config-statement" },
+    { "include": "#style-statement" },
+    { "include": "#execute-statement" },
+    { "include": "#metadata-keyword" },
+    { "include": "#sort-clause" },
+    { "include": "#output-redirect" },
+    { "include": "#string" },
+    { "include": "#predicate-block" },
+    { "include": "#style-dict" },
+    { "include": "#constant" },
+    { "include": "#number" },
+    { "include": "#join-function" },
+    { "include": "#axis-path" },
+    { "include": "#operator" },
+    { "include": "#identifier" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "--.*$",
+      "name": "comment.line.double-dash.ttge"
+    },
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.ttge",
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.ttge"
+        }
+      ]
+    },
+    "number": {
+      "match": "\\b\\d+\\b",
+      "name": "constant.numeric.integer.ttge"
+    },
+    "constant": {
+      "match": "\\b(true|false|inf|infinity)\\b",
+      "name": "constant.language.ttge"
+    },
+    "config-statement": {
+      "match": "\\b(config)\\s+(\"[^\"]*\")",
+      "captures": {
+        "1": { "name": "keyword.control.ttge" },
+        "2": { "name": "string.quoted.double.ttge" }
+      }
+    },
+    "style-statement": {
+      "match": "\\b(style)\\s+(\"[^\"]*\")",
+      "captures": {
+        "1": { "name": "keyword.control.ttge" },
+        "2": { "name": "string.quoted.double.ttge" }
+      }
+    },
+    "execute-statement": {
+      "match": "\\b(execute)\\s+(\"[^\"]*\")",
+      "captures": {
+        "1": { "name": "keyword.control.ttge" },
+        "2": { "name": "string.quoted.double.ttge" }
+      }
+    },
+    "metadata-keyword": {
+      "match": "\\b(metadata)\\b",
+      "name": "keyword.other.ttge"
+    },
+    "sort-clause": {
+      "match": "\\b(sort)\\s+(by)\\s+((?:source|label|target)(?:\\s*,\\s*(?:source|label|target))*)",
+      "captures": {
+        "1": { "name": "keyword.control.ttge" },
+        "2": { "name": "keyword.control.ttge" },
+        "3": { "name": "variable.parameter.ttge" }
+      }
+    },
+    "output-redirect": {
+      "match": "(>)\\s*(\"[^\"]*\")",
+      "captures": {
+        "1": { "name": "keyword.operator.redirect.ttge" },
+        "2": { "name": "string.quoted.double.ttge" }
+      }
+    },
+    "join-function": {
+      "match": "\\b(join)\\s*(?=\\()",
+      "name": "support.function.ttge"
+    },
+    "axis-path": {
+      "match": "(?<=[+=/{,\\s-])\\s*(\\.)([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*)",
+      "captures": {
+        "1": { "name": "punctuation.accessor.dot.ttge" },
+        "2": { "name": "entity.name.function.axis.ttge" }
+      }
+    },
+    "predicate-block": {
+      "begin": "(?<=[a-zA-Z0-9_])\\{",
+      "end": "\\}",
+      "name": "meta.predicate.ttge",
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#predicate-entry" }
+      ]
+    },
+    "predicate-entry": {
+      "begin": "([a-zA-Z_][a-zA-Z0-9_]*)\\s*(=)",
+      "beginCaptures": {
+        "1": { "name": "variable.parameter.predicate-key.ttge" },
+        "2": { "name": "keyword.operator.assignment.ttge" }
+      },
+      "end": "(?=[,}])",
+      "patterns": [
+        { "include": "#predicate-value" }
+      ]
+    },
+    "predicate-value": {
+      "patterns": [
+        { "include": "#string" },
+        { "include": "#constant" },
+        { "include": "#number" },
+        {
+          "match": "\\b(join)\\s*(?=\\()",
+          "name": "support.function.ttge"
+        },
+        {
+          "match": "(\\.)([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*)",
+          "captures": {
+            "1": { "name": "punctuation.accessor.dot.ttge" },
+            "2": { "name": "entity.name.function.axis.ttge" }
+          }
+        },
+        {
+          "match": "!",
+          "name": "keyword.operator.negation.ttge"
+        },
+        {
+          "match": "\\|",
+          "name": "keyword.operator.or.ttge"
+        },
+        {
+          "match": "[()]",
+          "name": "punctuation.section.parens.ttge"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.ttge"
+        },
+        {
+          "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
+          "name": "entity.name.type.ttge"
+        }
+      ]
+    },
+    "style-dict": {
+      "begin": "(?<=style\\s*)\\{|(?<=\\})\\s*\\{",
+      "end": "\\}",
+      "name": "meta.style-dict.ttge",
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#string" },
+        {
+          "match": ":",
+          "name": "punctuation.separator.colon.ttge"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.ttge"
+        }
+      ]
+    },
+    "operator": {
+      "patterns": [
+        {
+          "match": "[+/\\-]",
+          "name": "keyword.operator.chain.ttge"
+        },
+        {
+          "match": "\\|",
+          "name": "keyword.operator.union.ttge"
+        },
+        {
+          "match": "&",
+          "name": "keyword.operator.intersect.ttge"
+        },
+        {
+          "match": ">",
+          "name": "keyword.operator.redirect.ttge"
+        }
+      ]
+    },
+    "identifier": {
+      "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
+      "name": "variable.other.selector.ttge"
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "match": "[{}]",
+          "name": "punctuation.section.braces.ttge"
+        },
+        {
+          "match": "[()]",
+          "name": "punctuation.section.parens.ttge"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.ttge"
+        },
+        {
+          "match": "\\.",
+          "name": "punctuation.accessor.dot.ttge"
+        },
+        {
+          "match": ";",
+          "name": "punctuation.separator.semicolon.ttge"
+        }
+      ]
+    }
+  }
+}
