@@ -136,7 +136,7 @@ class TTGEParser:
         """Parse show <category> [<name>]."""
         rest = rest.strip()
         if not rest:
-            raise SyntaxError("TTG: 'show' requires a category (selector, group, axis, reverse, axis_group, identity, shortcut)")
+            return ShowStmt(category=None, name=None, metadata=metadata)
         # Extract category
         m = re.match(r"([a-zA-Z_]\w*)\s*(.*)", rest, re.DOTALL)
         if not m:

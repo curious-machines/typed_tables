@@ -557,3 +557,17 @@ class TestTTGEShow:
         assert result.message
         assert "no data config loaded" in result.message
 
+    def test_metadata_show_lists_categories(self, executor, parser):
+        """'graph metadata show' lists all available categories."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show")
+        assert result.columns == ["category", "entries"]
+        categories = [r["category"] for r in result.rows]
+        assert categories == [
+            "selector", "group", "axis", "reverse",
+            "axis_group", "identity", "shortcut",
+        ]
+        # Each entry count should be a non-negative integer string
+        for row in result.rows:
+            assert int(row["entries"]) >= 0
+

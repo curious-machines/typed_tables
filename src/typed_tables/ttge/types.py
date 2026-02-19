@@ -250,7 +250,7 @@ class ExprStmt:
 @dataclass
 class ShowStmt:
     """show <category> [<name>]"""
-    category: str      # "selector", "group", "axis", "reverse", "axis_group", "identity", "shortcut"
+    category: str | None  # None = list categories; else "selector", "group", etc.
     name: str | None    # None = list all, str = single entry
     metadata: bool      # True if prefixed with "metadata"
 

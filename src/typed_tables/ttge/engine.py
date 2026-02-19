@@ -194,6 +194,22 @@ class TTGEngine:
         category = stmt.category
         name = stmt.name
 
+        if category is None:
+            # List available categories with their entry counts
+            categories = [
+                ("selector", len(config.selectors)),
+                ("group", len(config.groups)),
+                ("axis", len(config.axes)),
+                ("reverse", len(config.reverses)),
+                ("axis_group", len(config.axis_groups)),
+                ("identity", len(config.identity)),
+                ("shortcut", len(config.shortcuts)),
+            ]
+            return ShowResult(
+                columns=["category", "entries"],
+                rows=[{"category": c, "entries": str(n)} for c, n in categories],
+            )
+
         # Map category to config attribute and column definitions
         if category == "selector":
             data = config.selectors
