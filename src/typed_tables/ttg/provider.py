@@ -125,6 +125,7 @@ class MetaSchemaProvider:
             elif isinstance(base, DictionaryTypeDefinition):
                 self._add_edge("key", type_name, base.key_type.name)
                 self._add_edge("value", type_name, base.value_type.name)
+                self._add_edge("entry", type_name, base.entry_type.name)
             elif isinstance(base, ArrayTypeDefinition):
                 self._add_edge("element", type_name, base.element_type.name)
 

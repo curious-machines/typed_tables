@@ -1254,6 +1254,7 @@ class TTGEngine:
             "element": ["arrays.element_type", "sets.element_type"],
             "key": ["dictionaries.key_type"],
             "value": ["dictionaries.value_type"],
+            "entry": ["dictionaries.entry_type"],
         }
         config.reverses = {
             "children": "extends",
@@ -1267,19 +1268,20 @@ class TTGEngine:
             "elementOf": "element",
             "keyOf": "key",
             "valueOf": "value",
+            "entryOf": "entry",
         }
         config.axis_groups = {
             "all": [
                 "fields", "extends", "interfaces", "variants", "backing",
-                "type", "alias", "base", "element", "key", "value",
+                "type", "alias", "base", "element", "key", "value", "entry",
             ],
             "allReverse": [
                 "children", "implementers", "owner", "enum", "typedBy",
-                "aliasedBy", "backedBy", "wrappedBy", "elementOf", "keyOf", "valueOf",
+                "aliasedBy", "backedBy", "wrappedBy", "elementOf", "keyOf", "valueOf", "entryOf",
             ],
             "referencedBy": [
                 "typedBy", "aliasedBy", "backedBy", "wrappedBy",
-                "elementOf", "keyOf", "valueOf",
+                "elementOf", "keyOf", "valueOf", "entryOf",
             ],
         }
         config.identity = {"default": "name"}

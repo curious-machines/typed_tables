@@ -442,6 +442,18 @@ class TestTTGComplexSchema:
         ]
         assert len(readings_edges) == 1
 
+    def test_dict_entry_edge(self, executor, parser):
+        """Dictionary types have an entry edge to their entry composite."""
+        _run(executor, parser, "type Lookup { data: {string: int32} }")
+        result = _run(executor, parser, "graph dictionaries + .entry")
+        entry_edges = [
+            r for r in result.rows
+            if r["label"] == "entry"
+        ]
+        assert len(entry_edges) == 1
+        assert entry_edges[0]["source"] == "{string: int32}"
+        assert entry_edges[0]["target"] == "Dict_string_int32"
+
 
 # ---- Show command tests ----
 

@@ -53,7 +53,8 @@ axis {
     base: overflows.base_type,
     element: [arrays.element_type, sets.element_type],
     key: dictionaries.key_type,
-    value: dictionaries.value_type
+    value: dictionaries.value_type,
+    entry: dictionaries.entry_type
 }
 
 -- Reverse axes: reverse_name: forward_axis_name
@@ -68,14 +69,15 @@ reverse {
     wrappedBy: base,
     elementOf: element,
     keyOf: key,
-    valueOf: value
+    valueOf: value,
+    entryOf: entry
 }
 
 -- Axis groupings: group_name: [axis names]
 axis_group {
-    all: [fields, extends, interfaces, variants, backing, type, alias, base, element, key, value],
-    allReverse: [children, implementers, owner, enum, typedBy, aliasedBy, backedBy, wrappedBy, elementOf, keyOf, valueOf],
-    referencedBy: [typedBy, aliasedBy, backedBy, wrappedBy, elementOf, keyOf, valueOf]
+    all: [fields, extends, interfaces, variants, backing, type, alias, base, element, key, value, entry],
+    allReverse: [children, implementers, owner, enum, typedBy, aliasedBy, backedBy, wrappedBy, elementOf, keyOf, valueOf, entryOf],
+    referencedBy: [typedBy, aliasedBy, backedBy, wrappedBy, elementOf, keyOf, valueOf, entryOf]
 }
 
 -- Node identity: per selector, with default
@@ -95,6 +97,5 @@ identity {
 
 -- Shortcuts (contain TTGE expressions)
 shortcut {
-    "": types + .fields{edge=.name, result=.type} + .extends + .interfaces
-    "all": all
+    "all": types + .fields{edge=.name, result=.type} + .extends + .interfaces
 }
