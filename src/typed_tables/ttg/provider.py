@@ -108,14 +108,16 @@ class MetaSchemaProvider:
 
             base = type_def.resolve_base_type()
 
-            if isinstance(base, CompositeTypeDefinition):
+            # Check the unresolved type_def for aliases (resolve_base_type
+            # resolves through aliases, so base is never AliasTypeDefinition)
+            if isinstance(type_def, AliasTypeDefinition):
+                self._add_edge("alias", type_name, type_def.base_type.name)
+            elif isinstance(base, CompositeTypeDefinition):
                 self._build_composite_edges(type_name, base)
             elif isinstance(base, InterfaceTypeDefinition):
                 self._build_interface_edges(type_name, base)
             elif isinstance(base, EnumTypeDefinition):
                 self._build_enum_edges(type_name, base)
-            elif isinstance(base, AliasTypeDefinition):
-                self._add_edge("alias", type_name, base.base_type.name)
             elif isinstance(base, OverflowTypeDefinition):
                 self._add_edge("base", type_name, base.base_type.name)
             elif isinstance(base, SetTypeDefinition):
