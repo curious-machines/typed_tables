@@ -79,7 +79,7 @@ class TTGELexer:
         pass
 
     def t_error(self, t: lex.LexToken) -> None:
-        raise SyntaxError(f"TTGE: Illegal character '{t.value[0]}' at position {t.lexpos}")
+        raise SyntaxError(f"TTG: Illegal character '{t.value[0]}' at position {t.lexpos}")
 
     # --- Lexer methods ---
 

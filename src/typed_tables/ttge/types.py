@@ -32,6 +32,13 @@ class FileResult:
     edge_count: int
 
 
+@dataclass
+class ShowResult:
+    """Tabular result from a show command."""
+    columns: list[str]
+    rows: list[dict[str, str]]
+
+
 # ---- Config dataclasses (parsed from .ttgc) ----
 
 
@@ -240,5 +247,13 @@ class ExprStmt:
     output_file: str | None = None
 
 
+@dataclass
+class ShowStmt:
+    """show <category> [<name>]"""
+    category: str      # "selector", "group", "axis", "reverse", "axis_group", "identity", "shortcut"
+    name: str | None    # None = list all, str = single entry
+    metadata: bool      # True if prefixed with "metadata"
+
+
 # Union of all statement types
-Stmt = Union[ConfigStmt, MetaConfigStmt, StyleStmt, MetaStyleStmt, ExecuteStmt, ExprStmt]
+Stmt = Union[ConfigStmt, MetaConfigStmt, StyleStmt, MetaStyleStmt, ExecuteStmt, ExprStmt, ShowStmt]

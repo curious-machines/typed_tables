@@ -115,7 +115,7 @@ class TestTTGEBasic:
         _setup_schema(executor, parser)
         result = _run(executor, parser, "graph")
         assert isinstance(result, QueryResult)
-        assert result.message == "TTGE: no results"
+        assert result.message == "TTG: no results"
 
     def test_graph_all(self, executor, parser):
         """'graph all' returns edges with source/label/target columns."""
@@ -362,7 +362,7 @@ class TestTTGEEmptySchema:
     def test_bare_graph_empty(self, executor, parser):
         """Bare graph on empty schema returns no results."""
         result = _run(executor, parser, "graph")
-        assert result.message == "TTGE: no results"
+        assert result.message == "TTG: no results"
 
     def test_graph_all_empty(self, executor, parser):
         """'graph all' on empty schema returns no results."""
@@ -433,3 +433,127 @@ class TestTTGEComplexSchema:
             if r["source"] == "Sensor" and r["label"] == "readings"
         ]
         assert len(readings_edges) == 1
+
+
+# ---- Show command tests ----
+
+
+class TestTTGEShow:
+    """Tests for the 'graph show' and 'graph metadata show' commands."""
+
+    def test_metadata_show_selector_list(self, executor, parser):
+        """List all selectors from metadata config."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show selector")
+        assert result.columns == ["name", "type"]
+        names = [r["name"] for r in result.rows]
+        assert "composites" in names
+        assert "interfaces" in names
+        assert "enums" in names
+        assert "aliases" in names
+
+    def test_metadata_show_selector_single(self, executor, parser):
+        """Look up a single selector from metadata config."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show selector composites")
+        assert len(result.rows) == 1
+        assert result.rows[0]["name"] == "composites"
+        assert result.rows[0]["type"] == "CompositeDef"
+
+    def test_metadata_show_group_list(self, executor, parser):
+        """List all groups from metadata config."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show group")
+        assert result.columns == ["name", "members"]
+        names = [r["name"] for r in result.rows]
+        assert "integers" in names
+        assert "floats" in names
+        assert "primitives" in names
+
+    def test_metadata_show_group_single(self, executor, parser):
+        """Look up the 'floats' group."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show group floats")
+        assert len(result.rows) == 1
+        assert result.rows[0]["name"] == "floats"
+        assert "float32" in result.rows[0]["members"]
+
+    def test_metadata_show_axis_list(self, executor, parser):
+        """List all axes from metadata config."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show axis")
+        assert result.columns == ["name", "paths"]
+        names = [r["name"] for r in result.rows]
+        assert "fields" in names
+        assert "extends" in names
+        assert "type" in names
+
+    def test_metadata_show_axis_single(self, executor, parser):
+        """Look up a single axis."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show axis fields")
+        assert len(result.rows) == 1
+        assert "composites.fields" in result.rows[0]["paths"]
+
+    def test_metadata_show_reverse_list(self, executor, parser):
+        """List all reverse axes."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show reverse")
+        assert result.columns == ["name", "axis"]
+        names = [r["name"] for r in result.rows]
+        assert "children" in names
+        assert "owner" in names
+
+    def test_metadata_show_reverse_single(self, executor, parser):
+        """Look up a single reverse axis."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show reverse children")
+        assert len(result.rows) == 1
+        assert result.rows[0]["axis"] == "extends"
+
+    def test_metadata_show_axis_group_list(self, executor, parser):
+        """List all axis groups."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show axis_group")
+        assert result.columns == ["name", "axes"]
+        names = [r["name"] for r in result.rows]
+        assert "all" in names
+        assert "allReverse" in names
+
+    def test_metadata_show_identity_list(self, executor, parser):
+        """List all identity entries."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show identity")
+        assert result.columns == ["selector", "field"]
+        assert len(result.rows) >= 1
+        assert result.rows[0]["selector"] == "default"
+
+    def test_metadata_show_shortcut_list(self, executor, parser):
+        """List all shortcuts."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show shortcut")
+        assert result.columns == ["name", "expression"]
+        names = [r["name"] for r in result.rows]
+        assert "all" in names
+
+    def test_show_unknown_category_error(self, executor, parser):
+        """Unknown category produces a syntax error."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show bogus")
+        assert result.message
+        assert "unknown show category" in result.message
+
+    def test_show_unknown_name_error(self, executor, parser):
+        """Unknown name in a valid category produces an error."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph metadata show selector nonexistent")
+        assert result.message
+        assert "not found" in result.message
+
+    def test_data_show_no_config_error(self, executor, parser):
+        """'graph show' without a data config loaded produces an error."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph show selector")
+        assert result.message
+        assert "no data config loaded" in result.message
+

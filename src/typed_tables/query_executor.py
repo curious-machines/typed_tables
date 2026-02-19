@@ -902,7 +902,7 @@ class QueryExecutor:
     def _execute_ttge(self, query: TTGEQuery) -> QueryResult:
         """Execute a TTGE graph expression query."""
         from typed_tables.ttge.engine import TTGEngine
-        from typed_tables.ttge.types import GraphResult, FileResult
+        from typed_tables.ttge.types import GraphResult, FileResult, ShowResult
 
         if not hasattr(self, "_ttge_engine") or self._ttge_engine is None:
             self._ttge_engine = TTGEngine(self.storage, self.registry)
@@ -921,12 +921,14 @@ class QueryExecutor:
         if isinstance(result, str):
             # Status message (config/style/execute commands)
             return QueryResult(columns=[], rows=[], message=result)
+        elif isinstance(result, ShowResult):
+            return QueryResult(columns=result.columns, rows=result.rows)
         elif isinstance(result, FileResult):
             return DumpResult(columns=[], rows=[], script=f"Wrote {result.edge_count} edges to {result.path}")
         elif isinstance(result, GraphResult):
             # Convert GraphResult to QueryResult table
             if not result.edges and not result.isolated_nodes:
-                return QueryResult(columns=[], rows=[], message="TTGE: no results")
+                return QueryResult(columns=[], rows=[], message="TTG: no results")
             columns = ["source", "label", "target"]
             rows: list[dict[str, Any]] = []
             for edge in result.edges:
@@ -935,7 +937,7 @@ class QueryExecutor:
                 rows.append({"source": node, "label": "", "target": ""})
             return QueryResult(columns=columns, rows=rows)
         else:
-            return QueryResult(columns=[], rows=[], message=f"TTGE: unexpected result type: {type(result).__name__}")
+            return QueryResult(columns=[], rows=[], message=f"TTG: unexpected result type: {type(result).__name__}")
 
 
     def _execute_describe(self, query: DescribeQuery) -> QueryResult:

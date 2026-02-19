@@ -30,6 +30,7 @@ from typed_tables.ttge.types import (
     ParenExpr,
     SelectorExpr,
     SetExpr,
+    ShowStmt,
     SingleAxisOperand,
     StringPred,
     StyleStmt,
@@ -103,6 +104,9 @@ class TTGEParser:
             if first_word == "style":
                 return self._parse_style_stmt(rest, meta=False)
 
+            if first_word == "show":
+                return self._parse_show_stmt(rest, metadata=False)
+
             if first_word == "metadata":
                 return self._parse_metadata_stmt(rest)
 
@@ -111,7 +115,7 @@ class TTGEParser:
 
     def _parse_metadata_stmt(self, rest: str) -> object:
         """Parse after 'metadata' keyword."""
-        m = re.match(r"([a-zA-Z_]\w*)\s+(.*)", rest, re.DOTALL)
+        m = re.match(r"([a-zA-Z_]\w*)\s*(.*)", rest, re.DOTALL)
         if m:
             second_word = m.group(1)
             inner_rest = m.group(2).strip()
@@ -119,8 +123,37 @@ class TTGEParser:
                 return MetaConfigStmt(file_path=self._parse_string(inner_rest))
             if second_word == "style":
                 return self._parse_style_stmt(inner_rest, meta=True)
+            if second_word == "show":
+                return self._parse_show_stmt(inner_rest, metadata=True)
         # metadata <expression> [sort by ...] [> "file"]
         return self._parse_expr_stmt(rest, metadata=True)
+
+    _SHOW_CATEGORIES = frozenset({
+        "selector", "group", "axis", "reverse", "axis_group", "identity", "shortcut",
+    })
+
+    def _parse_show_stmt(self, rest: str, metadata: bool) -> ShowStmt:
+        """Parse show <category> [<name>]."""
+        rest = rest.strip()
+        if not rest:
+            raise SyntaxError("TTG: 'show' requires a category (selector, group, axis, reverse, axis_group, identity, shortcut)")
+        # Extract category
+        m = re.match(r"([a-zA-Z_]\w*)\s*(.*)", rest, re.DOTALL)
+        if not m:
+            raise SyntaxError(f"TTG: invalid show category: {rest[:20]}")
+        category = m.group(1)
+        name_rest = m.group(2).strip()
+        if category not in self._SHOW_CATEGORIES:
+            raise SyntaxError(f"TTG: unknown show category '{category}'. Valid: {', '.join(sorted(self._SHOW_CATEGORIES))}")
+        # Optional name
+        name = None
+        if name_rest:
+            m2 = re.match(r"([a-zA-Z_]\w*)", name_rest)
+            if m2:
+                name = m2.group(1)
+            else:
+                raise SyntaxError(f"TTG: invalid name after 'show {category}': {name_rest[:20]}")
+        return ShowStmt(category=category, name=name, metadata=metadata)
 
     def _parse_style_stmt(self, rest: str, meta: bool) -> object:
         """Parse style arguments: "file" [{...}] or {...}."""
@@ -139,7 +172,7 @@ class TTGEParser:
             inline = self._parse_dict_literal(rest)
             return cls(inline=inline)
         else:
-            raise SyntaxError(f"TTGE: Expected string or dict after 'style', got: {rest[:20]}")
+            raise SyntaxError(f"TTG: Expected string or dict after 'style', got: {rest[:20]}")
 
     def _parse_expr_stmt(self, text: str, metadata: bool) -> ExprStmt:
         """Parse an expression statement with optional sort/output suffixes."""
@@ -168,7 +201,7 @@ class TTGEParser:
         """Extract a quoted string from the start of text."""
         text = text.strip()
         if not text.startswith('"'):
-            raise SyntaxError(f"TTGE: Expected string, got: {text[:20]}")
+            raise SyntaxError(f"TTG: Expected string, got: {text[:20]}")
         return self._extract_string(text)
 
     def _extract_string(self, text: str) -> str:
@@ -182,13 +215,13 @@ class TTGEParser:
             if text[i] == '"':
                 return text[1:i]
             i += 1
-        raise SyntaxError("TTGE: Unterminated string")
+        raise SyntaxError("TTG: Unterminated string")
 
     def _parse_dict_literal(self, text: str) -> list[tuple[str, str]]:
         """Parse a {\"key\": \"value\", ...} dict literal."""
         text = text.strip()
         if not text.startswith("{"):
-            raise SyntaxError(f"TTGE: Expected '{{', got: {text[:20]}")
+            raise SyntaxError(f"TTG: Expected '{{', got: {text[:20]}")
         # Find matching }
         depth = 0
         for i, ch in enumerate(text):
@@ -200,7 +233,7 @@ class TTGEParser:
                     inner = text[1:i].strip()
                     break
         else:
-            raise SyntaxError("TTGE: Unmatched '{'")
+            raise SyntaxError("TTG: Unmatched '{'")
 
         if not inner:
             return []
@@ -215,7 +248,7 @@ class TTGEParser:
             key = self._extract_string(inner)
             inner = inner[len(key) + 2:].strip()  # skip "key"
             if not inner.startswith(":"):
-                raise SyntaxError(f"TTGE: Expected ':', got: {inner[:20]}")
+                raise SyntaxError(f"TTG: Expected ':', got: {inner[:20]}")
             inner = inner[1:].strip()
             value = self._extract_string(inner)
             inner = inner[len(value) + 2:].strip()  # skip "value"
@@ -485,12 +518,12 @@ class TTGEParser:
     def p_join_expr(self, p: yacc.YaccProduction) -> None:
         """join_expr : IDENTIFIER LPAREN STRING COMMA axis_path RPAREN"""
         if p[1] != "join":
-            raise SyntaxError(f"TTGE: Expected 'join', got '{p[1]}'")
+            raise SyntaxError(f"TTG: Expected 'join', got '{p[1]}'")
         p[0] = JoinPred(separator=p[3], path=p[5])
 
     # ---- Error handler ----
 
     def p_error(self, p: yacc.YaccProduction) -> None:
         if p:
-            raise SyntaxError(f"TTGE: Syntax error at '{p.value}' (position {p.lexpos})")
-        raise SyntaxError("TTGE: Unexpected end of input")
+            raise SyntaxError(f"TTG: Syntax error at '{p.value}' (position {p.lexpos})")
+        raise SyntaxError("TTG: Unexpected end of input")

@@ -35,6 +35,8 @@ from typed_tables.ttge.types import (
     ParenExpr,
     SelectorExpr,
     SetExpr,
+    ShowResult,
+    ShowStmt,
     SingleAxisOperand,
     Stmt,
     StringPred,
@@ -125,7 +127,7 @@ class TTGEngine:
         parser = self._get_parser()
         stmt = parser.parse(raw_text)
         if stmt is None:
-            raise SyntaxError(f"TTGE: failed to parse: {raw_text!r}")
+            raise SyntaxError(f"TTG: failed to parse: {raw_text!r}")
         return self._execute_stmt(stmt)
 
     def execute_stmt(self, stmt: Stmt) -> GraphResult | FileResult | str:
@@ -144,7 +146,7 @@ class TTGEngine:
 
     # ---- Statement dispatch ----
 
-    def _execute_stmt(self, stmt: Stmt) -> GraphResult | FileResult | str:
+    def _execute_stmt(self, stmt: Stmt) -> GraphResult | FileResult | ShowResult | str:
         if isinstance(stmt, ConfigStmt):
             return self._execute_config(stmt)
         elif isinstance(stmt, MetaConfigStmt):
@@ -155,45 +157,112 @@ class TTGEngine:
             return self._execute_meta_style(stmt)
         elif isinstance(stmt, ExecuteStmt):
             return self._execute_execute(stmt)
+        elif isinstance(stmt, ShowStmt):
+            return self._execute_show(stmt)
         elif isinstance(stmt, ExprStmt):
             return self._execute_expr(stmt)
         else:
-            raise ValueError(f"TTGE: unknown statement type: {type(stmt).__name__}")
+            raise ValueError(f"TTG: unknown statement type: {type(stmt).__name__}")
 
     # ---- Config commands ----
 
     def _execute_config(self, stmt: ConfigStmt) -> str:
         config = self._load_config_file(stmt.file_path)
         self._data_config = config
-        return f"TTGE: loaded config '{stmt.file_path}'"
+        return f"TTG: loaded config '{stmt.file_path}'"
 
     def _execute_meta_config(self, stmt: MetaConfigStmt) -> str:
         config = self._load_config_file(stmt.file_path)
         self._meta_config = config
         self._meta_provider = None  # Invalidate cache
-        return f"TTGE: loaded metadata config '{stmt.file_path}'"
+        return f"TTG: loaded metadata config '{stmt.file_path}'"
+
+    def _execute_show(self, stmt: ShowStmt) -> ShowResult:
+        """Execute a show command — list or look up config entries."""
+        if stmt.metadata:
+            config = self._meta_config
+        else:
+            config = self._data_config
+        if config is None:
+            if stmt.metadata:
+                raise RuntimeError("TTG: no metadata config loaded")
+            else:
+                raise RuntimeError(
+                    "TTG: no data config loaded. Use 'graph config \"file.ttgc\"' first."
+                )
+
+        category = stmt.category
+        name = stmt.name
+
+        # Map category to config attribute and column definitions
+        if category == "selector":
+            data = config.selectors
+            columns = ["name", "type"]
+            def format_entry(k: str, v: str) -> dict[str, str]:
+                return {"name": k, "type": v}
+        elif category == "group":
+            data = config.groups
+            columns = ["name", "members"]
+            def format_entry(k: str, v: list[str]) -> dict[str, str]:
+                return {"name": k, "members": ", ".join(v)}
+        elif category == "axis":
+            data = config.axes
+            columns = ["name", "paths"]
+            def format_entry(k: str, v: list[str]) -> dict[str, str]:
+                return {"name": k, "paths": ", ".join(v)}
+        elif category == "reverse":
+            data = config.reverses
+            columns = ["name", "axis"]
+            def format_entry(k: str, v: str) -> dict[str, str]:
+                return {"name": k, "axis": v}
+        elif category == "axis_group":
+            data = config.axis_groups
+            columns = ["name", "axes"]
+            def format_entry(k: str, v: list[str]) -> dict[str, str]:
+                return {"name": k, "axes": ", ".join(v)}
+        elif category == "identity":
+            data = config.identity
+            columns = ["selector", "field"]
+            def format_entry(k: str, v: str) -> dict[str, str]:
+                return {"selector": k, "field": v}
+        elif category == "shortcut":
+            data = config.shortcuts
+            columns = ["name", "expression"]
+            def format_entry(k: str, v: str) -> dict[str, str]:
+                return {"name": k, "expression": v}
+        else:
+            raise RuntimeError(f"TTG: unknown show category '{category}'")
+
+        if name is not None:
+            if name not in data:
+                raise RuntimeError(f"TTG: {category} '{name}' not found")
+            rows = [format_entry(name, data[name])]
+        else:
+            rows = [format_entry(k, v) for k, v in data.items()]
+
+        return ShowResult(columns=columns, rows=rows)
 
     def _load_config_file(self, file_path: str) -> GraphConfig:
         resolved = self._resolve_path(file_path)
         if not os.path.exists(resolved):
-            raise FileNotFoundError(f"TTGE: config file not found: {resolved}")
+            raise FileNotFoundError(f"TTG: config file not found: {resolved}")
         with open(resolved, "r") as f:
             text = f.read()
         parser = self._get_ttgc_parser()
         config = parser.parse(text)
         if config is None:
-            raise SyntaxError(f"TTGE: failed to parse config: {resolved}")
+            raise SyntaxError(f"TTG: failed to parse config: {resolved}")
         return config
 
     # ---- Style commands ----
 
     def _execute_style(self, stmt: StyleStmt) -> str:
         self._apply_style(stmt.file_path, stmt.inline, self._data_style, "data")
-        return "TTGE: style updated"
+        return "TTG: style updated"
 
     def _execute_meta_style(self, stmt: MetaStyleStmt) -> str:
         self._apply_style(stmt.file_path, stmt.inline, self._meta_style, "metadata")
-        return "TTGE: metadata style updated"
+        return "TTG: metadata style updated"
 
     def _apply_style(
         self,
@@ -205,7 +274,7 @@ class TTGEngine:
         if file_path is not None:
             resolved = self._resolve_path(file_path)
             if not os.path.exists(resolved):
-                raise FileNotFoundError(f"TTGE: style file not found: {resolved}")
+                raise FileNotFoundError(f"TTG: style file not found: {resolved}")
             for key, value in self._parse_style_file(resolved):
                 target[key] = value
         if inline is not None:
@@ -221,7 +290,7 @@ class TTGEngine:
             lines.append(stripped)
         clean = "\n".join(lines).strip()
         if not clean.startswith("{") or not clean.endswith("}"):
-            raise SyntaxError(f"TTGE: style file must contain a dict literal: {path}")
+            raise SyntaxError(f"TTG: style file must contain a dict literal: {path}")
         parser = self._get_parser()
         return parser._parse_dict_literal(clean)
 
@@ -237,10 +306,10 @@ class TTGEngine:
                         resolved = candidate
                         break
         if not os.path.exists(resolved):
-            raise FileNotFoundError(f"TTGE: script not found: {resolved}")
+            raise FileNotFoundError(f"TTG: script not found: {resolved}")
         abs_path = os.path.abspath(resolved)
         if abs_path in self._loaded_scripts:
-            raise RuntimeError(f"TTGE: script already loaded (cycle): {resolved}")
+            raise RuntimeError(f"TTG: script already loaded (cycle): {resolved}")
         self._loaded_scripts.add(abs_path)
         self._script_stack.append(Path(resolved).parent)
         try:
@@ -255,7 +324,7 @@ class TTGEngine:
             stmts = parser.parse_program(text)
             for s in stmts:
                 self._execute_stmt(s)
-            return f"TTGE: executed '{stmt.file_path}'"
+            return f"TTG: executed '{stmt.file_path}'"
         finally:
             self._script_stack.pop()
 
@@ -276,7 +345,7 @@ class TTGEngine:
             else:
                 context_name = "metadata" if stmt.metadata else "data"
                 raise RuntimeError(
-                    f"TTGE: no config loaded for {context_name} context. "
+                    f"TTG: no config loaded for {context_name} context. "
                     f"Use 'graph config \"file.ttgc\"' first."
                 )
 
@@ -339,7 +408,7 @@ class TTGEngine:
         elif isinstance(expr, ParenExpr):
             return self._eval_expr(expr.expr, config, provider)
         else:
-            raise ValueError(f"TTGE: unknown expression type: {type(expr).__name__}")
+            raise ValueError(f"TTG: unknown expression type: {type(expr).__name__}")
 
     # ---- Selector evaluation ----
 
