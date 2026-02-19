@@ -167,7 +167,15 @@ class SingleAxisOperand:
     axes: list[AxisRef]
 
 
-AxisOperand = Union[CompoundAxisOperand, SingleAxisOperand]
+@dataclass
+class RepeatedChainOperand:
+    """Parenthesized repeated chain: (.axis1 + .axis2){depth=N}."""
+    first: AxisOperand
+    chain_ops: list[ChainOp]
+    predicates: dict[str, PredValue] | None = None
+
+
+AxisOperand = Union[CompoundAxisOperand, SingleAxisOperand, RepeatedChainOperand]
 
 
 @dataclass

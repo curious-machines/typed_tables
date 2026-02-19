@@ -33,6 +33,7 @@ from typed_tables.ttg.types import (
     NamePred,
     NameTerm,
     ParenExpr,
+    RepeatedChainOperand,
     SelectorExpr,
     SetExpr,
     ShowResult,
@@ -622,9 +623,73 @@ class TTGEngine:
                 traversal = self._traverse_axis(source_nodes, axis_ref, config, provider)
                 combined = combined.union(traversal)
             return combined
+        elif isinstance(operand, RepeatedChainOperand):
+            return self._eval_repeated_chain(source_nodes, operand, config, provider)
         else:
             # It's an expression (for - operator with selector)
             return self._eval_expr(operand, config, provider)
+
+    def _eval_repeated_chain(
+        self,
+        source_nodes: set[str],
+        operand: RepeatedChainOperand,
+        config: GraphConfig,
+        provider: Any,
+    ) -> ResultSet:
+        """Evaluate a repeated chain operand: (.axis1 + .axis2){depth=N}."""
+        preds = operand.predicates or {}
+
+        # Extract depth from predicates (default 1)
+        depth = 1
+        if "depth" in preds:
+            depth_pred = preds["depth"]
+            if isinstance(depth_pred, IntPred):
+                depth = depth_pred.value
+            elif isinstance(depth_pred, InfPred):
+                depth = -1  # Sentinel for infinity
+
+        if depth == 0:
+            return ResultSet()
+
+        all_edges: set[tuple[str, str, str]] = set()
+        all_nodes: set[str] = set()
+        all_displays: dict[str, str] = {}
+        current_sources = source_nodes
+        visited: set[str] = set(source_nodes)
+        iteration = 0
+
+        while True:
+            iteration += 1
+            if depth > 0 and iteration > depth:
+                break
+
+            # Evaluate first operand from current_sources
+            step_result = self._eval_chain_operand(
+                current_sources, operand.first, config, provider
+            )
+
+            # Apply each chain_op sequentially
+            for chain_op in operand.chain_ops:
+                if chain_op.op == "+":
+                    traversal = self._eval_chain_operand(
+                        step_result.nodes, chain_op.operand, config, provider
+                    )
+                    step_result = step_result.union(traversal)
+
+            all_edges |= step_result.edges
+            all_nodes |= step_result.nodes
+            all_displays.update(step_result.node_displays)
+
+            truly_new = step_result.nodes - visited
+            if not truly_new:
+                break
+            visited |= truly_new
+            current_sources = truly_new
+
+            if depth > 0 and iteration >= depth:
+                break
+
+        return ResultSet(nodes=all_nodes, edges=all_edges, node_displays=all_displays)
 
     # ---- Set operators ----
 

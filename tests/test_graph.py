@@ -10,6 +10,14 @@ import pytest
 from typed_tables.parsing.query_parser import QueryParser, TTGQuery
 from typed_tables.query_executor import DumpResult, QueryExecutor, QueryResult
 from typed_tables.storage import StorageManager
+from typed_tables.ttg.types import (
+    ChainOp,
+    CompoundAxisOperand,
+    InfPred,
+    IntPred,
+    RepeatedChainOperand,
+    SingleAxisOperand,
+)
 from typed_tables.types import TypeRegistry
 
 
@@ -653,4 +661,171 @@ class TestTTGFieldLabels:
             if '"Person"' in line and "shape=" in line:
                 assert "label=" not in line
                 break
+
+
+# ---- Repeated chain operand tests ----
+
+
+class TestRepeatedChainParsing:
+    """Parsing tests for parenthesized repeated chain operands."""
+
+    @pytest.fixture(autouse=True)
+    def ttg_parser(self):
+        from typed_tables.ttg.ttg_parser import TTGParser
+        p = TTGParser()
+        p.build(debug=False, write_tables=False)
+        self._ttg_parser = p
+
+    def _parse_expr(self, text):
+        from typed_tables.ttg.types import ExprStmt
+        stmt = self._ttg_parser.parse(text)
+        assert isinstance(stmt, ExprStmt)
+        return stmt.expression
+
+    def test_parse_repeated_chain_no_pred(self):
+        """(.fields + .type) parses to RepeatedChainOperand with depth=1."""
+        expr = self._parse_expr("composites + (.fields + .type)")
+        # Should be a ChainExpr with one + op whose operand is RepeatedChainOperand
+        from typed_tables.ttg.types import ChainExpr
+        assert isinstance(expr, ChainExpr)
+        op = expr.ops[0]
+        assert op.op == "+"
+        rc = op.operand
+        assert isinstance(rc, RepeatedChainOperand)
+        assert isinstance(rc.first, SingleAxisOperand)
+        assert rc.first.axes[0].name == "fields"
+        assert len(rc.chain_ops) == 1
+        assert rc.chain_ops[0].op == "+"
+        inner_op = rc.chain_ops[0].operand
+        assert isinstance(inner_op, SingleAxisOperand)
+        assert inner_op.axes[0].name == "type"
+        assert rc.predicates is None
+
+    def test_parse_repeated_chain_with_depth_inf(self):
+        """(.fields + .type){depth=inf} sets InfPred."""
+        expr = self._parse_expr("composites + (.fields + .type){depth=inf}")
+        from typed_tables.ttg.types import ChainExpr
+        assert isinstance(expr, ChainExpr)
+        rc = expr.ops[0].operand
+        assert isinstance(rc, RepeatedChainOperand)
+        assert rc.predicates is not None
+        assert "depth" in rc.predicates
+        assert isinstance(rc.predicates["depth"], InfPred)
+
+    def test_parse_repeated_chain_with_depth_int(self):
+        """(.fields + .type){depth=2} sets IntPred."""
+        expr = self._parse_expr("composites + (.fields + .type){depth=2}")
+        from typed_tables.ttg.types import ChainExpr
+        assert isinstance(expr, ChainExpr)
+        rc = expr.ops[0].operand
+        assert isinstance(rc, RepeatedChainOperand)
+        assert isinstance(rc.predicates["depth"], IntPred)
+        assert rc.predicates["depth"].value == 2
+
+    def test_parse_inner_axes_with_predicates(self):
+        """(.fields{edge=""} + .type{edge=""}){depth=2} — predicates on inner axes."""
+        expr = self._parse_expr(
+            'composites + (.fields{edge=""} + .type{edge=""}){depth=2}'
+        )
+        from typed_tables.ttg.types import ChainExpr
+        assert isinstance(expr, ChainExpr)
+        rc = expr.ops[0].operand
+        assert isinstance(rc, RepeatedChainOperand)
+        # Inner first axis has edge="" predicate
+        first = rc.first
+        assert isinstance(first, SingleAxisOperand)
+        assert first.axes[0].predicates is not None
+        # Inner chain op's operand has edge="" predicate
+        inner_op = rc.chain_ops[0].operand
+        assert isinstance(inner_op, SingleAxisOperand)
+        assert inner_op.axes[0].predicates is not None
+
+    def test_parse_single_axis_in_parens(self):
+        """(.fields) parses as RepeatedChainOperand with no chain_ops."""
+        expr = self._parse_expr("composites + (.fields)")
+        from typed_tables.ttg.types import ChainExpr
+        assert isinstance(expr, ChainExpr)
+        rc = expr.ops[0].operand
+        assert isinstance(rc, RepeatedChainOperand)
+        assert len(rc.chain_ops) == 0
+        assert isinstance(rc.first, SingleAxisOperand)
+
+
+class TestRepeatedChainEvaluation:
+    """Evaluation tests for parenthesized repeated chain operands."""
+
+    def _setup_nested_schema(self, executor, parser):
+        """Create a schema with nested composites for multi-level traversal."""
+        _run(executor, parser, "type Inner { value: uint8 }")
+        _run(executor, parser, "type Middle { name: string, inner: Inner }")
+        _run(executor, parser, "type Outer { name: string, mid: Middle }")
+
+    def test_repeated_chain_depth_inf(self, executor, parser):
+        """Repeated chain with depth=inf traverses through all levels."""
+        self._setup_nested_schema(executor, parser)
+        result = _run(
+            executor, parser,
+            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=inf}',
+        )
+        # Should discover: Outer's fields → Middle and string → Middle's fields → Inner and string → Inner's fields → uint8
+        sources = {r["source"] for r in result.rows}
+        targets = {r["target"] for r in result.rows}
+        all_nodes = sources | targets
+        assert "Outer" in all_nodes
+        assert "Middle" in all_nodes
+        assert "Inner" in all_nodes
+
+    def test_repeated_chain_depth_1(self, executor, parser):
+        """Repeated chain with depth=1 only does one iteration."""
+        self._setup_nested_schema(executor, parser)
+        result = _run(
+            executor, parser,
+            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=1}',
+        )
+        # Should discover: Outer's fields → Middle and string, but NOT Inner
+        sources = {r["source"] for r in result.rows}
+        targets = {r["target"] for r in result.rows}
+        all_nodes = sources | targets
+        assert "Outer" in all_nodes
+        assert "Middle" in all_nodes
+        assert "Inner" not in all_nodes
+
+    def test_repeated_chain_depth_0(self, executor, parser):
+        """Repeated chain with depth=0 produces no results."""
+        self._setup_nested_schema(executor, parser)
+        result = _run(
+            executor, parser,
+            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=0}',
+        )
+        # Only the seed node Outer, no edges from the repeated chain
+        edges = [r for r in result.rows if r["label"] != ""]
+        assert len(edges) == 0
+
+    def test_repeated_chain_default_depth(self, executor, parser):
+        """Repeated chain without {depth=} defaults to depth=1."""
+        self._setup_nested_schema(executor, parser)
+        result = _run(
+            executor, parser,
+            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""})',
+        )
+        sources = {r["source"] for r in result.rows}
+        targets = {r["target"] for r in result.rows}
+        all_nodes = sources | targets
+        assert "Outer" in all_nodes
+        assert "Middle" in all_nodes
+        assert "Inner" not in all_nodes
+
+    def test_repeated_chain_depth_2(self, executor, parser):
+        """Repeated chain with depth=2 traverses two levels."""
+        self._setup_nested_schema(executor, parser)
+        result = _run(
+            executor, parser,
+            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=2}',
+        )
+        sources = {r["source"] for r in result.rows}
+        targets = {r["target"] for r in result.rows}
+        all_nodes = sources | targets
+        assert "Outer" in all_nodes
+        assert "Middle" in all_nodes
+        assert "Inner" in all_nodes
 

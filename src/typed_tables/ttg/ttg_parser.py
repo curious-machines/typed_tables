@@ -28,6 +28,7 @@ from typed_tables.ttg.types import (
     NamePred,
     NameTerm,
     ParenExpr,
+    RepeatedChainOperand,
     SelectorExpr,
     SetExpr,
     ShowStmt,
@@ -374,15 +375,41 @@ class TTGParser:
         """atom : LBRACE expr_list RBRACE"""
         p[0] = SetExpr(members=p[2])
 
-    # ---- Axis operand: .axis or .axis.axis or {.axis, .axis} ----
+    # ---- Axis operand: .axis or .axis.axis or {.axis, .axis} or (inner_chain) ----
 
-    def p_axis_operand_single(self, p: yacc.YaccProduction) -> None:
-        """axis_operand : DOT axis_chain"""
+    def p_axis_operand_base(self, p: yacc.YaccProduction) -> None:
+        """axis_operand : base_axis_operand"""
+        p[0] = p[1]
+
+    def p_axis_operand_paren(self, p: yacc.YaccProduction) -> None:
+        """axis_operand : LPAREN inner_chain RPAREN"""
+        first, ops = p[2]
+        p[0] = RepeatedChainOperand(first=first, chain_ops=ops)
+
+    def p_axis_operand_paren_pred(self, p: yacc.YaccProduction) -> None:
+        """axis_operand : LPAREN inner_chain RPAREN pred_dict"""
+        first, ops = p[2]
+        p[0] = RepeatedChainOperand(first=first, chain_ops=ops, predicates=p[4])
+
+    def p_base_axis_operand_single(self, p: yacc.YaccProduction) -> None:
+        """base_axis_operand : DOT axis_chain"""
         p[0] = SingleAxisOperand(axes=p[2])
 
-    def p_axis_operand_compound(self, p: yacc.YaccProduction) -> None:
-        """axis_operand : LBRACE compound_axis_list RBRACE"""
+    def p_base_axis_operand_compound(self, p: yacc.YaccProduction) -> None:
+        """base_axis_operand : LBRACE compound_axis_list RBRACE"""
         p[0] = CompoundAxisOperand(axes=p[2])
+
+    # ---- Inner chain (inside parens): base_axis_operand + base_axis_operand ... ----
+
+    def p_inner_chain_single(self, p: yacc.YaccProduction) -> None:
+        """inner_chain : base_axis_operand"""
+        p[0] = (p[1], [])
+
+    def p_inner_chain_plus(self, p: yacc.YaccProduction) -> None:
+        """inner_chain : inner_chain PLUS base_axis_operand"""
+        first, ops = p[1]
+        ops.append(ChainOp(op="+", operand=p[3]))
+        p[0] = (first, ops)
 
     def p_compound_axis_list_single(self, p: yacc.YaccProduction) -> None:
         """compound_axis_list : DOT axis_ref"""
