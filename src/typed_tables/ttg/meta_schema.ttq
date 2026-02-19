@@ -57,10 +57,11 @@ type OverflowDef from TypeDef { base_type: IntegerDef, policy: OverflowPolicy }
 type ArrayDef from TypeDef { element_type: TypeDef }
 type SetDef from TypeDef { element_type: TypeDef }
 
--- Dictionary (two outgoing type references)
+-- Dictionary (two outgoing type references + entry composite)
 type DictDef from TypeDef {
     key_type: TypeDef,
-    value_type: TypeDef
+    value_type: TypeDef,
+    entry_type: TypeDef
 }
 
 -- Enum

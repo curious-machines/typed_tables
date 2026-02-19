@@ -378,7 +378,11 @@ class TTGEngine:
             provider = self._get_meta_provider()
         else:
             config = self._data_config
-            provider = self._get_meta_provider()  # For now, always use meta provider
+            if config is not None and self.storage is not None:
+                from typed_tables.ttg.provider import DatabaseProvider
+                provider = DatabaseProvider(self.storage, self.registry, config)
+            else:
+                provider = None
 
         if config is None:
             context_name = "meta" if stmt.metadata else "data"
@@ -848,7 +852,7 @@ class TTGEngine:
     def _get_reverse_edges(self, fwd_axis: str, target_nodes: set[str], provider: Any) -> list:
         """Get reverse edges: find forward edges where target is in target_nodes."""
         from typed_tables.ttg.provider import EdgeInfo
-        all_fwd_edges = provider._axis_edges.get(fwd_axis, [])
+        all_fwd_edges = provider.get_all_edges_for_axis(fwd_axis)
         result = []
         for edge in all_fwd_edges:
             if edge.target_id in target_nodes:
@@ -1172,10 +1176,13 @@ class TTGEngine:
     # ---- Provider access ----
 
     def _get_meta_provider(self) -> Any:
-        """Get or create the meta-schema provider."""
-        if self._meta_provider is None and self.registry is not None:
-            from typed_tables.ttg.provider import MetaSchemaProvider
-            self._meta_provider = MetaSchemaProvider(self.registry)
+        """Get or create the meta-schema provider from _meta/ database."""
+        if self._meta_provider is None and self.registry is not None and self.storage is not None:
+            from typed_tables.ttg.meta_builder import MetaDatabaseBuilder
+            from typed_tables.ttg.provider import DatabaseProvider
+            builder = MetaDatabaseBuilder(self.registry, self.storage.data_dir)
+            meta_registry, meta_storage = builder.build()
+            self._meta_provider = DatabaseProvider(meta_storage, meta_registry, self._meta_config)
         return self._meta_provider
 
     # ---- Path resolution ----
@@ -1206,97 +1213,12 @@ class TTGEngine:
     # ---- Built-in meta-schema config ----
 
     def _load_builtin_meta_config(self) -> GraphConfig:
-        config = GraphConfig()
-        config.selectors = {
-            "composites": "CompositeDef",
-            "interfaces": "InterfaceDef",
-            "enums": "EnumDef",
-            "fields": "FieldDef",
-            "variants": "VariantDef",
-            "aliases": "AliasDef",
-            "arrays": "ArrayDef",
-            "sets": "SetDef",
-            "dictionaries": "DictDef",
-            "overflows": "OverflowDef",
-            "bit": "BitDef",
-            "character": "CharacterDef",
-            "uint8": "UInt8Def",
-            "int8": "Int8Def",
-            "uint16": "UInt16Def",
-            "int16": "Int16Def",
-            "uint32": "UInt32Def",
-            "int32": "Int32Def",
-            "uint64": "UInt64Def",
-            "int64": "Int64Def",
-            "uint128": "UInt128Def",
-            "int128": "Int128Def",
-            "float16": "Float16Def",
-            "float32": "Float32Def",
-            "float64": "Float64Def",
-            "boolean": "BooleanDef",
-            "string": "StringDef",
-            "bigint": "BigIntDef",
-            "biguint": "BigUIntDef",
-            "fraction": "FractionDef",
-        }
-        config.groups = {
-            "integers": [
-                "uint8", "int8", "uint16", "int16", "uint32", "int32",
-                "uint64", "int64", "uint128", "int128", "bigint", "biguint",
-            ],
-            "floats": ["float16", "float32", "float64"],
-            "primitives": ["integers", "floats", "bit", "character"],
-            "types": [
-                "composites", "interfaces", "enums", "aliases", "arrays",
-                "sets", "dictionaries", "overflows", "primitives", "boolean",
-                "string", "fraction",
-            ],
-            "all": ["types", "fields", "variants"],
-        }
-        config.axes = {
-            "fields": ["composites.fields", "interfaces.fields", "variants.fields"],
-            "extends": ["composites.parent", "interfaces.extends"],
-            "interfaces": ["composites.interfaces"],
-            "variants": ["enums.variants"],
-            "backing": ["enums.backing_type"],
-            "type": ["fields.type"],
-            "alias": ["aliases.base_type"],
-            "base": ["overflows.base_type"],
-            "element": ["arrays.element_type", "sets.element_type"],
-            "key": ["dictionaries.key_type"],
-            "value": ["dictionaries.value_type"],
-            "entry": ["dictionaries.entry_type"],
-        }
-        config.reverses = {
-            "children": "extends",
-            "implementers": "interfaces",
-            "owner": "fields",
-            "enum": "variants",
-            "typedBy": "type",
-            "aliasedBy": "alias",
-            "backedBy": "backing",
-            "wrappedBy": "base",
-            "elementOf": "element",
-            "keyOf": "key",
-            "valueOf": "value",
-            "entryOf": "entry",
-        }
-        config.axis_groups = {
-            "all": [
-                "fields", "extends", "interfaces", "variants", "backing",
-                "type", "alias", "base", "element", "key", "value", "entry",
-            ],
-            "allReverse": [
-                "children", "implementers", "owner", "enum", "typedBy",
-                "aliasedBy", "backedBy", "wrappedBy", "elementOf", "keyOf", "valueOf", "entryOf",
-            ],
-            "referencedBy": [
-                "typedBy", "aliasedBy", "backedBy", "wrappedBy",
-                "elementOf", "keyOf", "valueOf", "entryOf",
-            ],
-        }
-        config.identity = {"default": "name"}
-        config.shortcuts = {
-            "all": 'types.fields{edge=.name, result=.type}.extends{edge="extends"}.interfaces{edge="implements"}',
-        }
+        """Load the built-in meta-schema config from the bundled .ttgc file."""
+        config_path = Path(__file__).parent / "meta_schema.ttgc"
+        with open(config_path, "r") as f:
+            text = f.read()
+        parser = self._get_ttgc_parser()
+        config = parser.parse(text)
+        if config is None:
+            raise RuntimeError("TTG: failed to parse built-in meta-schema config")
         return config

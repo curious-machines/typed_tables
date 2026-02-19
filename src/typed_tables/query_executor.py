@@ -2075,6 +2075,28 @@ class QueryExecutor:
             elif isinstance(field_base, ArrayTypeDefinition):
                 if isinstance(resolved_value, str):
                     resolved_value = list(resolved_value)
+                # Handle composite array elements: int refs → read full records
+                elem_base = field_base.element_type.resolve_base_type()
+                if isinstance(elem_base, CompositeTypeDefinition):
+                    resolved = []
+                    for elem in resolved_value:
+                        if isinstance(elem, InlineInstance):
+                            inline_type = self.registry.get(elem.type_name)
+                            inline_base = inline_type.resolve_base_type()
+                            inline_values = {}
+                            for ifv in elem.fields:
+                                inline_values[ifv.name] = self._resolve_instance_value(ifv.value)
+                            elem = self._build_field_references(inline_base, inline_values)
+                        elif isinstance(elem, int):
+                            elem_type_name = field_base.element_type.name
+                            ref_table = self.storage.get_table(elem_type_name)
+                            elem = ref_table.get(elem)
+                        resolved.append(elem)
+                    resolved_value = resolved
+                # For string[] elements
+                if is_string_type(field_base.element_type):
+                    char_table = self.storage.get_array_table_for_type(field_base.element_type)
+                    resolved_value = [char_table.insert(list(e) if isinstance(e, str) else e) for e in resolved_value]
                 array_table = self.storage.get_array_table_for_type(field_def.type_def)
                 raw_record[fv.name] = array_table.insert(resolved_value)
             elif isinstance(field_base, CompositeTypeDefinition):
@@ -3049,10 +3071,19 @@ class QueryExecutor:
         if isinstance(value, TypedLiteral):
             return value.value  # Strip type info for storage
         if isinstance(value, list):
-            # Resolve TypedLiteral elements; leave InlineInstance/CompositeRef/etc.
+            # Resolve TypedLiteral and VariableReference elements; leave InlineInstance/CompositeRef/etc.
             # for downstream handling in _create_instance.
-            if any(isinstance(elem, TypedLiteral) for elem in value):
-                return [elem.value if isinstance(elem, TypedLiteral) else elem for elem in value]
+            needs_resolution = any(isinstance(elem, (TypedLiteral, VariableReference)) for elem in value)
+            if needs_resolution:
+                resolved = []
+                for elem in value:
+                    if isinstance(elem, TypedLiteral):
+                        resolved.append(elem.value)
+                    elif isinstance(elem, VariableReference):
+                        resolved.append(self._resolve_instance_value(elem))
+                    else:
+                        resolved.append(elem)
+                return resolved
             return value
         if isinstance(value, NullValue):
             return None

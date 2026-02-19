@@ -1,13 +1,17 @@
-"""Data provider for TTG — resolves selectors and axes against a schema.
+"""Data provider for TTG — resolves selectors and axes against a database.
 
-The MetaSchemaProvider builds an in-memory model from a TypeRegistry,
-mapping selector names to node sets and axis names to traversable relationships.
+The DatabaseProvider reads meta-schema records from a database (via the
+storage layer) and builds an in-memory graph model. It can work with any
+database that conforms to a given GraphConfig — both the _meta/ database
+(meta-schema context) and user databases (data context).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from typed_tables.ttg.types import GraphConfig
 
 
 @dataclass
@@ -27,11 +31,17 @@ class EdgeInfo:
     label: str = ""      # Default edge label (axis name)
 
 
-class MetaSchemaProvider:
-    """Builds an in-memory graph model from a TypeRegistry for TTG evaluation."""
+class DatabaseProvider:
+    """Builds an in-memory graph model from database records for TTG evaluation.
 
-    def __init__(self, registry: Any) -> None:
+    Reads records from a StorageManager and TypeRegistry, using a GraphConfig
+    to map selector names to type names and axis names to field paths.
+    """
+
+    def __init__(self, storage: Any, registry: Any, config: GraphConfig) -> None:
+        self.storage = storage
         self.registry = registry
+        self.config = config
         # node_identity → NodeInfo
         self._nodes: dict[str, NodeInfo] = {}
         # selector_name → set of node identities
@@ -54,6 +64,10 @@ class MetaSchemaProvider:
         edges = self._axis_edges.get(axis_name, [])
         return [e for e in edges if e.source_id in source_ids]
 
+    def get_all_edges_for_axis(self, axis_name: str) -> list[EdgeInfo]:
+        """Get all edges for an axis (used for reverse edge computation)."""
+        return self._axis_edges.get(axis_name, [])
+
     def get_node_property(self, identity: str, prop: str) -> Any:
         """Get a property value from a node."""
         node = self._nodes.get(identity)
@@ -61,202 +75,497 @@ class MetaSchemaProvider:
             return None
         return node.properties.get(prop)
 
+    # ---- Build model from database ----
+
     def _build(self) -> None:
-        """Build the in-memory model from the registry."""
+        """Build the in-memory model by reading records from the database."""
         from typed_tables.types import (
-            AliasTypeDefinition,
             ArrayTypeDefinition,
-            BigIntTypeDefinition,
-            BigUIntTypeDefinition,
             BooleanTypeDefinition,
             CompositeTypeDefinition,
-            DictionaryTypeDefinition,
-            EnumTypeDefinition,
-            FractionTypeDefinition,
             InterfaceTypeDefinition,
-            OverflowTypeDefinition,
             PrimitiveTypeDefinition,
-            SetTypeDefinition,
             StringTypeDefinition,
         )
 
-        # First pass: create nodes for all types
-        for type_name in self.registry.list_types():
-            if type_name.startswith("_"):
-                continue
+        config = self.config
+        identity_field = config.identity.get("default", "name")
+
+        # Record index tracking: (type_name, index) → identity
+        record_identities: dict[tuple[str, int], str] = {}
+
+        # Cache: selector_name → (type_name, type_def_base, table)
+        selector_info: dict[str, tuple[str, Any, Any]] = {}
+
+        # First pass: read all selectors, detect which have duplicate identities
+        # Selectors with duplicates need qualified identities (created in pass 2)
+        qualified_selectors: set[str] = set()
+
+        for sel_name, type_name in config.selectors.items():
             type_def = self.registry.get(type_name)
             if type_def is None:
                 continue
-
             base = type_def.resolve_base_type()
-
-            # Classify into selector
-            selector = self._classify_selector(type_def, base)
-            if selector is None:
+            if not isinstance(base, CompositeTypeDefinition):
+                continue
+            try:
+                table = self.storage.get_table(type_name)
+            except (ValueError, FileNotFoundError):
                 continue
 
-            props = {"name": type_name}
-            node = NodeInfo(identity=type_name, selector=selector, properties=props)
-            self._nodes[type_name] = node
-            self._selector_nodes.setdefault(selector, set()).add(type_name)
+            selector_info[sel_name] = (type_name, base, table)
 
-        # Second pass: create edges (axes)
-        for type_name, node in list(self._nodes.items()):
-            type_def = self.registry.get(type_name)
-            if type_def is None:
+            # Scan for duplicate identities
+            seen_ids: set[str] = set()
+            has_duplicates = False
+            for idx in range(table.count):
+                try:
+                    record = table.get(idx)
+                except (IndexError, Exception):
+                    continue
+                if record is None or isinstance(record, (bytes, bytearray)):
+                    continue
+                identity = self._resolve_string_field(record, identity_field, base)
+                if identity is None:
+                    continue
+                if identity in seen_ids:
+                    has_duplicates = True
+                    break
+                seen_ids.add(identity)
+
+            if has_duplicates:
+                qualified_selectors.add(sel_name)
                 continue
 
-            base = type_def.resolve_base_type()
+            # No duplicates — create nodes directly
+            for idx in range(table.count):
+                try:
+                    record = table.get(idx)
+                except (IndexError, Exception):
+                    continue
+                if record is None or isinstance(record, (bytes, bytearray)):
+                    continue
+                identity = self._resolve_string_field(record, identity_field, base)
+                if identity is None:
+                    continue
+                props = self._read_properties(record, base, identity_field)
+                props["name"] = identity
+                node = NodeInfo(identity=identity, selector=sel_name, properties=props)
+                self._nodes[identity] = node
+                self._selector_nodes.setdefault(sel_name, set()).add(identity)
+                record_identities[(type_name, idx)] = identity
 
-            # Check the unresolved type_def for aliases (resolve_base_type
-            # resolves through aliases, so base is never AliasTypeDefinition)
-            if isinstance(type_def, AliasTypeDefinition):
-                self._add_edge("alias", type_name, type_def.base_type.name)
-            elif isinstance(base, CompositeTypeDefinition):
-                self._build_composite_edges(type_name, base)
-            elif isinstance(base, InterfaceTypeDefinition):
-                self._build_interface_edges(type_name, base)
-            elif isinstance(base, EnumTypeDefinition):
-                self._build_enum_edges(type_name, base)
-            elif isinstance(base, OverflowTypeDefinition):
-                self._add_edge("base", type_name, base.base_type.name)
-            elif isinstance(base, SetTypeDefinition):
-                self._add_edge("element", type_name, base.element_type.name)
-            elif isinstance(base, DictionaryTypeDefinition):
-                self._add_edge("key", type_name, base.key_type.name)
-                self._add_edge("value", type_name, base.value_type.name)
-                self._add_edge("entry", type_name, base.entry_type.name)
-            elif isinstance(base, ArrayTypeDefinition):
-                self._add_edge("element", type_name, base.element_type.name)
+        # Second pass: build edges from axis definitions
+        for axis_name, paths in config.axes.items():
+            for path in paths:
+                parts = path.split(".", 1)
+                if len(parts) != 2:
+                    continue
+                source_sel, field_name = parts
 
-    def _classify_selector(self, type_def: Any, base: Any) -> str | None:
-        """Map a type definition to its selector name."""
+                source_type_name = config.selectors.get(source_sel)
+                if source_type_name is None:
+                    continue
+
+                source_def = self.registry.get(source_type_name)
+                if source_def is None:
+                    continue
+
+                source_base = source_def.resolve_base_type()
+                if not isinstance(source_base, CompositeTypeDefinition):
+                    continue
+
+                # Find the field definition
+                field_def = None
+                for f in source_base.fields:
+                    if f.name == field_name:
+                        field_def = f
+                        break
+                if field_def is None:
+                    continue
+
+                try:
+                    source_table = self.storage.get_table(source_type_name)
+                except (ValueError, FileNotFoundError):
+                    continue
+
+                field_base = field_def.type_def.resolve_base_type()
+
+                for idx in range(source_table.count):
+                    source_key = (source_type_name, idx)
+                    source_id = record_identities.get(source_key)
+                    if source_id is None:
+                        continue
+
+                    try:
+                        record = source_table.get(idx)
+                    except (IndexError, Exception):
+                        continue
+
+                    if record is None:
+                        continue
+
+                    ref_value = record.get(field_name)
+                    if ref_value is None:
+                        continue
+
+                    # Resolve reference targets
+                    target_ids = self._resolve_reference_targets(
+                        ref_value, field_def, field_base,
+                        record_identities, source_id, axis_name,
+                        identity_field,
+                        selector_info=selector_info,
+                        qualified_selectors=qualified_selectors,
+                    )
+
+                    for target_id in target_ids:
+                        self._add_edge(axis_name, source_id, target_id)
+
+    def _resolve_string_field(self, record: dict, field_name: str, composite_base: Any) -> str | None:
+        """Resolve a string field from a record to its actual string value."""
+        from typed_tables.types import StringTypeDefinition
+
+        value = record.get(field_name)
+        if value is None:
+            return None
+
+        if isinstance(value, str):
+            return value
+
+        # Find the field definition to check if it's a string type
+        field_def = None
+        for f in composite_base.fields:
+            if f.name == field_name:
+                field_def = f
+                break
+        if field_def is None:
+            return str(value)
+
+        field_base = field_def.type_def.resolve_base_type()
+
+        if isinstance(field_base, StringTypeDefinition):
+            if isinstance(value, tuple) and len(value) == 2:
+                start, length = value
+                if length == 0:
+                    return ""
+                try:
+                    array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                    chars = array_table.get(start, length)
+                    return "".join(chars)
+                except Exception:
+                    return None
+
+        return str(value)
+
+    def _read_properties(self, record: dict, composite_base: Any, identity_field: str) -> dict[str, Any]:
+        """Read scalar properties from a record."""
         from typed_tables.types import (
-            AliasTypeDefinition,
-            ArrayTypeDefinition,
-            BigIntTypeDefinition,
-            BigUIntTypeDefinition,
             BooleanTypeDefinition,
-            CompositeTypeDefinition,
-            DictionaryTypeDefinition,
-            EnumTypeDefinition,
-            FractionTypeDefinition,
-            InterfaceTypeDefinition,
-            OverflowTypeDefinition,
             PrimitiveTypeDefinition,
-            SetTypeDefinition,
             StringTypeDefinition,
         )
 
-        if isinstance(type_def, CompositeTypeDefinition):
-            return "composites"
-        elif isinstance(type_def, InterfaceTypeDefinition):
-            return "interfaces"
-        elif isinstance(type_def, EnumTypeDefinition):
-            return "enums"
-        elif isinstance(type_def, AliasTypeDefinition):
-            return "aliases"
-        elif isinstance(type_def, OverflowTypeDefinition):
-            return "overflows"
-        elif isinstance(type_def, BooleanTypeDefinition):
-            return "boolean"
-        elif isinstance(type_def, StringTypeDefinition):
-            return "string"
-        elif isinstance(type_def, FractionTypeDefinition):
-            return "fraction"
-        elif isinstance(type_def, BigIntTypeDefinition):
-            return "bigint"
-        elif isinstance(type_def, BigUIntTypeDefinition):
-            return "biguint"
-        elif isinstance(type_def, SetTypeDefinition):
-            return "sets"
-        elif isinstance(type_def, DictionaryTypeDefinition):
-            return "dictionaries"
-        elif isinstance(type_def, ArrayTypeDefinition):
-            return "arrays"
-        elif isinstance(type_def, PrimitiveTypeDefinition):
-            # Map to specific primitive selector
-            return type_def.name
-        return None
+        props: dict[str, Any] = {}
+        for field_def in composite_base.fields:
+            fname = field_def.name
+            if fname == identity_field:
+                continue
+            field_base = field_def.type_def.resolve_base_type()
+            if isinstance(field_base, BooleanTypeDefinition):
+                val = record.get(fname)
+                if val is not None:
+                    props[fname] = bool(val)
+            elif isinstance(field_base, PrimitiveTypeDefinition):
+                val = record.get(fname)
+                if val is not None:
+                    props[fname] = val
+            elif isinstance(field_base, StringTypeDefinition):
+                val = self._resolve_string_field(record, fname, composite_base)
+                if val is not None:
+                    props[fname] = val
+        return props
 
-    def _build_composite_edges(self, type_name: str, comp: Any) -> None:
-        """Build edges for a composite type."""
-        # Fields axis
-        for f in comp.fields:
-            field_id = self._ensure_field_node(type_name, f)
-            self._add_edge("fields", type_name, field_id)
-            # Type axis (from field to its type)
-            self._add_edge("type", field_id, f.type_def.name)
+    def _resolve_reference_targets(
+        self,
+        ref_value: Any,
+        field_def: Any,
+        field_base: Any,
+        record_identities: dict[tuple[str, int], str],
+        source_id: str,
+        axis_name: str,
+        identity_field: str,
+        selector_info: dict[str, tuple[str, Any, Any]] | None = None,
+        qualified_selectors: set[str] | None = None,
+    ) -> list[str]:
+        """Resolve a reference field value to target identity strings.
 
-        # Extends axis (parent)
-        if comp.parent:
-            self._add_edge("extends", type_name, comp.parent)
+        For array fields containing composite elements from qualified selectors
+        (like FieldDef[] or VariantDef[]), creates inline nodes with qualified
+        identities (e.g., "Person.name").
+        """
+        from typed_tables.types import (
+            ArrayTypeDefinition,
+            CompositeTypeDefinition,
+            InterfaceTypeDefinition,
+        )
 
-        # Interfaces axis
-        for iface_name in getattr(comp, "declared_interfaces", comp.interfaces):
-            self._add_edge("interfaces", type_name, iface_name)
+        target_ids: list[str] = []
 
-    def _build_interface_edges(self, type_name: str, iface: Any) -> None:
-        """Build edges for an interface type."""
-        # Fields axis
-        for f in iface.fields:
-            field_id = self._ensure_field_node(type_name, f)
-            self._add_edge("fields", type_name, field_id)
-            self._add_edge("type", field_id, f.type_def.name)
+        if isinstance(field_base, InterfaceTypeDefinition):
+            # Interface ref: stored as (type_id, index) tuple
+            if isinstance(ref_value, tuple) and len(ref_value) == 2:
+                type_id, index = ref_value
+                concrete_name = self.registry.get_type_name_by_id(type_id)
+                if concrete_name:
+                    key = (concrete_name, index)
+                    target = record_identities.get(key)
+                    if target:
+                        target_ids.append(target)
 
-        # Extends axis (parent interfaces)
-        for parent_name in iface.interfaces:
-            self._add_edge("extends", type_name, parent_name)
+        elif isinstance(field_base, CompositeTypeDefinition):
+            # Composite ref: stored as uint32 index
+            if isinstance(ref_value, int):
+                ref_type_name = field_def.type_def.name
+                key = (ref_type_name, ref_value)
+                target = record_identities.get(key)
+                if target:
+                    target_ids.append(target)
 
-    def _build_enum_edges(self, type_name: str, enum_def: Any) -> None:
-        """Build edges for an enum type."""
-        for variant in enum_def.variants:
-            variant_id = f"{type_name}.{variant.name}"
-            # Create variant node
-            props = {"name": variant.name}
-            self._nodes[variant_id] = NodeInfo(
-                identity=variant_id, selector="variants", properties=props
+        elif isinstance(field_base, ArrayTypeDefinition):
+            # Array ref: stored as (start_index, length)
+            if isinstance(ref_value, tuple) and len(ref_value) == 2:
+                start, length = ref_value
+                if length == 0:
+                    return []
+                try:
+                    array_table = self.storage.get_array_table_for_type(field_def.type_def)
+                    elements = array_table.get(start, length)
+                except Exception:
+                    return []
+
+                elem_base = field_base.element_type.resolve_base_type()
+                elem_type_name = field_base.element_type.name
+
+                # Check if target elements need qualified identities
+                target_is_qualified = False
+                target_sel = None
+                if qualified_selectors:
+                    for s, t in self.config.selectors.items():
+                        if t == elem_type_name and s in qualified_selectors:
+                            target_is_qualified = True
+                            target_sel = s
+                            break
+
+                if isinstance(elem_base, CompositeTypeDefinition):
+                    for elem in elements:
+                        if isinstance(elem, int):
+                            key = (elem_type_name, elem)
+                            existing = record_identities.get(key)
+                            if existing:
+                                target_ids.append(existing)
+                            elif target_is_qualified and selector_info:
+                                tid = self._create_qualified_node(
+                                    elem, elem_type_name, elem_base,
+                                    source_id, target_sel or "unknown",
+                                    identity_field, record_identities,
+                                    selector_info,
+                                    qualified_selectors or set(),
+                                )
+                                if tid:
+                                    target_ids.append(tid)
+                        elif isinstance(elem, dict):
+                            elem_name = self._resolve_string_field(
+                                elem, identity_field, elem_base
+                            )
+                            if elem_name is None:
+                                continue
+
+                            if target_is_qualified:
+                                # Qualified selector: create Owner.Name node
+                                qualified_id = f"{source_id}.{elem_name}"
+                                if qualified_id not in self._nodes:
+                                    sel = target_sel or "unknown"
+                                    props = self._read_properties(
+                                        elem, elem_base, identity_field
+                                    )
+                                    props["name"] = elem_name
+                                    props["owner"] = source_id
+                                    node = NodeInfo(
+                                        identity=qualified_id, selector=sel,
+                                        properties=props
+                                    )
+                                    self._nodes[qualified_id] = node
+                                    self._selector_nodes.setdefault(sel, set()).add(qualified_id)
+                                    self._create_element_edges(
+                                        qualified_id, elem, elem_base,
+                                        record_identities, identity_field
+                                    )
+                                target_ids.append(qualified_id)
+                            else:
+                                # Non-qualified: look up existing node
+                                if elem_name in self._nodes:
+                                    target_ids.append(elem_name)
+                                else:
+                                    # Element not loaded yet — create it
+                                    sel = target_sel
+                                    if sel is None:
+                                        for s, t in self.config.selectors.items():
+                                            if t == elem_type_name:
+                                                sel = s
+                                                break
+                                    if sel is None:
+                                        sel = "unknown"
+                                    props = self._read_properties(
+                                        elem, elem_base, identity_field
+                                    )
+                                    props["name"] = elem_name
+                                    node = NodeInfo(
+                                        identity=elem_name, selector=sel,
+                                        properties=props
+                                    )
+                                    self._nodes[elem_name] = node
+                                    self._selector_nodes.setdefault(sel, set()).add(elem_name)
+                                    target_ids.append(elem_name)
+
+                elif isinstance(elem_base, InterfaceTypeDefinition):
+                    for elem in elements:
+                        if isinstance(elem, tuple) and len(elem) == 2:
+                            type_id, index = elem
+                            concrete_name = self.registry.get_type_name_by_id(type_id)
+                            if concrete_name:
+                                key = (concrete_name, index)
+                                target = record_identities.get(key)
+                                if target:
+                                    target_ids.append(target)
+
+        return target_ids
+
+    def _create_qualified_node(
+        self,
+        elem_index: int,
+        elem_type_name: str,
+        elem_base: Any,
+        source_id: str,
+        selector: str,
+        identity_field: str,
+        record_identities: dict[tuple[str, int], str],
+        selector_info: dict[str, tuple[str, Any, Any]],
+        qualified_selectors: set[str],
+    ) -> str | None:
+        """Create a qualified node for an element from a qualified selector.
+
+        Reads the record from the element's table and creates a node with
+        identity "OwnerName.ElementName".
+        """
+        # Read the element record from its table
+        try:
+            elem_table = self.storage.get_table(elem_type_name)
+            record = elem_table.get(elem_index)
+        except (ValueError, FileNotFoundError, IndexError, Exception):
+            return None
+
+        if record is None or isinstance(record, (bytes, bytearray)):
+            return None
+
+        elem_name = self._resolve_string_field(record, identity_field, elem_base)
+        if elem_name is None:
+            return None
+
+        qualified_id = f"{source_id}.{elem_name}"
+        record_identities[(elem_type_name, elem_index)] = qualified_id
+
+        if qualified_id not in self._nodes:
+            props = self._read_properties(record, elem_base, identity_field)
+            props["name"] = elem_name
+            props["owner"] = source_id
+            node = NodeInfo(
+                identity=qualified_id, selector=selector,
+                properties=props
             )
-            self._selector_nodes.setdefault("variants", set()).add(variant_id)
-            self._add_edge("variants", type_name, variant_id)
+            self._nodes[qualified_id] = node
+            self._selector_nodes.setdefault(selector, set()).add(qualified_id)
 
-            # Variant fields
-            for f in variant.fields:
-                field_id = self._ensure_field_node(variant_id, f)
-                self._add_edge("fields", variant_id, field_id)
-                self._add_edge("type", field_id, f.type_def.name)
-
-        # Backing type axis
-        if enum_def.backing_type:
-            self._add_edge("backing", type_name, enum_def.backing_type.value)
-
-    def _ensure_field_node(self, owner: str, field_def: Any) -> str:
-        """Ensure a field node exists, returning its identity."""
-        field_id = f"{owner}.{field_def.name}"
-        if field_id not in self._nodes:
-            props = {"name": field_def.name, "owner": owner}
-            self._nodes[field_id] = NodeInfo(
-                identity=field_id, selector="fields", properties=props
+            # Create sub-edges from this element (e.g., FieldDef.type → TypeDef)
+            self._create_element_edges(
+                qualified_id, record, elem_base,
+                record_identities, identity_field
             )
-            self._selector_nodes.setdefault("fields", set()).add(field_id)
-        return field_id
+
+        return qualified_id
+
+    def _create_element_edges(
+        self,
+        element_identity: str,
+        elem_record: dict,
+        elem_base: Any,
+        record_identities: dict[tuple[str, int], str],
+        identity_field: str,
+    ) -> None:
+        """Create edges from inline element nodes to their referenced types.
+
+        For example, a FieldDef element has a "type" field referencing a TypeDef.
+        This creates "type" axis edges from the qualified field identity to the target type.
+        """
+        from typed_tables.types import (
+            ArrayTypeDefinition,
+            CompositeTypeDefinition,
+            InterfaceTypeDefinition,
+        )
+
+        # Check all axes for paths sourced from this element's selector
+        elem_selector = None
+        node = self._nodes.get(element_identity)
+        if node:
+            elem_selector = node.selector
+
+        if elem_selector is None:
+            return
+
+        for axis_name, paths in self.config.axes.items():
+            for path in paths:
+                parts = path.split(".", 1)
+                if len(parts) != 2:
+                    continue
+                sel_name, field_name = parts
+                if sel_name != elem_selector:
+                    continue
+
+                # Read the field from the element record
+                ref_value = elem_record.get(field_name)
+                if ref_value is None:
+                    continue
+
+                # Find the field definition in the element type
+                field_def = None
+                for f in elem_base.fields:
+                    if f.name == field_name:
+                        field_def = f
+                        break
+                if field_def is None:
+                    continue
+
+                field_base = field_def.type_def.resolve_base_type()
+
+                if isinstance(field_base, InterfaceTypeDefinition):
+                    if isinstance(ref_value, tuple) and len(ref_value) == 2:
+                        type_id, index = ref_value
+                        concrete_name = self.registry.get_type_name_by_id(type_id)
+                        if concrete_name:
+                            key = (concrete_name, index)
+                            target = record_identities.get(key)
+                            if target:
+                                self._add_edge(axis_name, element_identity, target)
+
+                elif isinstance(field_base, CompositeTypeDefinition):
+                    if isinstance(ref_value, int):
+                        ref_type_name = field_def.type_def.name
+                        key = (ref_type_name, ref_value)
+                        target = record_identities.get(key)
+                        if target:
+                            self._add_edge(axis_name, element_identity, target)
 
     def _add_edge(self, axis_name: str, source_id: str, target_id: str) -> None:
         """Add an edge to the model."""
-        # Ensure target node exists (may be a primitive or other built-in)
-        if target_id not in self._nodes:
-            # Try to find it in the registry
-            target_def = self.registry.get(target_id)
-            if target_def is not None:
-                base = target_def.resolve_base_type()
-                selector = self._classify_selector(target_def, base)
-                if selector:
-                    props = {"name": target_id}
-                    self._nodes[target_id] = NodeInfo(
-                        identity=target_id, selector=selector, properties=props
-                    )
-                    self._selector_nodes.setdefault(selector, set()).add(target_id)
-
         edge = EdgeInfo(
             source_id=source_id,
             target_id=target_id,
