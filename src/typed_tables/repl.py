@@ -573,6 +573,8 @@ def run_repl(data_dir: Path | None) -> int:
                 continue
 
             # Handle special commands
+            if line.lower() == "exit!" or line.lower() == "quit!":
+                break
             if line.lower() == "exit" or line.lower() == "quit":
                 if graph_mode:
                     graph_mode = False
