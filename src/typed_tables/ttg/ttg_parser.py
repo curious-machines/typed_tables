@@ -518,10 +518,22 @@ class TTGParser:
     # ---- Join expression: join("sep", .path) ----
 
     def p_join_expr(self, p: yacc.YaccProduction) -> None:
-        """join_expr : IDENTIFIER LPAREN STRING COMMA axis_path RPAREN"""
+        """join_expr : IDENTIFIER LPAREN STRING COMMA axis_path_list RPAREN"""
         if p[1] != "join":
             raise SyntaxError(f"TTG: Expected 'join', got '{p[1]}'")
-        p[0] = JoinPred(separator=p[3], path=p[5])
+        paths = p[5]
+        if len(paths) == 1:
+            p[0] = JoinPred(separator=p[3], path=paths[0])
+        else:
+            p[0] = JoinPred(separator=p[3], paths=paths)
+
+    def p_axis_path_list_single(self, p: yacc.YaccProduction) -> None:
+        """axis_path_list : axis_path"""
+        p[0] = [p[1]]
+
+    def p_axis_path_list_multi(self, p: yacc.YaccProduction) -> None:
+        """axis_path_list : axis_path_list COMMA axis_path"""
+        p[0] = p[1] + [p[3]]
 
     # ---- Error handler ----
 

@@ -131,12 +131,12 @@ class TestTTGCShortcut:
     def test_shortcut_entries(self, parser):
         config = parser.parse("""
             shortcut {
-                "": types + .fields{label=.name, result=.type} + .extends + .interfaces
+                "": types + .fields{edge=.name, result=.type} + .extends + .interfaces
                 "all": all
             }
         """)
         assert "" in config.shortcuts
-        assert "types + .fields{label=.name, result=.type} + .extends + .interfaces" == config.shortcuts[""]
+        assert "types + .fields{edge=.name, result=.type} + .extends + .interfaces" == config.shortcuts[""]
         assert config.shortcuts["all"] == "all"
 
 

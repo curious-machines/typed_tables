@@ -52,11 +52,14 @@ class ResultSet:
     """Internal evaluation state: set of nodes + set of edges."""
     nodes: set[str] = field(default_factory=set)
     edges: set[tuple[str, str, str]] = field(default_factory=set)  # (source, label, target)
+    node_displays: dict[str, str] = field(default_factory=dict)  # node_id → display label
 
     def union(self, other: ResultSet) -> ResultSet:
+        displays = {**self.node_displays, **other.node_displays}
         return ResultSet(
             nodes=self.nodes | other.nodes,
             edges=self.edges | other.edges,
+            node_displays=displays,
         )
 
     def intersect(self, other: ResultSet) -> ResultSet:
@@ -66,7 +69,9 @@ class ResultSet:
             e for e in self.edges | other.edges
             if e[0] in shared_nodes and e[2] in shared_nodes
         }
-        return ResultSet(nodes=shared_nodes, edges=shared_edges)
+        displays = {k: v for k, v in {**self.node_displays, **other.node_displays}.items()
+                     if k in shared_nodes}
+        return ResultSet(nodes=shared_nodes, edges=shared_edges, node_displays=displays)
 
     def subtract_nodes(self, to_remove: set[str]) -> ResultSet:
         remaining = self.nodes - to_remove
@@ -74,7 +79,8 @@ class ResultSet:
             e for e in self.edges
             if e[0] in remaining and e[2] in remaining
         }
-        return ResultSet(nodes=remaining, edges=pruned_edges)
+        displays = {k: v for k, v in self.node_displays.items() if k in remaining}
+        return ResultSet(nodes=remaining, edges=pruned_edges, node_displays=displays)
 
     def to_graph_result(
         self, sort_by: list[str] | None = None, node_kinds: dict[str, str] | None = None
@@ -92,7 +98,9 @@ class ResultSet:
         kinds = {}
         if node_kinds:
             kinds = {n: node_kinds[n] for n in all_nodes if n in node_kinds}
-        return GraphResult(edges=edges, isolated_nodes=isolated, node_kinds=kinds)
+        displays = {k: v for k, v in self.node_displays.items() if k in all_nodes}
+        return GraphResult(edges=edges, isolated_nodes=isolated, node_kinds=kinds,
+                          node_displays=displays)
 
 
 class TTGEngine:
@@ -477,7 +485,7 @@ class TTGEngine:
     def _node_matches_predicates(self, node_id: str, predicates: dict[str, Any], provider: Any) -> bool:
         """Check if a node matches all predicates."""
         for key, pred in predicates.items():
-            if key in ("label", "result", "depth"):
+            if key in ("edge", "display", "result", "depth"):
                 continue  # These are axis predicates, not node filters
             if key == "name":
                 node_name = provider.get_node_property(node_id, "name")
@@ -571,7 +579,8 @@ class TTGEngine:
                 traversal = self._eval_chain_operand(
                     current.nodes, chain_op.operand, config, provider
                 )
-                current = ResultSet(nodes=traversal.nodes, edges=set())
+                current = ResultSet(nodes=traversal.nodes, edges=set(),
+                                   node_displays=traversal.node_displays)
             elif chain_op.op == "-":
                 # Subtract
                 if isinstance(chain_op.operand, (SingleAxisOperand, CompoundAxisOperand)):
@@ -595,14 +604,17 @@ class TTGEngine:
             # Chain of axes: .a.b.c — pipe through each
             current_nodes = source_nodes
             all_edges: set[tuple[str, str, str]] = set()
+            all_displays: dict[str, str] = {}
             for i, axis_ref in enumerate(operand.axes):
                 traversal = self._traverse_axis(current_nodes, axis_ref, config, provider)
                 if i == len(operand.axes) - 1:
                     # Last axis: keep its edges
                     all_edges |= traversal.edges
+                all_displays.update(traversal.node_displays)
                 # Move to next level
                 current_nodes = traversal.nodes
-            return ResultSet(nodes=current_nodes, edges=all_edges)
+            return ResultSet(nodes=current_nodes, edges=all_edges,
+                           node_displays=all_displays)
         elif isinstance(operand, CompoundAxisOperand):
             # Multiple axes combined: {.a, .b, .c}
             combined = ResultSet()
@@ -657,8 +669,10 @@ class TTGEngine:
         if depth == 0:
             return ResultSet()
 
-        # Get label override
-        label_pred = preds.get("label")
+        # Get edge label override
+        edge_pred = preds.get("edge")
+        # Get display override
+        display_pred = preds.get("display")
         # Get result projection
         result_pred = preds.get("result")
         # Get name filter
@@ -672,6 +686,7 @@ class TTGEngine:
         # Perform traversal with depth
         all_nodes: set[str] = set()
         all_edges: set[tuple[str, str, str]] = set()
+        node_displays: dict[str, str] = {}
         current_sources = source_nodes
         visited: set[str] = set(source_nodes)
         iteration = 0
@@ -701,9 +716,15 @@ class TTGEngine:
 
                     # Determine the edge label
                     edge_label = axis_name  # Default: axis name
-                    if label_pred is not None:
+                    if edge_pred is not None:
                         edge_label = self._resolve_label(
-                            label_pred, target, provider
+                            edge_pred, target, provider
+                        )
+
+                    # Resolve display override for target
+                    if display_pred is not None and target not in node_displays:
+                        node_displays[target] = self._resolve_label(
+                            display_pred, target, provider
                         )
 
                     # Determine which node enters the result
@@ -730,7 +751,7 @@ class TTGEngine:
             if depth > 0 and iteration >= depth:
                 break
 
-        return ResultSet(nodes=all_nodes, edges=all_edges)
+        return ResultSet(nodes=all_nodes, edges=all_edges, node_displays=node_displays)
 
     def _resolve_axis_name(self, name: str, config: GraphConfig) -> list[str]:
         """Resolve an axis/reverse/axis_group name to leaf forward axis names."""
@@ -786,11 +807,19 @@ class TTGEngine:
             name = provider.get_node_property(current, "name")
             return name if name is not None else current
         elif isinstance(label_pred, JoinPred):
-            # Collect values from path and join
-            values = self._collect_path_values(
-                label_pred.path, target_id, provider
-            )
-            return label_pred.separator.join(values)
+            if label_pred.paths:
+                # Multi-path join: join(".", .owner, .name)
+                values = []
+                for path in label_pred.paths:
+                    path_values = self._collect_path_values(path, target_id, provider)
+                    values.extend(path_values)
+                return label_pred.separator.join(values)
+            else:
+                # Single-path join: join(", ", .fields)
+                values = self._collect_path_values(
+                    label_pred.path, target_id, provider
+                )
+                return label_pred.separator.join(values)
         return ""
 
     def _resolve_result_path(
@@ -816,10 +845,19 @@ class TTGEngine:
         current_nodes = {start_id}
         for step in path.steps:
             next_nodes: set[str] = set()
+            prop_values: list[str] = []
             for node in current_nodes:
                 edges = provider.get_edges_for_axis(step, {node})
-                for e in edges:
-                    next_nodes.add(e.target_id)
+                if edges:
+                    for e in edges:
+                        next_nodes.add(e.target_id)
+                else:
+                    # Fallback: check node property
+                    prop = provider.get_node_property(node, step)
+                    if prop is not None:
+                        prop_values.append(str(prop))
+            if prop_values and not next_nodes:
+                return prop_values
             current_nodes = next_nodes
             if not current_nodes:
                 break
@@ -956,7 +994,20 @@ class TTGEngine:
                 color = color_overrides[kind]
             elif "_primitives" in color_overrides and kind not in self._SELECTOR_STYLES:
                 color = color_overrides["_primitives"]
-            lines.append(f'    "{name}" [shape={shape}, fillcolor="{color}"];')
+            # Determine display label
+            display_label = result.node_displays.get(name)
+            if display_label is None and kind == "fields":
+                # Default field nodes to just the field name (strip owner prefix)
+                parts = name.split(".")
+                display_label = parts[-1] if len(parts) > 1 else name
+            if display_label is not None:
+                escaped_label = display_label.replace('"', '\\"')
+                lines.append(
+                    f'    "{name}" [shape={shape}, fillcolor="{color}",'
+                    f' label="{escaped_label}"];'
+                )
+            else:
+                lines.append(f'    "{name}" [shape={shape}, fillcolor="{color}"];')
 
         lines.append("")
 
@@ -1168,6 +1219,6 @@ class TTGEngine:
         }
         config.identity = {"default": "name"}
         config.shortcuts = {
-            "all": "types + .fields{label=.name, result=.type} + .extends + .interfaces",
+            "all": "types + .fields{edge=.name, result=.type} + .extends + .interfaces",
         }
         return config

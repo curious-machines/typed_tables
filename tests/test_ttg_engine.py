@@ -406,10 +406,10 @@ class TestMetadataSetOperators:
 
 
 class TestMetadataCompactForm:
-    def test_fields_label_result(self, db_engine):
-        """composites{name=Person} + .fields{label=.name, result=.type}"""
+    def test_fields_edge_result(self, db_engine):
+        """composites{name=Person} + .fields{edge=.name, result=.type}"""
         result = db_engine.execute(
-            "meta composites{name=Person} + .fields{label=.name, result=.type}"
+            "meta composites{name=Person} + .fields{edge=.name, result=.type}"
         )
         assert isinstance(result, GraphResult)
         edges = result.edges
@@ -555,7 +555,7 @@ class TestDotOutput:
     def test_dot_field_label_edges(self, db_engine, tmp_path):
         dot_path = str(tmp_path / "test.dot")
         db_engine.execute(
-            f'meta composites{{name=Person}} + .fields{{label=.name, result=.type}} > "{dot_path}"'
+            f'meta composites{{name=Person}} + .fields{{edge=.name, result=.type}} > "{dot_path}"'
         )
         content = open(dot_path).read()
         assert 'label="name"' in content or 'label="age"' in content

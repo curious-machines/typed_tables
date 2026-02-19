@@ -217,13 +217,13 @@ class TestPredValues:
         assert r.expression.predicates["declared"].value is False
 
     def test_string_pred(self, parser):
-        r = parser.parse('composites{label="hello"}')
-        assert isinstance(r.expression.predicates["label"], StringPred)
-        assert r.expression.predicates["label"].value == "hello"
+        r = parser.parse('composites{edge="hello"}')
+        assert isinstance(r.expression.predicates["edge"], StringPred)
+        assert r.expression.predicates["edge"].value == "hello"
 
     def test_axis_path_pred(self, parser):
-        r = parser.parse("composites{label=.name}")
-        pred = r.expression.predicates["label"]
+        r = parser.parse("composites{edge=.name}")
+        pred = r.expression.predicates["edge"]
         assert isinstance(pred, AxisPathPred)
         assert pred.steps == ["name"]
 
@@ -313,12 +313,12 @@ class TestChainExpr:
         assert isinstance(expr.ops[0].operand, SelectorExpr)
 
     def test_chain_plus_with_pred(self, parser):
-        r = parser.parse("composites + .fields{label=.name, result=.type}")
+        r = parser.parse("composites + .fields{edge=.name, result=.type}")
         expr = r.expression
         assert isinstance(expr, ChainExpr)
         axis = expr.ops[0].operand.axes[0]
         assert axis.predicates is not None
-        assert "label" in axis.predicates
+        assert "edge" in axis.predicates
         assert "result" in axis.predicates
 
     def test_chain_plus_multi_axis(self, parser):
@@ -440,16 +440,16 @@ class TestComplexExpressions:
 
     def test_compact_field_type_edges(self, parser):
         """Compact form: field dissolved into edge label."""
-        r = parser.parse("composites + .fields{label=.name, result=.type}")
+        r = parser.parse("composites + .fields{edge=.name, result=.type}")
         expr = r.expression
         assert isinstance(expr, ChainExpr)
         axis = expr.ops[0].operand.axes[0]
-        assert isinstance(axis.predicates["label"], AxisPathPred)
+        assert isinstance(axis.predicates["edge"], AxisPathPred)
         assert isinstance(axis.predicates["result"], AxisPathPred)
 
     def test_full_overview_shortcut(self, parser):
         """The empty shortcut expression from meta-schema.ttgc."""
-        r = parser.parse("types + .fields{label=.name, result=.type} + .extends + .interfaces")
+        r = parser.parse("types + .fields{edge=.name, result=.type} + .extends + .interfaces")
         expr = r.expression
         assert isinstance(expr, ChainExpr)
         assert expr.base.name == "types"
@@ -460,7 +460,7 @@ class TestComplexExpressions:
         r = parser.parse(
             "(composites{name=Boss} + .all{depth=inf} "
             "& interfaces{name=Entity} + .allReverse{depth=inf}) "
-            "| (interfaces{name=Entity} + .fields{label=.name, result=.type})"
+            "| (interfaces{name=Entity} + .fields{edge=.name, result=.type})"
         )
         expr = r.expression
         assert isinstance(expr, UnionExpr)

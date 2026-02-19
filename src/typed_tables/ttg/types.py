@@ -23,6 +23,7 @@ class GraphResult:
     edges: list[GraphEdge] = field(default_factory=list)
     isolated_nodes: list[str] = field(default_factory=list)
     node_kinds: dict[str, str] = field(default_factory=dict)  # node_id → selector/kind
+    node_displays: dict[str, str] = field(default_factory=dict)  # node_id → display label override
 
 
 @dataclass
@@ -87,7 +88,8 @@ class AxisPathPred:
 class JoinPred:
     """Join aggregation predicate value."""
     separator: str
-    path: AxisPathPred
+    path: AxisPathPred | None = None  # Single path (legacy)
+    paths: list[AxisPathPred] = field(default_factory=list)  # Multi-path: join(".", .a, .b)
 
 
 @dataclass

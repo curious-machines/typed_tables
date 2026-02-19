@@ -6,8 +6,8 @@
   },
   "Metadata Config": {
     "prefix": "metaconfig",
-    "body": "metadata config \"${1:schema.ttgc}\"",
-    "description": "Load a metadata TTGC config file"
+    "body": "meta config \"${1:schema.ttgc}\"",
+    "description": "Load a meta-schema TTGC config file"
   },
   "Style Statement": {
     "prefix": "style",
@@ -31,7 +31,7 @@
   },
   "Chain with Fields": {
     "prefix": "chain",
-    "body": "${1:selector} + .${2:fields}{label=.${3:name}, result=.${4:type}}",
+    "body": "${1:selector} + .${2:fields}{edge=.${3:name}, result=.${4:type}}",
     "description": "Chain expression with labeled field axis"
   },
   "Dot Navigation": {
@@ -46,8 +46,8 @@
   },
   "Metadata Expression": {
     "prefix": "meta",
-    "body": "metadata ${1:composites} + .${2:fields}{label=.name, result=.type}",
-    "description": "Metadata graph expression"
+    "body": "meta ${1:composites} + .${2:fields}{edge=.name, result=.type}",
+    "description": "Meta-schema graph expression"
   },
   "Sort and Output": {
     "prefix": "sortout",

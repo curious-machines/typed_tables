@@ -571,3 +571,86 @@ class TestTTGShow:
         for row in result.rows:
             assert int(row["entries"]) >= 0
 
+
+# ---- Field label and display= predicate tests ----
+
+
+class TestTTGFieldLabels:
+    """Field node labels in DOT output and display= predicate."""
+
+    def test_field_nodes_default_short_label(self, executor, parser, tmp_data_dir):
+        """Field nodes default to just the field name, not 'Type.field'."""
+        _setup_schema(executor, parser)
+        dot_path = str(tmp_data_dir / "fields.dot")
+        result = _run(
+            executor, parser,
+            f'graph composites + .fields > "{dot_path}"',
+        )
+        assert isinstance(result, DumpResult)
+        with open(dot_path) as f:
+            content = f.read()
+        # Person.name node should have label="name" (short form)
+        assert 'label="name"' in content
+        # The full identity should still be the DOT node id
+        assert '"Person.name"' in content
+
+    def test_field_nodes_display_string(self, executor, parser, tmp_data_dir):
+        """display= with a string literal overrides the field label."""
+        _setup_schema(executor, parser)
+        dot_path = str(tmp_data_dir / "display_str.dot")
+        result = _run(
+            executor, parser,
+            f'graph composites + .fields{{display="*"}} > "{dot_path}"',
+        )
+        assert isinstance(result, DumpResult)
+        with open(dot_path) as f:
+            content = f.read()
+        # All field nodes should have label="*"
+        assert 'label="*"' in content
+
+    def test_field_nodes_display_path(self, executor, parser, tmp_data_dir):
+        """display= with a path resolves from the target node."""
+        _setup_schema(executor, parser)
+        dot_path = str(tmp_data_dir / "display_path.dot")
+        result = _run(
+            executor, parser,
+            f'graph composites + .fields{{display=.name}} > "{dot_path}"',
+        )
+        assert isinstance(result, DumpResult)
+        with open(dot_path) as f:
+            content = f.read()
+        # Field nodes should have label from their .name property
+        assert 'label="name"' in content
+
+    def test_field_nodes_display_join(self, executor, parser, tmp_data_dir):
+        """display= with join() combines multiple paths."""
+        _setup_schema(executor, parser)
+        dot_path = str(tmp_data_dir / "display_join.dot")
+        result = _run(
+            executor, parser,
+            f'graph composites + .fields{{display=join(".", .owner, .name)}} > "{dot_path}"',
+        )
+        assert isinstance(result, DumpResult)
+        with open(dot_path) as f:
+            content = f.read()
+        # Should produce "Person.name" etc. as display labels
+        assert 'label="Person.name"' in content
+
+    def test_non_field_nodes_no_default_label(self, executor, parser, tmp_data_dir):
+        """Non-field nodes (composites) should NOT get a default label override."""
+        _setup_schema(executor, parser)
+        dot_path = str(tmp_data_dir / "composites.dot")
+        result = _run(
+            executor, parser,
+            f'graph composites > "{dot_path}"',
+        )
+        assert isinstance(result, DumpResult)
+        with open(dot_path) as f:
+            content = f.read()
+        # Composite nodes like "Person" should not have a label= attribute
+        # (the DOT id IS the display label by default)
+        for line in content.splitlines():
+            if '"Person"' in line and "shape=" in line:
+                assert "label=" not in line
+                break
+
