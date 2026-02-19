@@ -182,19 +182,26 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
         return
 
     # Calculate column widths
+    no_truncate = getattr(result, 'no_truncate', False)
+    def _fmt(val: Any) -> str:
+        if no_truncate:
+            return str(val) if val is not None else "NULL"
+        return format_value(val)
+
     col_widths = {}
     for col in result.columns:
         col_widths[col] = len(col)
 
     for row in result.rows:
         for col in result.columns:
-            val = format_value(row.get(col))
+            val = _fmt(row.get(col))
             col_widths[col] = max(col_widths[col], len(val))
 
-    # Cap column widths
-    max_col_width = 40
-    for col in col_widths:
-        col_widths[col] = min(col_widths[col], max_col_width)
+    # Cap column widths (unless no_truncate is set, e.g. for show commands)
+    if not no_truncate:
+        max_col_width = 40
+        for col in col_widths:
+            col_widths[col] = min(col_widths[col], max_col_width)
 
     # Print header
     header = " | ".join(col.ljust(col_widths[col])[:col_widths[col]] for col in result.columns)
@@ -205,7 +212,7 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
     for row in result.rows:
         values = []
         for col in result.columns:
-            val = format_value(row.get(col))
+            val = _fmt(row.get(col))
             if len(val) > col_widths[col]:
                 val = val[: col_widths[col] - 3] + "..."
             values.append(val.ljust(col_widths[col]))

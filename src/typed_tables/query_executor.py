@@ -165,6 +165,7 @@ class QueryResult:
     columns: list[str]
     rows: list[dict[str, Any]]
     message: str | None = None
+    no_truncate: bool = False
 
 
 @dataclass
@@ -922,7 +923,7 @@ class QueryExecutor:
             # Status message (config/style/execute commands)
             return QueryResult(columns=[], rows=[], message=result)
         elif isinstance(result, ShowResult):
-            return QueryResult(columns=result.columns, rows=result.rows)
+            return QueryResult(columns=result.columns, rows=result.rows, no_truncate=True)
         elif isinstance(result, FileResult):
             return DumpResult(columns=[], rows=[], script=f"Wrote {result.edge_count} edges to {result.path}")
         elif isinstance(result, GraphResult):
