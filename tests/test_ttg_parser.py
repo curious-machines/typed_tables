@@ -50,7 +50,7 @@ class TestConfigStmt:
         assert r.file_path == "meta-schema.ttgc"
 
     def test_meta_config(self, parser):
-        r = parser.parse('metadata config "meta-schema.ttgc"')
+        r = parser.parse('meta config "meta-schema.ttgc"')
         assert isinstance(r, MetaConfigStmt)
         assert r.file_path == "meta-schema.ttgc"
 
@@ -80,12 +80,12 @@ class TestStyleStmt:
         assert r.inline == [("direction", "LR"), ("composite.color", "#FF0000")]
 
     def test_meta_style_file(self, parser):
-        r = parser.parse('metadata style "dark.ttgs"')
+        r = parser.parse('meta style "dark.ttgs"')
         assert isinstance(r, MetaStyleStmt)
         assert r.file_path == "dark.ttgs"
 
     def test_meta_style_inline(self, parser):
-        r = parser.parse('metadata style {"direction": "TB"}')
+        r = parser.parse('meta style {"direction": "TB"}')
         assert isinstance(r, MetaStyleStmt)
         assert r.inline == [("direction", "TB")]
 
@@ -123,8 +123,8 @@ class TestExprStmt:
         assert r.sort_by == ["source"]
         assert r.output_file == "types.dot"
 
-    def test_metadata_prefix(self, parser):
-        r = parser.parse("metadata composites")
+    def test_meta_prefix(self, parser):
+        r = parser.parse("meta composites")
         assert isinstance(r, ExprStmt)
         assert r.metadata is True
         assert isinstance(r.expression, SelectorExpr)

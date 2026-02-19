@@ -175,7 +175,7 @@ class TTGEngine:
         config = self._load_config_file(stmt.file_path)
         self._meta_config = config
         self._meta_provider = None  # Invalidate cache
-        return f"TTG: loaded metadata config '{stmt.file_path}'"
+        return f"TTG: loaded meta config '{stmt.file_path}'"
 
     def _execute_show(self, stmt: ShowStmt) -> ShowResult:
         """Execute a show command — list or look up config entries."""
@@ -185,7 +185,7 @@ class TTGEngine:
             config = self._data_config
         if config is None:
             if stmt.metadata:
-                raise RuntimeError("TTG: no metadata config loaded")
+                raise RuntimeError("TTG: no meta config loaded")
             else:
                 raise RuntimeError(
                     "TTG: no data config loaded. Use 'graph config \"file.ttgc\"' first."
@@ -278,7 +278,7 @@ class TTGEngine:
 
     def _execute_meta_style(self, stmt: MetaStyleStmt) -> str:
         self._apply_style(stmt.file_path, stmt.inline, self._meta_style, "metadata")
-        return "TTG: metadata style updated"
+        return "TTG: meta style updated"
 
     def _apply_style(
         self,
@@ -359,7 +359,7 @@ class TTGEngine:
             if not stmt.metadata and self._meta_config is not None:
                 config = self._meta_config
             else:
-                context_name = "metadata" if stmt.metadata else "data"
+                context_name = "meta" if stmt.metadata else "data"
                 raise RuntimeError(
                     f"TTG: no config loaded for {context_name} context. "
                     f"Use 'graph config \"file.ttgc\"' first."

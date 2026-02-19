@@ -111,7 +111,7 @@ class TestConfigLoading:
             engine.execute('config "nonexistent.ttgc"')
 
     def test_meta_config_from_file(self, engine):
-        """metadata config loads into meta context."""
+        """meta config loads into meta context."""
         ttgc_path = os.path.join(
             os.path.dirname(__file__), "..", "scratch", "schemas", "meta-schema.ttgc"
         )
@@ -119,8 +119,8 @@ class TestConfigLoading:
             pytest.skip("meta-schema.ttgc not found")
 
         old_meta = engine._meta_config
-        result = engine.execute(f'metadata config "{ttgc_path}"')
-        assert "loaded metadata config" in result
+        result = engine.execute(f'meta config "{ttgc_path}"')
+        assert "loaded meta config" in result
         assert engine._meta_config is not None
         # Should have replaced the old meta config
         assert engine._meta_config is not old_meta
@@ -164,8 +164,8 @@ class TestStyleLoading:
             engine.execute('style "nonexistent.ttgs"')
 
     def test_meta_style_inline(self, engine):
-        result = engine.execute('metadata style {"direction": "TB"}')
-        assert "metadata style updated" in result
+        result = engine.execute('meta style {"direction": "TB"}')
+        assert "meta style updated" in result
         assert engine._meta_style["direction"] == "TB"
 
 
@@ -189,8 +189,8 @@ class TestExprStubRequiresConfig:
         assert isinstance(result, GraphResult)
 
     def test_metadata_expr_uses_builtin_config(self, engine):
-        """metadata expressions use the built-in meta-schema config."""
-        result = engine.execute("metadata composites")
+        """meta expressions use the built-in meta-schema config."""
+        result = engine.execute("meta composites")
         assert isinstance(result, GraphResult)
 
 
@@ -290,7 +290,7 @@ class TestScriptExecution:
         """Test graph execute via TTQ parser."""
         script_path = str(tmp_path / "setup.ttg")
         with open(script_path, "w") as f:
-            f.write('metadata style {"title": "Via TTQ"}\n')
+            f.write('meta style {"title": "Via TTQ"}\n')
 
         executor = QueryExecutor(db_engine.storage, db_engine.registry)
         parser = QueryParser()
@@ -306,28 +306,28 @@ class TestScriptExecution:
 
 class TestMetadataSelectors:
     def test_composites_selector(self, db_engine):
-        """metadata composites returns all composite types."""
-        result = db_engine.execute("metadata composites")
+        """meta composites returns all composite types."""
+        result = db_engine.execute("meta composites")
         assert isinstance(result, GraphResult)
         assert "Person" in result.isolated_nodes
         assert "Employee" in result.isolated_nodes
         assert "Team" in result.isolated_nodes
 
     def test_interfaces_selector(self, db_engine):
-        result = db_engine.execute("metadata interfaces")
+        result = db_engine.execute("meta interfaces")
         assert isinstance(result, GraphResult)
         assert "Entity" in result.isolated_nodes
         assert "Sizeable" in result.isolated_nodes
 
     def test_composites_name_filter(self, db_engine):
-        """metadata composites{name=Person} returns only Person."""
-        result = db_engine.execute("metadata composites{name=Person}")
+        """meta composites{name=Person} returns only Person."""
+        result = db_engine.execute("meta composites{name=Person}")
         assert isinstance(result, GraphResult)
         assert "Person" in result.isolated_nodes
         assert "Employee" not in result.isolated_nodes
 
     def test_composites_name_or(self, db_engine):
-        result = db_engine.execute("metadata composites{name=Person|Team}")
+        result = db_engine.execute("meta composites{name=Person|Team}")
         assert isinstance(result, GraphResult)
         nodes = set(result.isolated_nodes)
         assert "Person" in nodes
@@ -335,7 +335,7 @@ class TestMetadataSelectors:
         assert "Employee" not in nodes
 
     def test_composites_name_negated(self, db_engine):
-        result = db_engine.execute("metadata composites{name=!Person}")
+        result = db_engine.execute("meta composites{name=!Person}")
         assert isinstance(result, GraphResult)
         nodes = set(result.isolated_nodes)
         assert "Person" not in nodes
@@ -346,7 +346,7 @@ class TestMetadataSelectors:
 class TestMetadataAxes:
     def test_composites_plus_fields(self, db_engine):
         """composites + .fields adds field nodes with edges."""
-        result = db_engine.execute("metadata composites{name=Person} + .fields")
+        result = db_engine.execute("meta composites{name=Person} + .fields")
         assert isinstance(result, GraphResult)
         assert len(result.edges) > 0
         person_edges = [e for e in result.edges if e.source == "Person"]
@@ -354,21 +354,21 @@ class TestMetadataAxes:
 
     def test_composites_plus_extends(self, db_engine):
         """composites{name=Employee} + .extends shows inheritance."""
-        result = db_engine.execute("metadata composites{name=Employee} + .extends")
+        result = db_engine.execute("meta composites{name=Employee} + .extends")
         assert isinstance(result, GraphResult)
         extend_edges = [e for e in result.edges if e.source == "Employee"]
         assert any(e.target == "Person" for e in extend_edges)
 
     def test_composites_plus_interfaces(self, db_engine):
         """composites{name=Person} + .interfaces shows interface impl."""
-        result = db_engine.execute("metadata composites{name=Person} + .interfaces")
+        result = db_engine.execute("meta composites{name=Person} + .interfaces")
         assert isinstance(result, GraphResult)
         iface_edges = [e for e in result.edges if e.source == "Person"]
         assert any(e.target == "Entity" for e in iface_edges)
 
     def test_dot_chaining_pipe(self, db_engine):
         """composites{name=Person}.fields navigates — only fields remain."""
-        result = db_engine.execute("metadata composites{name=Person}.fields")
+        result = db_engine.execute("meta composites{name=Person}.fields")
         assert isinstance(result, GraphResult)
         all_items = set(result.isolated_nodes)
         assert "Person" not in all_items
@@ -377,7 +377,7 @@ class TestMetadataAxes:
     def test_chain_subtract_selector(self, db_engine):
         """composites - composites{name=Person} removes Person."""
         result = db_engine.execute(
-            "metadata composites - composites{name=Person}"
+            "meta composites - composites{name=Person}"
         )
         assert isinstance(result, GraphResult)
         nodes = set(result.isolated_nodes)
@@ -388,7 +388,7 @@ class TestMetadataAxes:
 class TestMetadataSetOperators:
     def test_union(self, db_engine):
         result = db_engine.execute(
-            "metadata composites{name=Person} | interfaces{name=Sizeable}"
+            "meta composites{name=Person} | interfaces{name=Sizeable}"
         )
         assert isinstance(result, GraphResult)
         nodes = set(result.isolated_nodes)
@@ -397,7 +397,7 @@ class TestMetadataSetOperators:
 
     def test_set_literal(self, db_engine):
         result = db_engine.execute(
-            "metadata {composites{name=Person}, interfaces{name=Entity}}"
+            "meta {composites{name=Person}, interfaces{name=Entity}}"
         )
         assert isinstance(result, GraphResult)
         nodes = set(result.isolated_nodes)
@@ -409,7 +409,7 @@ class TestMetadataCompactForm:
     def test_fields_label_result(self, db_engine):
         """composites{name=Person} + .fields{label=.name, result=.type}"""
         result = db_engine.execute(
-            "metadata composites{name=Person} + .fields{label=.name, result=.type}"
+            "meta composites{name=Person} + .fields{label=.name, result=.type}"
         )
         assert isinstance(result, GraphResult)
         edges = result.edges
@@ -424,7 +424,7 @@ class TestMetadataDepth:
     def test_extends_depth_inf(self, db_engine):
         """composites{name=Employee} + .extends{depth=inf} follows full chain."""
         result = db_engine.execute(
-            "metadata composites{name=Employee} + .extends{depth=inf}"
+            "meta composites{name=Employee} + .extends{depth=inf}"
         )
         assert isinstance(result, GraphResult)
         all_nodes = {e.source for e in result.edges} | {e.target for e in result.edges}
@@ -434,7 +434,7 @@ class TestMetadataDepth:
     def test_depth_zero(self, db_engine):
         """depth=0 is a no-op."""
         result = db_engine.execute(
-            "metadata composites{name=Person} + .fields{depth=0}"
+            "meta composites{name=Person} + .fields{depth=0}"
         )
         assert isinstance(result, GraphResult)
         field_edges = [e for e in result.edges if e.label == "fields"]
@@ -445,14 +445,14 @@ class TestNodeKinds:
     """Test that node_kinds are populated in GraphResult."""
 
     def test_composites_have_kinds(self, db_engine):
-        result = db_engine.execute("metadata composites")
+        result = db_engine.execute("meta composites")
         assert isinstance(result, GraphResult)
         for node in result.isolated_nodes:
             assert node in result.node_kinds
             assert result.node_kinds[node] == "composites"
 
     def test_interfaces_have_kinds(self, db_engine):
-        result = db_engine.execute("metadata interfaces")
+        result = db_engine.execute("meta interfaces")
         assert isinstance(result, GraphResult)
         for node in result.isolated_nodes:
             assert node in result.node_kinds
@@ -460,7 +460,7 @@ class TestNodeKinds:
 
     def test_mixed_kinds(self, db_engine):
         result = db_engine.execute(
-            "metadata composites{name=Person} | interfaces{name=Entity}"
+            "meta composites{name=Person} | interfaces{name=Entity}"
         )
         assert isinstance(result, GraphResult)
         assert result.node_kinds.get("Person") == "composites"
@@ -469,7 +469,7 @@ class TestNodeKinds:
     def test_edge_node_kinds(self, db_engine):
         """Nodes from edge targets also get kinds."""
         result = db_engine.execute(
-            "metadata composites{name=Person} + .fields"
+            "meta composites{name=Person} + .fields"
         )
         assert isinstance(result, GraphResult)
         # Person should be composites, fields should be fields
@@ -484,7 +484,7 @@ class TestSortBy:
 
     def test_sort_by_source(self, db_engine):
         result = db_engine.execute(
-            "metadata composites + .fields sort by source"
+            "meta composites + .fields sort by source"
         )
         assert isinstance(result, GraphResult)
         sources = [e.source for e in result.edges]
@@ -492,7 +492,7 @@ class TestSortBy:
 
     def test_sort_by_target(self, db_engine):
         result = db_engine.execute(
-            "metadata composites + .fields sort by target"
+            "meta composites + .fields sort by target"
         )
         assert isinstance(result, GraphResult)
         targets = [e.target for e in result.edges]
@@ -500,7 +500,7 @@ class TestSortBy:
 
     def test_sort_by_source_then_label(self, db_engine):
         result = db_engine.execute(
-            "metadata composites + .fields + .extends sort by source, label"
+            "meta composites + .fields + .extends sort by source, label"
         )
         assert isinstance(result, GraphResult)
         keys = [(e.source, e.label) for e in result.edges]
@@ -513,7 +513,7 @@ class TestDotOutput:
     def test_dot_output_basic(self, db_engine, tmp_path):
         dot_path = str(tmp_path / "test.dot")
         result = db_engine.execute(
-            f'metadata composites > "{dot_path}"'
+            f'meta composites > "{dot_path}"'
         )
         assert isinstance(result, FileResult)
         assert result.path == dot_path
@@ -527,7 +527,7 @@ class TestDotOutput:
     def test_dot_output_with_edges(self, db_engine, tmp_path):
         dot_path = str(tmp_path / "test.dot")
         db_engine.execute(
-            f'metadata composites{{name=Employee}} + .extends > "{dot_path}"'
+            f'meta composites{{name=Employee}} + .extends > "{dot_path}"'
         )
         content = open(dot_path).read()
         assert "Employee" in content
@@ -535,10 +535,10 @@ class TestDotOutput:
         assert "style=dashed" in content  # extends edges use dashed style
 
     def test_dot_output_with_style(self, db_engine, tmp_path):
-        db_engine.execute('metadata style {"direction": "TB", "title": "My Schema"}')
+        db_engine.execute('meta style {"direction": "TB", "title": "My Schema"}')
         dot_path = str(tmp_path / "test.dot")
         db_engine.execute(
-            f'metadata composites > "{dot_path}"'
+            f'meta composites > "{dot_path}"'
         )
         content = open(dot_path).read()
         assert "rankdir=TB;" in content
@@ -547,7 +547,7 @@ class TestDotOutput:
     def test_dot_auto_extension(self, db_engine, tmp_path):
         base_path = str(tmp_path / "output")
         result = db_engine.execute(
-            f'metadata composites > "{base_path}"'
+            f'meta composites > "{base_path}"'
         )
         assert isinstance(result, FileResult)
         assert result.path.endswith(".dot")
@@ -555,7 +555,7 @@ class TestDotOutput:
     def test_dot_field_label_edges(self, db_engine, tmp_path):
         dot_path = str(tmp_path / "test.dot")
         db_engine.execute(
-            f'metadata composites{{name=Person}} + .fields{{label=.name, result=.type}} > "{dot_path}"'
+            f'meta composites{{name=Person}} + .fields{{label=.name, result=.type}} > "{dot_path}"'
         )
         content = open(dot_path).read()
         assert 'label="name"' in content or 'label="age"' in content
@@ -567,7 +567,7 @@ class TestTtqOutput:
     def test_ttq_output_basic(self, db_engine, tmp_path):
         ttq_path = str(tmp_path / "test.ttq")
         result = db_engine.execute(
-            f'metadata composites > "{ttq_path}"'
+            f'meta composites > "{ttq_path}"'
         )
         assert isinstance(result, FileResult)
         assert result.path == ttq_path
@@ -581,7 +581,7 @@ class TestTtqOutput:
     def test_ttq_output_with_edges(self, db_engine, tmp_path):
         ttq_path = str(tmp_path / "test.ttq")
         db_engine.execute(
-            f'metadata composites{{name=Employee}} + .extends > "{ttq_path}"'
+            f'meta composites{{name=Employee}} + .extends > "{ttq_path}"'
         )
         content = open(ttq_path).read()
         assert "create Edge(" in content
@@ -592,13 +592,13 @@ class TestTtqOutput:
 class TestIntegrationViaTTQ:
     """Test TTG via the TTQ parser (graph command delegation)."""
 
-    def test_graph_metadata_composites(self, db_engine):
-        """Test via TTQ: graph metadata composites."""
+    def test_graph_meta_composites(self, db_engine):
+        """Test via TTQ: graph meta composites."""
         executor = QueryExecutor(db_engine.storage, db_engine.registry)
         parser = QueryParser()
         parser.build(debug=False, write_tables=False)
 
-        q = parser.parse("graph metadata composites")
+        q = parser.parse("graph meta composites")
         result = executor.execute(q)
         assert isinstance(result, QueryResult)
         if result.rows:

@@ -107,7 +107,7 @@ class TTGParser:
             if first_word == "show":
                 return self._parse_show_stmt(rest, metadata=False)
 
-            if first_word == "metadata":
+            if first_word == "meta":
                 return self._parse_metadata_stmt(rest)
 
         # Expression statement: expression [sort by ...] [> "file"]
