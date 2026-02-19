@@ -264,6 +264,23 @@ class TTGEngine:
         else:
             rows = [format_entry(k, v) for k, v in data.items()]
 
+        # Apply "for <selector>" filter
+        if stmt.for_selector is not None:
+            sel = stmt.for_selector
+            if category == "axis":
+                rows = [r for r in rows if any(
+                    p.startswith(sel + ".") for p in r["paths"].split(", ")
+                )]
+            elif category == "reverse":
+                # Filter reverses whose forward axis references the selector
+                filtered = []
+                for r in rows:
+                    fwd_axis = r["axis"]
+                    if fwd_axis in config.axes:
+                        if any(p.startswith(sel + ".") for p in config.axes[fwd_axis]):
+                            filtered.append(r)
+                rows = filtered
+
         return ShowResult(columns=columns, rows=rows)
 
     def _load_config_file(self, file_path: str) -> GraphConfig:
@@ -364,14 +381,11 @@ class TTGEngine:
             provider = self._get_meta_provider()  # For now, always use meta provider
 
         if config is None:
-            if not stmt.metadata and self._meta_config is not None:
-                config = self._meta_config
-            else:
-                context_name = "meta" if stmt.metadata else "data"
-                raise RuntimeError(
-                    f"TTG: no config loaded for {context_name} context. "
-                    f"Use 'graph config \"file.ttgc\"' first."
-                )
+            context_name = "meta" if stmt.metadata else "data"
+            raise RuntimeError(
+                f"TTG: no config loaded for {context_name} context. "
+                f"Use 'graph config \"file.ttgc\"' first."
+            )
 
         if provider is None:
             return GraphResult(edges=[], isolated_nodes=[])

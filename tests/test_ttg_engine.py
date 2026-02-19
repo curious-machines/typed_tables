@@ -182,11 +182,10 @@ class TestResetSession:
 
 
 class TestExprStubRequiresConfig:
-    def test_data_expr_without_config(self, engine):
-        """Expression evaluation falls back to meta config when no data config."""
-        # Data context has no config, but falls back to meta config
-        result = engine.execute("composites")
-        assert isinstance(result, GraphResult)
+    def test_data_expr_without_config_errors(self, engine):
+        """Expression evaluation errors when no data config is loaded."""
+        with pytest.raises(RuntimeError, match="no config loaded for data context"):
+            engine.execute("composites")
 
     def test_metadata_expr_uses_builtin_config(self, engine):
         """meta expressions use the built-in meta-schema config."""

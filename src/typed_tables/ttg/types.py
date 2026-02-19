@@ -256,6 +256,7 @@ class ShowStmt:
     category: str | None  # None = list categories; else "selector", "group", etc.
     name: str | None    # None = list all, str = single entry
     metadata: bool      # True if prefixed with "metadata"
+    for_selector: str | None = None  # "for <selector>" filter
 
 
 # Union of all statement types

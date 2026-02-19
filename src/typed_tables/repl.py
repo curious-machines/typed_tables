@@ -604,9 +604,13 @@ def run_repl(data_dir: Path | None) -> int:
                 print_graph_help(graph_topic)
                 continue
 
-            # In graph mode, prefix input with "graph "
+            # In graph mode, prefix input with "graph " (except for `use` commands)
             if graph_mode:
-                line = "graph " + line
+                lower_stripped = line.lower().rstrip(";").strip()
+                if lower_stripped == "use" or lower_stripped.startswith("use "):
+                    pass  # Let `use` through as a normal query
+                else:
+                    line = "graph " + line
 
             if line.lower() == "help" or line.lower().startswith("help "):
                 parts = line.strip().split(None, 1)

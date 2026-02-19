@@ -15,6 +15,8 @@ Source: [scratch/graphs/graph-expression-language.md](../../../../../scratch/gra
 | D10 — Node display properties | How nodes look when rendered (residual after D12 resolved compact/expanded) | Fold into rendering/style discussion |
 | D19 — Data query generalization | Could expression language extend to data traversal? | Reframed by D22: not about extending the language, but plugging in a different schema |
 | Axis aliases | `axis_alias { field_types: fields{edge=.name, result=.type}, descendants: children{depth=inf} }` — bundle an axis name with default predicates. Any predicates supported (edge, result, display, depth, name, etc.). Explicit predicates at use site merge/override defaults. | Distinct from shortcuts (expression-level) and axis_groups (no predicates) |
+| DOT node sorting | User-controlled node sort order in DOT output. E.g., `sort by node` could sort by kind then name. Currently nodes are always alphabetical. Needs a way for the user to specify sort criteria — not a hardcoded default. | Could extend `sort by` clause or be a style property |
+| DOT subgraph clustering | Group nodes into Graphviz `subgraph cluster_X` blocks by kind or other criteria. User-controlled — when to cluster, which kinds get clusters. Clustering constrains layout significantly so must be opt-in. | Could be a style property (`cluster=true`) or expression-level directive |
 
 ## Typed Math
 

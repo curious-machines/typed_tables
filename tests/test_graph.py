@@ -118,17 +118,17 @@ class TestTTGParser:
 class TestTTGBasic:
     """Basic TTG expression evaluation through the query executor."""
 
-    def test_bare_graph_no_results(self, executor, parser):
-        """Bare 'graph' with no expression returns no results."""
+    def test_bare_graph_no_data_config(self, executor, parser):
+        """Bare 'graph' without data config errors."""
         _setup_schema(executor, parser)
         result = _run(executor, parser, "graph")
         assert isinstance(result, QueryResult)
-        assert result.message == "TTG: no results"
+        assert "no config loaded for data context" in result.message
 
     def test_graph_all(self, executor, parser):
         """'graph all' returns edges with source/label/target columns."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         assert isinstance(result, QueryResult)
         assert result.columns == ["source", "label", "target"]
         assert len(result.rows) > 0
@@ -136,7 +136,7 @@ class TestTTGBasic:
     def test_graph_all_contains_field_edges(self, executor, parser):
         """'graph all' includes field edges."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         labels = {r["label"] for r in result.rows}
         assert "name" in labels
         assert "age" in labels
@@ -144,7 +144,7 @@ class TestTTGBasic:
     def test_graph_all_contains_extends_edges(self, executor, parser):
         """'graph all' includes extends edges."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         extends_edges = [r for r in result.rows if r["label"] == "extends"]
         assert any(
             e["source"] == "Employee" and e["target"] == "Person"
@@ -154,7 +154,7 @@ class TestTTGBasic:
     def test_graph_all_contains_interfaces_edges(self, executor, parser):
         """'graph all' includes interface implementation edges."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         iface_edges = [r for r in result.rows if r["label"] == "implements"]
         assert any(
             e["source"] == "Widget" and e["target"] == "Labelled"
@@ -171,7 +171,7 @@ class TestTTGSelectors:
     def test_composites(self, executor, parser):
         """'graph composites' returns composite type nodes."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites")
+        result = _run(executor, parser, "graph meta composites")
         sources = {r["source"] for r in result.rows}
         assert "Person" in sources
         assert "Employee" in sources
@@ -180,14 +180,14 @@ class TestTTGSelectors:
     def test_interfaces(self, executor, parser):
         """'graph interfaces' returns interface nodes."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph interfaces")
+        result = _run(executor, parser, "graph meta interfaces")
         sources = {r["source"] for r in result.rows}
         assert "Labelled" in sources
 
     def test_enums(self, executor, parser):
         """'graph enums' returns enum nodes."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph enums")
+        result = _run(executor, parser, "graph meta enums")
         sources = {r["source"] for r in result.rows}
         assert "Color" in sources
         assert "Shape" in sources
@@ -195,7 +195,7 @@ class TestTTGSelectors:
     def test_aliases(self, executor, parser):
         """'graph aliases' returns alias nodes."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph aliases")
+        result = _run(executor, parser, "graph meta aliases")
         sources = {r["source"] for r in result.rows}
         assert "myid" in sources
 
@@ -209,7 +209,7 @@ class TestTTGAxes:
     def test_composites_dot_fields_accumulates(self, executor, parser):
         """'graph composites.fields' accumulates (dot = +), includes composites and field edges."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites.fields")
+        result = _run(executor, parser, "graph meta composites.fields")
         assert result.columns == ["source", "label", "target"]
         assert len(result.rows) > 0
         # Dot is now accumulate (+), so both composites and field nodes are in results
@@ -219,7 +219,7 @@ class TestTTGAxes:
     def test_composites_slash_fields_pipes(self, executor, parser):
         """'graph composites/fields' pipes (replaces composites with field nodes)."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites/fields")
+        result = _run(executor, parser, "graph meta composites/fields")
         # Pipe: composites replaced by their field nodes; should be isolated nodes
         assert isinstance(result, QueryResult)
         # Field nodes appear as isolated (no edges from pipe)
@@ -229,7 +229,7 @@ class TestTTGAxes:
     def test_composites_extends(self, executor, parser):
         """'graph composites + .extends' returns extends edges (default empty label)."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites + .extends")
+        result = _run(executor, parser, "graph meta composites + .extends")
         # Default edge label is now empty
         assert any(
             r["source"] == "Employee" and r["target"] == "Person"
@@ -239,7 +239,7 @@ class TestTTGAxes:
     def test_composites_interfaces(self, executor, parser):
         """'graph composites + .interfaces' returns interface edges (default empty label)."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites + .interfaces")
+        result = _run(executor, parser, "graph meta composites + .interfaces")
         # Default edge label is now empty
         assert any(
             r["source"] == "Widget" and r["target"] == "Labelled"
@@ -256,7 +256,7 @@ class TestTTGChainOps:
     def test_composites_plus_fields(self, executor, parser):
         """'graph composites + .fields' includes both nodes and edges."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites + .fields")
+        result = _run(executor, parser, "graph meta composites + .fields")
         assert len(result.rows) > 0
         # Default edge labels are now empty; should still have edges
         has_edges = any(r["target"] != "" for r in result.rows)
@@ -266,7 +266,7 @@ class TestTTGChainOps:
         """'graph composites + .fields + .extends + .interfaces' works."""
         _setup_schema(executor, parser)
         result = _run(
-            executor, parser, "graph composites + .fields + .extends + .interfaces"
+            executor, parser, "graph meta composites + .fields + .extends + .interfaces"
         )
         # Should have edges (default labels are empty now)
         assert len(result.rows) > 0
@@ -285,7 +285,7 @@ class TestTTGSortBy:
     def test_sort_by_source(self, executor, parser):
         """'graph all sort by source' sorts edges and isolated nodes by source."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph all sort by source")
+        result = _run(executor, parser, "graph meta all sort by source")
         # Edges and isolated nodes are sorted separately
         edges = [r for r in result.rows if r["label"]]
         isolated = [r for r in result.rows if not r["label"]]
@@ -297,7 +297,7 @@ class TestTTGSortBy:
     def test_sort_by_target(self, executor, parser):
         """'graph all sort by target' sorts edges by target."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph all sort by target")
+        result = _run(executor, parser, "graph meta all sort by target")
         edges = [r for r in result.rows if r["label"]]
         edge_targets = [r["target"] for r in edges]
         assert edge_targets == sorted(edge_targets)
@@ -305,7 +305,7 @@ class TestTTGSortBy:
     def test_sort_by_label(self, executor, parser):
         """'graph all sort by label' sorts edges by label."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph all sort by label")
+        result = _run(executor, parser, "graph meta all sort by label")
         edges = [r for r in result.rows if r["label"]]
         edge_labels = [r["label"] for r in edges]
         assert edge_labels == sorted(edge_labels)
@@ -321,7 +321,7 @@ class TestTTGFileOutput:
         """'graph all > "out.dot"' writes a DOT file."""
         _setup_schema(executor, parser)
         dot_path = str(tmp_data_dir / "out.dot")
-        result = _run(executor, parser, f'graph all > "{dot_path}"')
+        result = _run(executor, parser, f'graph meta all > "{dot_path}"')
         assert isinstance(result, DumpResult)
         assert os.path.exists(dot_path)
         with open(dot_path) as f:
@@ -332,7 +332,7 @@ class TestTTGFileOutput:
         """'graph all > "out.ttq"' writes a TTQ file."""
         _setup_schema(executor, parser)
         ttq_path = str(tmp_data_dir / "out.ttq")
-        result = _run(executor, parser, f'graph all > "{ttq_path}"')
+        result = _run(executor, parser, f'graph meta all > "{ttq_path}"')
         assert isinstance(result, DumpResult)
         assert os.path.exists(ttq_path)
 
@@ -356,10 +356,9 @@ class TestTTGConfig:
         assert "style" in result.message.lower()
 
     def test_config_then_query(self, executor, parser, tmp_data_dir):
-        """Config file can be loaded then query executed."""
+        """Meta queries work with the builtin meta config."""
         _setup_schema(executor, parser)
-        # Even without config, queries work (uses builtin meta config)
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         assert isinstance(result, QueryResult)
         assert len(result.rows) > 0
 
@@ -370,20 +369,20 @@ class TestTTGConfig:
 class TestTTGEmptySchema:
     """TTG behavior with no types defined."""
 
-    def test_bare_graph_empty(self, executor, parser):
-        """Bare graph on empty schema returns no results."""
+    def test_bare_graph_empty_no_config(self, executor, parser):
+        """Bare graph on empty schema without data config errors."""
         result = _run(executor, parser, "graph")
-        assert result.message == "TTG: no results"
+        assert "no config loaded for data context" in result.message
 
     def test_graph_all_empty(self, executor, parser):
         """'graph all' on empty schema returns no results."""
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         # Might have no results or just empty
         assert isinstance(result, QueryResult)
 
     def test_composites_empty(self, executor, parser):
         """'graph composites' on empty schema returns no results."""
-        result = _run(executor, parser, "graph composites")
+        result = _run(executor, parser, "graph meta composites")
         assert isinstance(result, QueryResult)
 
 
@@ -397,7 +396,7 @@ class TestTTGComplexSchema:
         """Enum fields create edges to the enum type."""
         _setup_schema(executor, parser)
         _run(executor, parser, "type Pixel { x: uint16, y: uint16, color: Color }")
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         # Should have an edge Pixel -> Color via 'color' field
         color_edges = [
             r
@@ -410,7 +409,7 @@ class TestTTGComplexSchema:
     def test_self_referential(self, executor, parser):
         """Self-referential types create edges back to themselves."""
         _run(executor, parser, "type Node { value: uint8, children: Node[] }")
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         children_edges = [
             r
             for r in result.rows
@@ -424,7 +423,7 @@ class TestTTGComplexSchema:
         """Alias types show in graph results."""
         _run(executor, parser, "alias uuid = uint128")
         _run(executor, parser, "type Person { id: uuid, name: string }")
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         # Should have Person -> uuid via 'id' field
         id_edges = [
             r
@@ -437,7 +436,7 @@ class TestTTGComplexSchema:
     def test_array_field_edges(self, executor, parser):
         """Array fields create proper edges."""
         _run(executor, parser, "type Sensor { name: string, readings: int8[] }")
-        result = _run(executor, parser, "graph all")
+        result = _run(executor, parser, "graph meta all")
         readings_edges = [
             r
             for r in result.rows
@@ -448,7 +447,7 @@ class TestTTGComplexSchema:
     def test_dict_entry_edge(self, executor, parser):
         """Dictionary types have an entry edge to their entry composite."""
         _run(executor, parser, "type Lookup { data: {string: int32} }")
-        result = _run(executor, parser, 'graph dictionaries + .entry{edge="entry"}')
+        result = _run(executor, parser, 'graph meta dictionaries + .entry{edge="entry"}')
         entry_edges = [
             r for r in result.rows
             if r["label"] == "entry"
@@ -517,6 +516,43 @@ class TestTTGShow:
         result = _run(executor, parser, "graph meta show axis fields")
         assert len(result.rows) == 1
         assert "composites.fields" in result.rows[0]["paths"]
+
+    def test_meta_show_axis_for_composites(self, executor, parser):
+        """Filter axes by selector: 'show axis for composites'."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph meta show axis for composites")
+        names = [r["name"] for r in result.rows]
+        assert "fields" in names  # composites.fields
+        assert "extends" in names  # composites.parent
+        assert "interfaces" in names  # composites.interfaces
+        # Axes without composites paths should be excluded
+        assert "alias" not in names  # aliases.base_type
+        assert "key" not in names  # dictionaries.key_type
+
+    def test_meta_show_axis_for_enums(self, executor, parser):
+        """Filter axes by selector: 'show axis for enums'."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph meta show axis for enums")
+        names = [r["name"] for r in result.rows]
+        assert "variants" in names  # enums.variants
+        assert "backing" in names  # enums.backing_type
+        assert "fields" not in names
+
+    def test_meta_show_axis_for_unknown(self, executor, parser):
+        """Filter by unknown selector returns empty."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph meta show axis for nonexistent")
+        assert len(result.rows) == 0
+
+    def test_meta_show_reverse_for_composites(self, executor, parser):
+        """Filter reverse axes by selector."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph meta show reverse for composites")
+        names = [r["name"] for r in result.rows]
+        assert "children" in names  # reverse of extends (composites.parent)
+        assert "implementers" in names  # reverse of interfaces (composites.interfaces)
+        assert "owner" in names  # reverse of fields (composites.fields)
+        assert "enum" not in names  # reverse of variants (enums.variants)
 
     def test_meta_show_reverse_list(self, executor, parser):
         """List all reverse axes."""
@@ -607,7 +643,7 @@ class TestTTGFieldLabels:
         dot_path = str(tmp_data_dir / "fields.dot")
         result = _run(
             executor, parser,
-            f'graph composites + .fields > "{dot_path}"',
+            f'graph meta composites + .fields > "{dot_path}"',
         )
         assert isinstance(result, DumpResult)
         with open(dot_path) as f:
@@ -623,7 +659,7 @@ class TestTTGFieldLabels:
         dot_path = str(tmp_data_dir / "display_str.dot")
         result = _run(
             executor, parser,
-            f'graph composites + .fields{{display="*"}} > "{dot_path}"',
+            f'graph meta composites + .fields{{display="*"}} > "{dot_path}"',
         )
         assert isinstance(result, DumpResult)
         with open(dot_path) as f:
@@ -637,7 +673,7 @@ class TestTTGFieldLabels:
         dot_path = str(tmp_data_dir / "display_path.dot")
         result = _run(
             executor, parser,
-            f'graph composites + .fields{{display=.name}} > "{dot_path}"',
+            f'graph meta composites + .fields{{display=.name}} > "{dot_path}"',
         )
         assert isinstance(result, DumpResult)
         with open(dot_path) as f:
@@ -651,7 +687,7 @@ class TestTTGFieldLabels:
         dot_path = str(tmp_data_dir / "display_join.dot")
         result = _run(
             executor, parser,
-            f'graph composites + .fields{{display=join(".", .owner, .name)}} > "{dot_path}"',
+            f'graph meta composites + .fields{{display=join(".", .owner, .name)}} > "{dot_path}"',
         )
         assert isinstance(result, DumpResult)
         with open(dot_path) as f:
@@ -665,7 +701,7 @@ class TestTTGFieldLabels:
         dot_path = str(tmp_data_dir / "composites.dot")
         result = _run(
             executor, parser,
-            f'graph composites > "{dot_path}"',
+            f'graph meta composites > "{dot_path}"',
         )
         assert isinstance(result, DumpResult)
         with open(dot_path) as f:
@@ -780,7 +816,7 @@ class TestRepeatedChainEvaluation:
         self._setup_nested_schema(executor, parser)
         result = _run(
             executor, parser,
-            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=inf}',
+            'graph meta composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=inf}',
         )
         # Should discover: Outer's fields → Middle and string → Middle's fields → Inner and string → Inner's fields → uint8
         sources = {r["source"] for r in result.rows}
@@ -795,7 +831,7 @@ class TestRepeatedChainEvaluation:
         self._setup_nested_schema(executor, parser)
         result = _run(
             executor, parser,
-            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=1}',
+            'graph meta composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=1}',
         )
         # Should discover: Outer's fields → Middle and string, but NOT Inner
         sources = {r["source"] for r in result.rows}
@@ -810,7 +846,7 @@ class TestRepeatedChainEvaluation:
         self._setup_nested_schema(executor, parser)
         result = _run(
             executor, parser,
-            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=0}',
+            'graph meta composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=0}',
         )
         # Only the seed node Outer, no edges from the repeated chain
         edges = [r for r in result.rows if r["label"] != ""]
@@ -821,7 +857,7 @@ class TestRepeatedChainEvaluation:
         self._setup_nested_schema(executor, parser)
         result = _run(
             executor, parser,
-            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""})',
+            'graph meta composites{name=Outer} + (.fields{edge=""} + .type{edge=""})',
         )
         sources = {r["source"] for r in result.rows}
         targets = {r["target"] for r in result.rows}
@@ -835,7 +871,7 @@ class TestRepeatedChainEvaluation:
         self._setup_nested_schema(executor, parser)
         result = _run(
             executor, parser,
-            'graph composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=2}',
+            'graph meta composites{name=Outer} + (.fields{edge=""} + .type{edge=""}){depth=2}',
         )
         sources = {r["source"] for r in result.rows}
         targets = {r["target"] for r in result.rows}
@@ -854,7 +890,7 @@ class TestTTGDefaultEdgeLabel:
     def test_default_edge_label_is_empty(self, executor, parser):
         """Axis traversal without edge= predicate produces empty label."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites + .extends")
+        result = _run(executor, parser, "graph meta composites + .extends")
         extends_edges = [
             r for r in result.rows
             if r["source"] == "Employee" and r["target"] == "Person"
@@ -865,7 +901,7 @@ class TestTTGDefaultEdgeLabel:
     def test_edge_override_still_works(self, executor, parser):
         """Explicit edge= predicate overrides the default empty label."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, 'graph composites + .extends{edge="parent"}')
+        result = _run(executor, parser, 'graph meta composites + .extends{edge="parent"}')
         extends_edges = [
             r for r in result.rows
             if r["source"] == "Employee" and r["target"] == "Person"
@@ -883,7 +919,7 @@ class TestTTGDotSlash:
     def test_dot_accumulates_nodes(self, executor, parser):
         """composites.fields accumulates: composites AND their fields in result."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites.fields")
+        result = _run(executor, parser, "graph meta composites.fields")
         sources = {r["source"] for r in result.rows}
         targets = {r["target"] for r in result.rows}
         all_nodes = sources | targets
@@ -895,7 +931,7 @@ class TestTTGDotSlash:
     def test_slash_pipes_replaces_nodes(self, executor, parser):
         """composites/fields pipes: only field nodes remain, not composites."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites/fields")
+        result = _run(executor, parser, "graph meta composites/fields")
         # After pipe, composites replaced by field nodes — only isolated nodes
         # (pipe produces no edges)
         sources = {r["source"] for r in result.rows}
@@ -908,7 +944,7 @@ class TestTTGDotSlash:
         _setup_schema(executor, parser)
         result = _run(
             executor, parser,
-            'graph composites.fields{edge=.name}.type{edge="→"}',
+            'graph meta composites.fields{edge=.name}.type{edge="→"}',
         )
         # Should have edges from composites to fields (labeled by field name)
         # and from fields to their types (labeled "→")
@@ -918,7 +954,7 @@ class TestTTGDotSlash:
     def test_mixed_dot_slash(self, executor, parser):
         """a.b/c: accumulate b, then pipe to c."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites.fields/type")
+        result = _run(executor, parser, "graph meta composites.fields/type")
         # After pipe through type, only type endpoint nodes remain
         sources = {r["source"] for r in result.rows}
         # Should be type names like "string", "uint8", etc. (not composites or fields)
@@ -931,7 +967,7 @@ class TestTTGDotSlash:
         _run(executor, parser, "type Outer { name: string, mid: Middle }")
         result = _run(
             executor, parser,
-            "graph composites{name=Outer} + (.fields.type){depth=inf}",
+            "graph meta composites{name=Outer} + (.fields.type){depth=inf}",
         )
         sources = {r["source"] for r in result.rows}
         targets = {r["target"] for r in result.rows}
@@ -946,7 +982,7 @@ class TestTTGDotSlash:
         _run(executor, parser, "type Outer { name: string, mid: Middle }")
         result = _run(
             executor, parser,
-            "graph composites{name=Outer} + (.fields/type){depth=inf}",
+            "graph meta composites{name=Outer} + (.fields/type){depth=inf}",
         )
         sources = {r["source"] for r in result.rows}
         targets = {r["target"] for r in result.rows}
@@ -964,7 +1000,7 @@ class TestTTGIdentityShorthand:
     def test_bare_identity(self, executor, parser):
         """composites{Person} filters by name=Person."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites{Person}")
+        result = _run(executor, parser, "graph meta composites{Person}")
         sources = {r["source"] for r in result.rows}
         assert "Person" in sources
         assert "Employee" not in sources
@@ -973,7 +1009,7 @@ class TestTTGIdentityShorthand:
     def test_identity_or(self, executor, parser):
         """composites{Person | Widget} matches either name."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites{Person | Widget}")
+        result = _run(executor, parser, "graph meta composites{Person | Widget}")
         sources = {r["source"] for r in result.rows}
         assert "Person" in sources
         assert "Widget" in sources
@@ -982,7 +1018,7 @@ class TestTTGIdentityShorthand:
     def test_identity_negation(self, executor, parser):
         """composites{!Person} excludes Person."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites{!Person}")
+        result = _run(executor, parser, "graph meta composites{!Person}")
         sources = {r["source"] for r in result.rows}
         assert "Person" not in sources
         assert "Employee" in sources
@@ -991,7 +1027,7 @@ class TestTTGIdentityShorthand:
     def test_identity_with_other_predicates(self, executor, parser):
         """Identity shorthand produces a single-node result."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites{Person}")
+        result = _run(executor, parser, "graph meta composites{Person}")
         sources = {r["source"] for r in result.rows}
         assert sources == {"Person"}
 
@@ -999,7 +1035,7 @@ class TestTTGIdentityShorthand:
         """Identity shorthand combined with explicit named predicates."""
         _setup_schema(executor, parser)
         # Use identity shorthand with name=, which overwrites _identity
-        result = _run(executor, parser, "graph composites{Person | Employee}")
+        result = _run(executor, parser, "graph meta composites{Person | Employee}")
         sources = {r["source"] for r in result.rows}
         assert "Person" in sources
         assert "Employee" in sources

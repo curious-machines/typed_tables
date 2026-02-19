@@ -135,7 +135,7 @@ class TTGParser:
     })
 
     def _parse_show_stmt(self, rest: str, metadata: bool) -> ShowStmt:
-        """Parse show <category> [<name>]."""
+        """Parse show <category> [<name>] [for <selector>]."""
         rest = rest.strip()
         if not rest:
             return ShowStmt(category=None, name=None, metadata=metadata)
@@ -147,15 +147,29 @@ class TTGParser:
         name_rest = m.group(2).strip()
         if category not in self._SHOW_CATEGORIES:
             raise SyntaxError(f"TTG: unknown show category '{category}'. Valid: {', '.join(sorted(self._SHOW_CATEGORIES))}")
-        # Optional name
+        # Optional name or "for <selector>"
         name = None
+        for_selector = None
         if name_rest:
-            m2 = re.match(r"([a-zA-Z_]\w*)", name_rest)
-            if m2:
-                name = m2.group(1)
+            # Check for "for <selector>" directly
+            m_for = re.match(r"for\s+([a-zA-Z_]\w*)\s*$", name_rest)
+            if m_for:
+                for_selector = m_for.group(1)
             else:
-                raise SyntaxError(f"TTG: invalid name after 'show {category}': {name_rest[:20]}")
-        return ShowStmt(category=category, name=name, metadata=metadata)
+                m2 = re.match(r"([a-zA-Z_]\w*)\s*(.*)", name_rest)
+                if m2:
+                    name = m2.group(1)
+                    # Check for trailing "for <selector>"
+                    after_name = m2.group(2).strip()
+                    if after_name:
+                        m_for2 = re.match(r"for\s+([a-zA-Z_]\w*)\s*$", after_name)
+                        if m_for2:
+                            for_selector = m_for2.group(1)
+                        else:
+                            raise SyntaxError(f"TTG: unexpected after 'show {category} {name}': {after_name[:20]}")
+                else:
+                    raise SyntaxError(f"TTG: invalid name after 'show {category}': {name_rest[:20]}")
+        return ShowStmt(category=category, name=name, metadata=metadata, for_selector=for_selector)
 
     def _parse_style_stmt(self, rest: str, meta: bool) -> object:
         """Parse style arguments: "file" [{...}] or {...}."""

@@ -269,7 +269,7 @@ class TestBooleanClassify:
     def test_graph_boolean(self, executor):
         """graph includes boolean type when used by a composite."""
         _run(executor, 'type Toggle { active: boolean }')
-        result = _run(executor, 'graph all')
+        result = _run(executor, 'graph meta all')
         assert isinstance(result, QueryResult)
         # TTG graph all shows field edges with source/label/target
         assert any(
