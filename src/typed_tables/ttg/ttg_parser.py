@@ -69,6 +69,7 @@ class TTGParser:
         kwargs.setdefault("debug", False)
         kwargs.setdefault("write_tables", True)
         kwargs.setdefault("outputdir", _PARSER_DIR)
+        kwargs.setdefault("tabmodule", "typed_tables.ttg._ttg_parsetab")
         kwargs.setdefault("errorlog", yacc.NullLogger())
         self._parser = yacc.yacc(module=self, **kwargs)
 

@@ -1066,14 +1066,14 @@ class TTGEngine:
         if self._parser is None:
             from typed_tables.ttg.ttg_parser import TTGParser
             self._parser = TTGParser()
-            self._parser.build(debug=False, write_tables=False)
+            self._parser.build(debug=False)
         return self._parser
 
     def _get_ttgc_parser(self) -> Any:
         if self._ttgc_parser is None:
             from typed_tables.ttg.ttgc_parser import TTGCParser
             self._ttgc_parser = TTGCParser()
-            self._ttgc_parser.build(debug=False, write_tables=False)
+            self._ttgc_parser.build(debug=False)
         return self._ttgc_parser
 
     # ---- Built-in meta-schema config ----
