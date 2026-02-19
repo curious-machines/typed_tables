@@ -22,7 +22,7 @@
   "Execute Script": {
     "prefix": "execute",
     "body": "execute \"${1:script.ttg}\"",
-    "description": "Execute another TTGE script"
+    "description": "Execute another TTG script"
   },
   "Selector with Predicate": {
     "prefix": "sel",

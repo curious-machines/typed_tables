@@ -271,7 +271,7 @@ class TestBooleanClassify:
         _run(executor, 'type Toggle { active: boolean }')
         result = _run(executor, 'graph all')
         assert isinstance(result, QueryResult)
-        # TTGE graph all shows field edges with source/label/target
+        # TTG graph all shows field edges with source/label/target
         assert any(
             row["source"] == "Toggle" and row["label"] == "active" and row["target"] == "boolean"
             for row in result.rows

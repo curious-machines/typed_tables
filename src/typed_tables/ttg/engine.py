@@ -1,4 +1,4 @@
-"""TTGE engine — evaluates TTGE statements against a database."""
+"""TTG engine — evaluates TTG statements against a database."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from typed_tables.ttge.types import (
+from typed_tables.ttg.types import (
     AxisPathPred,
     AxisRef,
     BoolPred,
@@ -96,7 +96,7 @@ class ResultSet:
 
 
 class TTGEngine:
-    """TTGE expression engine — config, style, session state, evaluation."""
+    """TTG expression engine — config, style, session state, evaluation."""
 
     def __init__(self, storage: Any, registry: Any) -> None:
         self.storage = storage
@@ -123,7 +123,7 @@ class TTGEngine:
     # ---- Public API ----
 
     def execute(self, raw_text: str) -> GraphResult | FileResult | str:
-        """Execute a single TTGE statement from raw text."""
+        """Execute a single TTG statement from raw text."""
         parser = self._get_parser()
         stmt = parser.parse(raw_text)
         if stmt is None:
@@ -131,7 +131,7 @@ class TTGEngine:
         return self._execute_stmt(stmt)
 
     def execute_stmt(self, stmt: Stmt) -> GraphResult | FileResult | str:
-        """Execute a pre-parsed TTGE statement."""
+        """Execute a pre-parsed TTG statement."""
         return self._execute_stmt(stmt)
 
     def reset_session(self) -> None:
@@ -347,7 +347,7 @@ class TTGEngine:
     # ---- Expression evaluation ----
 
     def _execute_expr(self, stmt: ExprStmt) -> GraphResult | FileResult | str:
-        """Evaluate a TTGE expression statement."""
+        """Evaluate a TTG expression statement."""
         if stmt.metadata:
             config = self._meta_config
             provider = self._get_meta_provider()
@@ -750,7 +750,7 @@ class TTGEngine:
 
     def _get_reverse_edges(self, fwd_axis: str, target_nodes: set[str], provider: Any) -> list:
         """Get reverse edges: find forward edges where target is in target_nodes."""
-        from typed_tables.ttge.provider import EdgeInfo
+        from typed_tables.ttg.provider import EdgeInfo
         all_fwd_edges = provider._axis_edges.get(fwd_axis, [])
         result = []
         for edge in all_fwd_edges:
@@ -1047,7 +1047,7 @@ class TTGEngine:
     def _get_meta_provider(self) -> Any:
         """Get or create the meta-schema provider."""
         if self._meta_provider is None and self.registry is not None:
-            from typed_tables.ttge.provider import MetaSchemaProvider
+            from typed_tables.ttg.provider import MetaSchemaProvider
             self._meta_provider = MetaSchemaProvider(self.registry)
         return self._meta_provider
 
@@ -1064,14 +1064,14 @@ class TTGEngine:
 
     def _get_parser(self) -> Any:
         if self._parser is None:
-            from typed_tables.ttge.ttge_parser import TTGEParser
-            self._parser = TTGEParser()
+            from typed_tables.ttg.ttg_parser import TTGParser
+            self._parser = TTGParser()
             self._parser.build(debug=False, write_tables=False)
         return self._parser
 
     def _get_ttgc_parser(self) -> Any:
         if self._ttgc_parser is None:
-            from typed_tables.ttge.ttgc_parser import TTGCParser
+            from typed_tables.ttg.ttgc_parser import TTGCParser
             self._ttgc_parser = TTGCParser()
             self._ttgc_parser.build(debug=False, write_tables=False)
         return self._ttgc_parser

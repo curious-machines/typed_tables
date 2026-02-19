@@ -558,10 +558,13 @@ def run_repl(data_dir: Path | None) -> int:
         # Default: need more input
         return True
 
+    graph_mode = False
+
     try:
         while True:
             try:
-                line = input("ttq> ").strip()
+                prompt = "graph> " if graph_mode else "query> "
+                line = input(prompt).strip()
             except EOFError:
                 print()
                 break
@@ -571,8 +574,25 @@ def run_repl(data_dir: Path | None) -> int:
 
             # Handle special commands
             if line.lower() == "exit" or line.lower() == "quit":
+                if graph_mode:
+                    graph_mode = False
+                    print("Exited graph mode.")
+                    print()
+                    continue
                 break
-            elif line.lower() == "help" or line.lower().startswith("help "):
+
+            # Bare "graph" enters graph sub-shell
+            if line.lower().rstrip(";").strip() == "graph" and not graph_mode:
+                graph_mode = True
+                print("Entering graph mode. Type 'exit' to return to query mode.")
+                print()
+                continue
+
+            # In graph mode, prefix input with "graph "
+            if graph_mode:
+                line = "graph " + line
+
+            if line.lower() == "help" or line.lower().startswith("help "):
                 parts = line.strip().split(None, 1)
                 topic = parts[1].strip().rstrip(";") if len(parts) > 1 else None
                 print_help(topic)

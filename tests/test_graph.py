@@ -1,4 +1,4 @@
-"""Tests for TTGE (Typed Tables Graph Expression) integration via the graph keyword."""
+"""Tests for TTG (Typed Tables Graph Expression) integration via the graph keyword."""
 
 import os
 import shutil
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from typed_tables.parsing.query_parser import QueryParser, TTGEQuery
+from typed_tables.parsing.query_parser import QueryParser, TTGQuery
 from typed_tables.query_executor import DumpResult, QueryExecutor, QueryResult
 from typed_tables.storage import StorageManager
 from typed_tables.types import TypeRegistry
@@ -60,55 +60,55 @@ def _setup_schema(executor, parser):
 # ---- Parser tests ----
 
 
-class TestTTGEParser:
-    """Verify the graph keyword produces TTGEQuery AST nodes."""
+class TestTTGParser:
+    """Verify the graph keyword produces TTGQuery AST nodes."""
 
     def test_bare_graph(self, parser):
         q = parser.parse("graph")
-        assert isinstance(q, TTGEQuery)
+        assert isinstance(q, TTGQuery)
         assert q.raw_text == ""
 
     def test_graph_all(self, parser):
         q = parser.parse("graph all")
-        assert isinstance(q, TTGEQuery)
+        assert isinstance(q, TTGQuery)
         assert q.raw_text == "all"
 
     def test_graph_composites(self, parser):
         q = parser.parse("graph composites")
-        assert isinstance(q, TTGEQuery)
+        assert isinstance(q, TTGQuery)
         assert q.raw_text == "composites"
 
     def test_graph_expression(self, parser):
         q = parser.parse("graph composites + .fields")
-        assert isinstance(q, TTGEQuery)
+        assert isinstance(q, TTGQuery)
         assert q.raw_text == "composites + .fields"
 
     def test_graph_with_sort(self, parser):
         q = parser.parse("graph all sort by source")
-        assert isinstance(q, TTGEQuery)
+        assert isinstance(q, TTGQuery)
         assert "sort by source" in q.raw_text
 
     def test_graph_with_output(self, parser):
         q = parser.parse('graph all > "out.dot"')
-        assert isinstance(q, TTGEQuery)
+        assert isinstance(q, TTGQuery)
         assert "out.dot" in q.raw_text
 
     def test_graph_config(self, parser):
         q = parser.parse('graph config "test.ttgc"')
-        assert isinstance(q, TTGEQuery)
+        assert isinstance(q, TTGQuery)
         assert "config" in q.raw_text
 
     def test_graph_style(self, parser):
         q = parser.parse('graph style {"direction": "LR"}')
-        assert isinstance(q, TTGEQuery)
+        assert isinstance(q, TTGQuery)
         assert "style" in q.raw_text
 
 
 # ---- Basic execution tests ----
 
 
-class TestTTGEBasic:
-    """Basic TTGE expression evaluation through the query executor."""
+class TestTTGBasic:
+    """Basic TTG expression evaluation through the query executor."""
 
     def test_bare_graph_no_results(self, executor, parser):
         """Bare 'graph' with no expression returns no results."""
@@ -157,7 +157,7 @@ class TestTTGEBasic:
 # ---- Selector tests ----
 
 
-class TestTTGESelectors:
+class TestTTGSelectors:
     """Selector expressions return the right nodes."""
 
     def test_composites(self, executor, parser):
@@ -195,7 +195,7 @@ class TestTTGESelectors:
 # ---- Axis tests ----
 
 
-class TestTTGEAxes:
+class TestTTGAxes:
     """Axis traversal expressions."""
 
     def test_composites_fields(self, executor, parser):
@@ -240,7 +240,7 @@ class TestTTGEAxes:
 # ---- Chain operation tests ----
 
 
-class TestTTGEChainOps:
+class TestTTGChainOps:
     """Chain operations (union, intersection, etc.)."""
 
     def test_composites_plus_fields(self, executor, parser):
@@ -268,7 +268,7 @@ class TestTTGEChainOps:
 # ---- Sort tests ----
 
 
-class TestTTGESortBy:
+class TestTTGSortBy:
     """Sort by columns."""
 
     def test_sort_by_source(self, executor, parser):
@@ -303,7 +303,7 @@ class TestTTGESortBy:
 # ---- File output tests ----
 
 
-class TestTTGEFileOutput:
+class TestTTGFileOutput:
     """File output (DOT and TTQ)."""
 
     def test_dot_output(self, executor, parser, tmp_data_dir):
@@ -329,7 +329,7 @@ class TestTTGEFileOutput:
 # ---- Config/style tests ----
 
 
-class TestTTGEConfig:
+class TestTTGConfig:
     """Config and style commands."""
 
     def test_config_nonexistent_file(self, executor, parser):
@@ -356,8 +356,8 @@ class TestTTGEConfig:
 # ---- Empty schema tests ----
 
 
-class TestTTGEEmptySchema:
-    """TTGE behavior with no types defined."""
+class TestTTGEmptySchema:
+    """TTG behavior with no types defined."""
 
     def test_bare_graph_empty(self, executor, parser):
         """Bare graph on empty schema returns no results."""
@@ -379,8 +379,8 @@ class TestTTGEEmptySchema:
 # ---- Complex schema tests ----
 
 
-class TestTTGEComplexSchema:
-    """TTGE with more complex schemas."""
+class TestTTGComplexSchema:
+    """TTG with more complex schemas."""
 
     def test_enum_edges(self, executor, parser):
         """Enum fields create edges to the enum type."""
@@ -438,7 +438,7 @@ class TestTTGEComplexSchema:
 # ---- Show command tests ----
 
 
-class TestTTGEShow:
+class TestTTGShow:
     """Tests for the 'graph show' and 'graph metadata show' commands."""
 
     def test_metadata_show_selector_list(self, executor, parser):

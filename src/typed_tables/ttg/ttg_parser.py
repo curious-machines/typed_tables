@@ -1,12 +1,12 @@
-"""Parser for TTGE (Typed Tables Graph Expression) statements and expressions."""
+"""Parser for TTG (Typed Tables Graph) statements and expressions."""
 
 from __future__ import annotations
 
 import os
 import re
 
-from typed_tables.ttge.ttge_lexer import TTGELexer
-from typed_tables.ttge.types import (
+from typed_tables.ttg.ttg_lexer import TTGLexer
+from typed_tables.ttg.types import (
     AxisPathPred,
     AxisRef,
     BoolPred,
@@ -42,8 +42,8 @@ import ply.yacc as yacc
 _PARSER_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-class TTGEParser:
-    """Parser for TTGE statements and expressions.
+class TTGParser:
+    """Parser for TTG statements and expressions.
 
     Statement-level dispatch (config/style/execute/metadata) is handled by
     pre-processing the input before sending it to the expression parser.
@@ -51,7 +51,7 @@ class TTGEParser:
     prefix) and `expression` (which starts with IDENTIFIER via selectors).
     """
 
-    tokens = TTGELexer.tokens
+    tokens = TTGLexer.tokens
 
     # Operator precedence: loosest to tightest
     precedence = (
@@ -61,7 +61,7 @@ class TTGEParser:
     )
 
     def __init__(self) -> None:
-        self._lexer = TTGELexer()
+        self._lexer = TTGLexer()
         self._parser: yacc.LRParser | None = None
 
     def build(self, **kwargs) -> None:  # type: ignore
@@ -72,7 +72,7 @@ class TTGEParser:
         self._parser = yacc.yacc(module=self, **kwargs)
 
     def parse(self, text: str) -> object:
-        """Parse a single TTGE statement.
+        """Parse a single TTG statement.
 
         Handles statement-level dispatch before invoking the expression parser.
         """
@@ -256,7 +256,7 @@ class TTGEParser:
         return entries
 
     def parse_program(self, text: str) -> list:
-        """Parse multiple TTGE statements (for .ttg scripts).
+        """Parse multiple TTG statements (for .ttg scripts).
 
         Statements are separated by newlines or semicolons.
         Comments (-- to end of line) are stripped.

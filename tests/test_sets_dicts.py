@@ -609,7 +609,7 @@ class TestGraph:
         _run(executor, 'type Student { name: string, tags: {string} }')
         result = _run(executor, 'graph all')
         edges = result.rows
-        # Student → {string} edge (TTGE uses source/label/target columns)
+        # Student → {string} edge (TTG uses source/label/target columns)
         assert any(e["source"] == "Student" and e["target"] == "{string}" for e in edges)
 
     def test_graph_dict_edges(self, tmp_db):

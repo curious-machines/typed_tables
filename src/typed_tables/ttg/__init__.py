@@ -1,12 +1,12 @@
-"""TTGE (Typed Tables Graph Expression) — composable graph expression language."""
+"""TTG (Typed Tables Graph) — composable graph expression language."""
 
-from typed_tables.ttge.types import (
+from typed_tables.ttg.types import (
     FileResult,
     GraphConfig,
     GraphEdge,
     GraphResult,
 )
-from typed_tables.ttge.engine import TTGEngine
+from typed_tables.ttg.engine import TTGEngine
 
 __all__ = [
     "GraphEdge",

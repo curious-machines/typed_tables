@@ -1,4 +1,4 @@
-"""Data provider for TTGE — resolves selectors and axes against a schema.
+"""Data provider for TTG — resolves selectors and axes against a schema.
 
 The MetaSchemaProvider builds an in-memory model from a TypeRegistry,
 mapping selector names to node sets and axis names to traversable relationships.
@@ -28,7 +28,7 @@ class EdgeInfo:
 
 
 class MetaSchemaProvider:
-    """Builds an in-memory graph model from a TypeRegistry for TTGE evaluation."""
+    """Builds an in-memory graph model from a TypeRegistry for TTG evaluation."""
 
     def __init__(self, registry: Any) -> None:
         self.registry = registry

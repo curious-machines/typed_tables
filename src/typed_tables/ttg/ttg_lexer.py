@@ -1,10 +1,10 @@
-"""Lexer for TTGE (Typed Tables Graph Expression) statements."""
+"""Lexer for TTG (Typed Tables Graph) statements."""
 
 import ply.lex as lex
 
 
-class TTGELexer:
-    """Lexer for tokenizing TTGE expressions and statements."""
+class TTGLexer:
+    """Lexer for tokenizing TTG expressions and statements."""
 
     # No reserved keywords — all identifiers are contextual (D22).
     # The parser handles contextual keywords based on position.

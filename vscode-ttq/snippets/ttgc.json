@@ -60,7 +60,7 @@
       "\t\"${1:}\": ${2:expression}",
       "}"
     ],
-    "description": "Define named TTGE expression shortcuts"
+    "description": "Define named TTG expression shortcuts"
   },
   "Full Config Template": {
     "prefix": "ttgc",

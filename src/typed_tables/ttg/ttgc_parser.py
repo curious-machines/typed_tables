@@ -6,8 +6,8 @@ import os
 
 import ply.yacc as yacc
 
-from typed_tables.ttge.ttgc_lexer import TTGCLexer
-from typed_tables.ttge.types import GraphConfig
+from typed_tables.ttg.ttgc_lexer import TTGCLexer
+from typed_tables.ttg.types import GraphConfig
 
 _PARSER_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -180,7 +180,7 @@ class TTGCParser:
         """identity_entry : IDENTIFIER COLON IDENTIFIER opt_comma"""
         self._config.identity[p[1]] = p[3]
 
-    # ---- Shortcut entries: STRING: <raw TTGE expression> ----
+    # ---- Shortcut entries: STRING: <raw TTG expression> ----
 
     def p_shortcut_entries_empty(self, p: yacc.YaccProduction) -> None:
         """shortcut_entries : """

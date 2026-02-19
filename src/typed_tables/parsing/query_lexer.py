@@ -105,14 +105,14 @@ class QueryLexer:
         "PERCENT",
         "DOUBLESLASH",
         "CONCAT",
-        "TTGE_RAW",
+        "TTG_RAW",
     ] + list(reserved.values())
 
     # Lexer states: regex state for /pattern/ after MATCHES keyword,
-    # ttge state for capturing raw TTGE text after GRAPH keyword
+    # ttg state for capturing raw TTG text after GRAPH keyword
     states = (
         ("regex", "exclusive"),
-        ("ttge", "exclusive"),
+        ("ttg", "exclusive"),
     )
 
     # Simple tokens (INITIAL state)
@@ -218,8 +218,8 @@ class QueryLexer:
         if t.type == "MATCHES":
             t.lexer.begin("regex")
         elif t.type == "GRAPH":
-            # Switch to ttge state to capture the rest as raw TTGE text
-            t.lexer.begin("ttge")
+            # Switch to ttg state to capture the rest as raw TTG text
+            t.lexer.begin("ttg")
         return t
 
     def t_NEWLINE(self, t: lex.LexToken) -> None:
@@ -255,33 +255,33 @@ class QueryLexer:
         t.lexer.begin("INITIAL")
         raise SyntaxError(f"Expected regex pattern after 'matches', got '{t.value[0]}' at position {t.lexpos}")
 
-    # --- Exclusive ttge state tokens ---
-    # Captures everything after GRAPH keyword until ; or end-of-input as TTGE_RAW.
+    # --- Exclusive ttg state tokens ---
+    # Captures everything after GRAPH keyword until ; or end-of-input as TTG_RAW.
 
-    def t_ttge_TTGE_RAW(self, t: lex.LexToken) -> lex.LexToken:
+    def t_ttg_TTG_RAW(self, t: lex.LexToken) -> lex.LexToken:
         r"[^;]+"
         t.value = t.value.strip()
         t.lexer.begin("INITIAL")
         return t
 
-    def t_ttge_SEMICOLON(self, t: lex.LexToken) -> lex.LexToken:
+    def t_ttg_SEMICOLON(self, t: lex.LexToken) -> lex.LexToken:
         r";"
-        # Empty TTGE text — just return to INITIAL state
+        # Empty TTG text — just return to INITIAL state
         t.lexer.begin("INITIAL")
         return t
 
-    def t_ttge_NEWLINE(self, t: lex.LexToken) -> None:
+    def t_ttg_NEWLINE(self, t: lex.LexToken) -> None:
         r"\n+"
         t.lexer.lineno += len(t.value)
 
-    t_ttge_ignore = ""
+    t_ttg_ignore = ""
 
-    def t_ttge_eof(self, t: lex.LexToken) -> None:
+    def t_ttg_eof(self, t: lex.LexToken) -> None:
         t.lexer.begin("INITIAL")
 
-    def t_ttge_error(self, t: lex.LexToken) -> None:
+    def t_ttg_error(self, t: lex.LexToken) -> None:
         t.lexer.begin("INITIAL")
-        raise SyntaxError(f"Unexpected character in TTGE expression: '{t.value[0]}' at position {t.lexpos}")
+        raise SyntaxError(f"Unexpected character in TTG expression: '{t.value[0]}' at position {t.lexpos}")
 
     # --- Lexer methods ---
 

@@ -1,9 +1,9 @@
-"""Tests for the TTGE expression/statement parser."""
+"""Tests for the TTG expression/statement parser."""
 
 import pytest
 
-from typed_tables.ttge.ttge_parser import TTGEParser
-from typed_tables.ttge.types import (
+from typed_tables.ttg.ttg_parser import TTGParser
+from typed_tables.ttg.types import (
     AxisPathPred,
     AxisRef,
     BoolPred,
@@ -35,7 +35,7 @@ from typed_tables.ttge.types import (
 
 @pytest.fixture
 def parser():
-    p = TTGEParser()
+    p = TTGParser()
     p.build(debug=False, write_tables=False)
     return p
 

@@ -1,25 +1,25 @@
-"""Tests for the TTGE engine — config, style, session state, expression evaluation."""
+"""Tests for the TTG engine — config, style, session state, expression evaluation."""
 
 import os
 import tempfile
 
 import pytest
 
-from typed_tables.ttge.engine import TTGEngine
-from typed_tables.ttge.types import FileResult, GraphConfig, GraphResult
+from typed_tables.ttg.engine import TTGEngine
+from typed_tables.ttg.types import FileResult, GraphConfig, GraphResult
 from typed_tables.parsing.query_parser import QueryParser
 from typed_tables.query_executor import QueryExecutor, QueryResult
 
 
 @pytest.fixture
 def engine():
-    """Create a TTGE engine with no backing storage (for config/style tests)."""
+    """Create a TTG engine with no backing storage (for config/style tests)."""
     return TTGEngine(storage=None, registry=None)
 
 
 @pytest.fixture
 def db_engine(tmp_path):
-    """Create a TTGE engine backed by a real database with test types."""
+    """Create a TTG engine backed by a real database with test types."""
     from typed_tables.types import TypeRegistry
     from typed_tables.storage import StorageManager
 
@@ -590,7 +590,7 @@ class TestTtqOutput:
 
 
 class TestIntegrationViaTTQ:
-    """Test TTGE via the TTQ parser (graph command delegation)."""
+    """Test TTG via the TTQ parser (graph command delegation)."""
 
     def test_graph_metadata_composites(self, db_engine):
         """Test via TTQ: graph metadata composites."""

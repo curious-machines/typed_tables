@@ -2,8 +2,8 @@
 
 import pytest
 
-from typed_tables.ttge.ttgc_parser import TTGCParser
-from typed_tables.ttge.types import GraphConfig
+from typed_tables.ttg.ttgc_parser import TTGCParser
+from typed_tables.ttg.types import GraphConfig
 
 
 @pytest.fixture

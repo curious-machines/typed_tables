@@ -116,7 +116,7 @@ class TTGCLexer:
     def t_shortcut_error(self, t: lex.LexToken) -> None:
         raise SyntaxError(f"TTGC shortcut: Illegal character '{t.value[0]}' at line {t.lexer.lineno}")
 
-    # --- shortcutval state: capture everything to end of line as raw TTGE expression ---
+    # --- shortcutval state: capture everything to end of line as raw TTG expression ---
 
     def t_shortcutval_SHORTCUT_VALUE(self, t: lex.LexToken) -> lex.LexToken:
         r"[^\n]+"

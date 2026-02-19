@@ -1,4 +1,4 @@
-"""TTGE types — result types, config dataclasses, and AST nodes."""
+"""TTG types — result types, config dataclasses, and AST nodes."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class GraphEdge:
 
 @dataclass
 class GraphResult:
-    """Result of a TTGE expression evaluation — edges and isolated nodes."""
+    """Result of a TTG expression evaluation — edges and isolated nodes."""
     edges: list[GraphEdge] = field(default_factory=list)
     isolated_nodes: list[str] = field(default_factory=list)
     node_kinds: dict[str, str] = field(default_factory=dict)  # node_id → selector/kind
@@ -27,7 +27,7 @@ class GraphResult:
 
 @dataclass
 class FileResult:
-    """Result of a TTGE expression with file output."""
+    """Result of a TTG expression with file output."""
     path: str
     edge_count: int
 
@@ -51,7 +51,7 @@ class GraphConfig:
     reverses: dict[str, str] = field(default_factory=dict)         # name → forward axis name
     axis_groups: dict[str, list[str]] = field(default_factory=dict)  # name → [axis names]
     identity: dict[str, str] = field(default_factory=dict)         # "default" or selector → field
-    shortcuts: dict[str, str] = field(default_factory=dict)        # name → raw TTGE expression string
+    shortcuts: dict[str, str] = field(default_factory=dict)        # name → raw TTG expression string
 
 
 # ---- Predicate value types ----

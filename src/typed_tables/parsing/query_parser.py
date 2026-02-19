@@ -129,8 +129,8 @@ class ShowTypesQuery:
 
 
 @dataclass
-class TTGEQuery:
-    """A TTGE graph expression query — delegates to TTGE engine."""
+class TTGQuery:
+    """A TTG graph expression query — delegates to TTG engine."""
 
     raw_text: str
 
@@ -514,7 +514,7 @@ class EmptyBraces:
     pass
 
 
-Query = SelectQuery | ShowTypesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | ImportQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock | TTGEQuery
+Query = SelectQuery | ShowTypesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | ImportQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock | TTGQuery
 
 
 class QueryParser:
@@ -595,16 +595,16 @@ class QueryParser:
         """query : SHOW ALIASES sort_clause"""
         p[0] = ShowTypesQuery(filter="aliases", sort_by=p[3])
 
-    # --- TTGE delegation: GRAPH keyword captures rest as raw TTGE text ---
+    # --- TTG delegation: GRAPH keyword captures rest as raw TTG text ---
 
-    def p_query_ttge(self, p: yacc.YaccProduction) -> None:
-        """query : GRAPH TTGE_RAW"""
-        p[0] = TTGEQuery(raw_text=p[2])
+    def p_query_ttg(self, p: yacc.YaccProduction) -> None:
+        """query : GRAPH TTG_RAW"""
+        p[0] = TTGQuery(raw_text=p[2])
 
-    def p_query_ttge_empty(self, p: yacc.YaccProduction) -> None:
+    def p_query_ttg_empty(self, p: yacc.YaccProduction) -> None:
         """query : GRAPH"""
         # Bare "graph" with no expression — delegate as empty string
-        p[0] = TTGEQuery(raw_text="")
+        p[0] = TTGQuery(raw_text="")
 
     def p_query_compact_to(self, p: yacc.YaccProduction) -> None:
         """query : COMPACT GT STRING"""
