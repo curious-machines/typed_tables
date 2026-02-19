@@ -14,6 +14,7 @@ Source: [scratch/graphs/graph-expression-language.md](../../../../../scratch/gra
 | D6 — Expression variables | Naming intermediate graph results for reuse | Deferred to future scripting/language design discussion |
 | D10 — Node display properties | How nodes look when rendered (residual after D12 resolved compact/expanded) | Fold into rendering/style discussion |
 | D19 — Data query generalization | Could expression language extend to data traversal? | Reframed by D22: not about extending the language, but plugging in a different schema |
+| Axis aliases | `axis_alias { field_types: fields{edge=.name, result=.type}, descendants: children{depth=inf} }` — bundle an axis name with default predicates. Any predicates supported (edge, result, display, depth, name, etc.). Explicit predicates at use site merge/override defaults. | Distinct from shortcuts (expression-level) and axis_groups (no predicates) |
 
 ## Typed Math
 
@@ -58,4 +59,4 @@ Source: dev-notes/features.md
 
 ---
 
-*Last updated: 2026-02-16*
+*Last updated: 2026-02-19*
