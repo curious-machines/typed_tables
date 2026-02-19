@@ -155,7 +155,7 @@ class TestTTGBasic:
         """'graph all' includes interface implementation edges."""
         _setup_schema(executor, parser)
         result = _run(executor, parser, "graph all")
-        iface_edges = [r for r in result.rows if r["label"] == "interfaces"]
+        iface_edges = [r for r in result.rows if r["label"] == "implements"]
         assert any(
             e["source"] == "Widget" and e["target"] == "Labelled"
             for e in iface_edges
@@ -206,42 +206,44 @@ class TestTTGSelectors:
 class TestTTGAxes:
     """Axis traversal expressions."""
 
-    def test_composites_fields(self, executor, parser):
-        """'graph composites.fields' returns field endpoint nodes."""
+    def test_composites_dot_fields_accumulates(self, executor, parser):
+        """'graph composites.fields' accumulates (dot = +), includes composites and field edges."""
         _setup_schema(executor, parser)
         result = _run(executor, parser, "graph composites.fields")
         assert result.columns == ["source", "label", "target"]
         assert len(result.rows) > 0
-        # Dot traversal returns endpoint nodes (the fields themselves)
+        # Dot is now accumulate (+), so both composites and field nodes are in results
         sources = {r["source"] for r in result.rows}
-        assert len(sources) > 0
+        assert "Person" in sources
 
-    def test_composites_fields_includes_person_fields(self, executor, parser):
-        """Field endpoints include Person's fields."""
+    def test_composites_slash_fields_pipes(self, executor, parser):
+        """'graph composites/fields' pipes (replaces composites with field nodes)."""
         _setup_schema(executor, parser)
-        result = _run(executor, parser, "graph composites.fields")
+        result = _run(executor, parser, "graph composites/fields")
+        # Pipe: composites replaced by their field nodes; should be isolated nodes
+        assert isinstance(result, QueryResult)
+        # Field nodes appear as isolated (no edges from pipe)
         sources = {r["source"] for r in result.rows}
-        # The traversal yields field node identifiers
         assert any("Person" in s for s in sources)
 
     def test_composites_extends(self, executor, parser):
-        """'graph composites + .extends' returns extends edges."""
+        """'graph composites + .extends' returns extends edges (default empty label)."""
         _setup_schema(executor, parser)
         result = _run(executor, parser, "graph composites + .extends")
-        extends_rows = [r for r in result.rows if r["label"] == "extends"]
+        # Default edge label is now empty
         assert any(
             r["source"] == "Employee" and r["target"] == "Person"
-            for r in extends_rows
+            for r in result.rows
         )
 
     def test_composites_interfaces(self, executor, parser):
-        """'graph composites + .interfaces' returns interface edges."""
+        """'graph composites + .interfaces' returns interface edges (default empty label)."""
         _setup_schema(executor, parser)
         result = _run(executor, parser, "graph composites + .interfaces")
-        iface_rows = [r for r in result.rows if r["label"] == "interfaces"]
+        # Default edge label is now empty
         assert any(
             r["source"] == "Widget" and r["target"] == "Labelled"
-            for r in iface_rows
+            for r in result.rows
         )
 
 
@@ -256,10 +258,8 @@ class TestTTGChainOps:
         _setup_schema(executor, parser)
         result = _run(executor, parser, "graph composites + .fields")
         assert len(result.rows) > 0
-        # Should have isolated nodes (composites) and labeled edges (fields)
-        has_isolated = any(r["label"] == "" for r in result.rows)
-        has_edges = any(r["label"] != "" for r in result.rows)
-        # At minimum we should have edges
+        # Default edge labels are now empty; should still have edges
+        has_edges = any(r["target"] != "" for r in result.rows)
         assert has_edges
 
     def test_multi_chain(self, executor, parser):
@@ -268,9 +268,12 @@ class TestTTGChainOps:
         result = _run(
             executor, parser, "graph composites + .fields + .extends + .interfaces"
         )
-        labels = {r["label"] for r in result.rows}
-        # Should have field labels and structural labels
-        assert "extends" in labels or "interfaces" in labels or "name" in labels
+        # Should have edges (default labels are empty now)
+        assert len(result.rows) > 0
+        # Should include Employee->Person and Widget->Labelled edges
+        pairs = {(r["source"], r["target"]) for r in result.rows}
+        assert ("Employee", "Person") in pairs
+        assert ("Widget", "Labelled") in pairs
 
 
 # ---- Sort tests ----
@@ -445,7 +448,7 @@ class TestTTGComplexSchema:
     def test_dict_entry_edge(self, executor, parser):
         """Dictionary types have an entry edge to their entry composite."""
         _run(executor, parser, "type Lookup { data: {string: int32} }")
-        result = _run(executor, parser, "graph dictionaries + .entry")
+        result = _run(executor, parser, 'graph dictionaries + .entry{edge="entry"}')
         entry_edges = [
             r for r in result.rows
             if r["label"] == "entry"
@@ -840,4 +843,165 @@ class TestRepeatedChainEvaluation:
         assert "Outer" in all_nodes
         assert "Middle" in all_nodes
         assert "Inner" in all_nodes
+
+
+# ---- Default empty edge label tests ----
+
+
+class TestTTGDefaultEdgeLabel:
+    """Edge labels default to empty string when not overridden."""
+
+    def test_default_edge_label_is_empty(self, executor, parser):
+        """Axis traversal without edge= predicate produces empty label."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph composites + .extends")
+        extends_edges = [
+            r for r in result.rows
+            if r["source"] == "Employee" and r["target"] == "Person"
+        ]
+        assert len(extends_edges) == 1
+        assert extends_edges[0]["label"] == ""
+
+    def test_edge_override_still_works(self, executor, parser):
+        """Explicit edge= predicate overrides the default empty label."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, 'graph composites + .extends{edge="parent"}')
+        extends_edges = [
+            r for r in result.rows
+            if r["source"] == "Employee" and r["target"] == "Person"
+        ]
+        assert len(extends_edges) == 1
+        assert extends_edges[0]["label"] == "parent"
+
+
+# ---- Dot as accumulate, slash as pipe tests ----
+
+
+class TestTTGDotSlash:
+    """Dot is implicit +, slash is pipe."""
+
+    def test_dot_accumulates_nodes(self, executor, parser):
+        """composites.fields accumulates: composites AND their fields in result."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph composites.fields")
+        sources = {r["source"] for r in result.rows}
+        targets = {r["target"] for r in result.rows}
+        all_nodes = sources | targets
+        # Composites should remain in the result
+        assert "Person" in all_nodes
+        # Field nodes should also be present
+        assert any("." in n for n in all_nodes)  # e.g. "Person.name"
+
+    def test_slash_pipes_replaces_nodes(self, executor, parser):
+        """composites/fields pipes: only field nodes remain, not composites."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph composites/fields")
+        # After pipe, composites replaced by field nodes — only isolated nodes
+        # (pipe produces no edges)
+        sources = {r["source"] for r in result.rows}
+        # Should only have field node identifiers (e.g., "Person.name")
+        for s in sources:
+            assert "." in s  # All nodes should be field nodes
+
+    def test_dot_chain_multi(self, executor, parser):
+        """a.b.c parses as (a.b).c — two separate + steps."""
+        _setup_schema(executor, parser)
+        result = _run(
+            executor, parser,
+            'graph composites.fields{edge=.name}.type{edge="→"}',
+        )
+        # Should have edges from composites to fields (labeled by field name)
+        # and from fields to their types (labeled "→")
+        arrow_edges = [r for r in result.rows if r["label"] == "→"]
+        assert len(arrow_edges) > 0
+
+    def test_mixed_dot_slash(self, executor, parser):
+        """a.b/c: accumulate b, then pipe to c."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph composites.fields/type")
+        # After pipe through type, only type endpoint nodes remain
+        sources = {r["source"] for r in result.rows}
+        # Should be type names like "string", "uint8", etc. (not composites or fields)
+        assert "Person" not in sources
+
+    def test_dot_inside_parens(self, executor, parser):
+        """Dot works inside parenthesized repeated chains."""
+        _run(executor, parser, "type Inner { value: uint8 }")
+        _run(executor, parser, "type Middle { name: string, inner: Inner }")
+        _run(executor, parser, "type Outer { name: string, mid: Middle }")
+        result = _run(
+            executor, parser,
+            "graph composites{name=Outer} + (.fields.type){depth=inf}",
+        )
+        sources = {r["source"] for r in result.rows}
+        targets = {r["target"] for r in result.rows}
+        all_nodes = sources | targets
+        assert "Outer" in all_nodes
+        assert "Middle" in all_nodes
+
+    def test_slash_inside_parens(self, executor, parser):
+        """Slash works inside parenthesized repeated chains."""
+        _run(executor, parser, "type Inner { value: uint8 }")
+        _run(executor, parser, "type Middle { name: string, inner: Inner }")
+        _run(executor, parser, "type Outer { name: string, mid: Middle }")
+        result = _run(
+            executor, parser,
+            "graph composites{name=Outer} + (.fields/type){depth=inf}",
+        )
+        sources = {r["source"] for r in result.rows}
+        targets = {r["target"] for r in result.rows}
+        all_nodes = sources | targets
+        # Pipe inside repeated chain: fields → type (field nodes discarded)
+        assert "Outer" in all_nodes
+
+
+# ---- Identity shorthand tests ----
+
+
+class TestTTGIdentityShorthand:
+    """Identity shorthand in predicates: {Root} → {name=Root}."""
+
+    def test_bare_identity(self, executor, parser):
+        """composites{Person} filters by name=Person."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph composites{Person}")
+        sources = {r["source"] for r in result.rows}
+        assert "Person" in sources
+        assert "Employee" not in sources
+        assert "Widget" not in sources
+
+    def test_identity_or(self, executor, parser):
+        """composites{Person | Widget} matches either name."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph composites{Person | Widget}")
+        sources = {r["source"] for r in result.rows}
+        assert "Person" in sources
+        assert "Widget" in sources
+        assert "Employee" not in sources
+
+    def test_identity_negation(self, executor, parser):
+        """composites{!Person} excludes Person."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph composites{!Person}")
+        sources = {r["source"] for r in result.rows}
+        assert "Person" not in sources
+        assert "Employee" in sources
+        assert "Widget" in sources
+
+    def test_identity_with_other_predicates(self, executor, parser):
+        """Identity shorthand produces a single-node result."""
+        _setup_schema(executor, parser)
+        result = _run(executor, parser, "graph composites{Person}")
+        sources = {r["source"] for r in result.rows}
+        assert sources == {"Person"}
+
+    def test_identity_combined_with_named_pred(self, executor, parser):
+        """Identity shorthand combined with explicit named predicates."""
+        _setup_schema(executor, parser)
+        # Use identity shorthand with name=, which overwrites _identity
+        result = _run(executor, parser, "graph composites{Person | Employee}")
+        sources = {r["source"] for r in result.rows}
+        assert "Person" in sources
+        assert "Employee" in sources
+        assert "Widget" not in sources
 

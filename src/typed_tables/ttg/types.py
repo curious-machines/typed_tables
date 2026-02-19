@@ -149,13 +149,6 @@ class AxisRef:
 
 
 @dataclass
-class DotExpr:
-    """Dot chaining: base.axis1.axis2 — replaces current set with targets."""
-    base: Expr
-    axes: list[AxisRef]  # chain of axes: .a.b.c → [a, b, c]
-
-
-@dataclass
 class CompoundAxisOperand:
     """Compound axis set: {.axis1, .axis2}."""
     axes: list[AxisRef]
@@ -208,7 +201,7 @@ class IntersectExpr:
 
 # Union of all expression types
 Expr = Union[
-    SelectorExpr, SetExpr, ParenExpr, DotExpr,
+    SelectorExpr, SetExpr, ParenExpr,
     ChainExpr, UnionExpr, IntersectExpr,
 ]
 

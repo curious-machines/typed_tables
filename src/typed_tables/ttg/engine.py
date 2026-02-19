@@ -15,7 +15,6 @@ from typed_tables.ttg.types import (
     ChainOp,
     CompoundAxisOperand,
     ConfigStmt,
-    DotExpr,
     ExprStmt,
     ExecuteStmt,
     Expr,
@@ -420,8 +419,6 @@ class TTGEngine:
     def _eval_expr(self, expr: Expr, config: GraphConfig, provider: Any) -> ResultSet:
         if isinstance(expr, SelectorExpr):
             return self._eval_selector(expr, config, provider)
-        elif isinstance(expr, DotExpr):
-            return self._eval_dot(expr, config, provider)
         elif isinstance(expr, ChainExpr):
             return self._eval_chain(expr, config, provider)
         elif isinstance(expr, UnionExpr):
@@ -457,9 +454,16 @@ class TTGEngine:
         for leaf in leaf_selectors:
             nodes |= provider.get_nodes_for_selector(leaf)
 
+        # Resolve _identity shorthand to actual field name
+        predicates = sel.predicates
+        if predicates and "_identity" in predicates:
+            identity_key = config.identity.get(sel.name, config.identity.get("default", "name"))
+            predicates = dict(predicates)
+            predicates[identity_key] = predicates.pop("_identity")
+
         # Apply predicate filtering
-        if sel.predicates:
-            nodes = self._filter_nodes(nodes, sel.predicates, provider)
+        if predicates:
+            nodes = self._filter_nodes(nodes, predicates, provider)
 
         return ResultSet(nodes=nodes)
 
@@ -548,19 +552,6 @@ class TTGEngine:
                         return False
             return True
         return False
-
-    # ---- Dot expression evaluation ----
-
-    def _eval_dot(self, dot: DotExpr, config: GraphConfig, provider: Any) -> ResultSet:
-        """Dot chaining: pipe semantics — each step replaces the current set."""
-        current = self._eval_expr(dot.base, config, provider)
-        for axis_ref in dot.axes:
-            # Pipe: replace nodes with traversal targets
-            traversal = self._traverse_axis(
-                current.nodes, axis_ref, config, provider
-            )
-            current = ResultSet(nodes=traversal.nodes, edges=set())
-        return current
 
     # ---- Chain expression evaluation ----
 
@@ -722,6 +713,12 @@ class TTGEngine:
         axis_name = axis_ref.name
         preds = axis_ref.predicates or {}
 
+        # Resolve _identity shorthand
+        if "_identity" in preds:
+            identity_key = config.identity.get("default", "name")
+            preds = dict(preds)
+            preds[identity_key] = preds.pop("_identity")
+
         # Get depth
         depth = 1
         if "depth" in preds:
@@ -780,7 +777,7 @@ class TTGEngine:
                             continue
 
                     # Determine the edge label
-                    edge_label = axis_name  # Default: axis name
+                    edge_label = ""  # Default: empty
                     if edge_pred is not None:
                         edge_label = self._resolve_label(
                             edge_pred, target, provider
@@ -1286,6 +1283,6 @@ class TTGEngine:
         }
         config.identity = {"default": "name"}
         config.shortcuts = {
-            "all": "types + .fields{edge=.name, result=.type} + .extends + .interfaces",
+            "all": 'types.fields{edge=.name, result=.type}.extends{edge="extends"}.interfaces{edge="implements"}',
         }
         return config

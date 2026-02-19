@@ -366,9 +366,18 @@ class TestMetadataAxes:
         iface_edges = [e for e in result.edges if e.source == "Person"]
         assert any(e.target == "Entity" for e in iface_edges)
 
-    def test_dot_chaining_pipe(self, db_engine):
-        """composites{name=Person}.fields navigates — only fields remain."""
+    def test_dot_chaining_accumulates(self, db_engine):
+        """composites{name=Person}.fields accumulates (dot = +)."""
         result = db_engine.execute("meta composites{name=Person}.fields")
+        assert isinstance(result, GraphResult)
+        # Dot is now accumulate: Person AND its field nodes are in the result
+        all_nodes = {e.source for e in result.edges} | {e.target for e in result.edges}
+        assert "Person" in all_nodes  # Source node is kept
+        assert any("Person." in n for n in all_nodes)  # Field nodes added
+
+    def test_slash_chaining_pipe(self, db_engine):
+        """composites{name=Person}/fields navigates — only fields remain."""
+        result = db_engine.execute("meta composites{name=Person}/fields")
         assert isinstance(result, GraphResult)
         all_items = set(result.isolated_nodes)
         assert "Person" not in all_items
@@ -527,7 +536,7 @@ class TestDotOutput:
     def test_dot_output_with_edges(self, db_engine, tmp_path):
         dot_path = str(tmp_path / "test.dot")
         db_engine.execute(
-            f'meta composites{{name=Employee}} + .extends > "{dot_path}"'
+            f'meta composites{{name=Employee}} + .extends{{edge="extends"}} > "{dot_path}"'
         )
         content = open(dot_path).read()
         assert "Employee" in content

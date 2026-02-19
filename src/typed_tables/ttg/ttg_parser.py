@@ -14,7 +14,6 @@ from typed_tables.ttg.types import (
     ChainOp,
     CompoundAxisOperand,
     ConfigStmt,
-    DotExpr,
     ExecuteStmt,
     ExprStmt,
     Expr,
@@ -58,7 +57,7 @@ class TTGParser:
     precedence = (
         ("left", "PIPE"),       # | union
         ("left", "AMPERSAND"),  # & intersection
-        ("left", "PLUS", "SLASH", "MINUS"),  # chain operators
+        ("left", "PLUS", "SLASH", "MINUS", "DOT"),  # chain operators
     )
 
     def __init__(self) -> None:
@@ -318,10 +317,20 @@ class TTGParser:
         else:
             p[0] = ChainExpr(base=base, ops=[op])
 
-    def p_expression_chain_slash(self, p: yacc.YaccProduction) -> None:
-        """expression : expression SLASH axis_operand"""
+    def p_expression_dot(self, p: yacc.YaccProduction) -> None:
+        """expression : expression DOT axis_ref"""
         base = p[1]
-        op = ChainOp(op="/", operand=p[3])
+        op = ChainOp(op="+", operand=SingleAxisOperand(axes=[p[3]]))
+        if isinstance(base, ChainExpr):
+            base.ops.append(op)
+            p[0] = base
+        else:
+            p[0] = ChainExpr(base=base, ops=[op])
+
+    def p_expression_chain_slash(self, p: yacc.YaccProduction) -> None:
+        """expression : expression SLASH axis_ref"""
+        base = p[1]
+        op = ChainOp(op="/", operand=SingleAxisOperand(axes=[p[3]]))
         if isinstance(base, ChainExpr):
             base.ops.append(op)
             p[0] = base
@@ -347,11 +356,6 @@ class TTGParser:
             p[0] = base
         else:
             p[0] = ChainExpr(base=base, ops=[op])
-
-    # Dot expression: atom.axis.axis...
-    def p_expression_dot(self, p: yacc.YaccProduction) -> None:
-        """expression : atom DOT axis_chain"""
-        p[0] = DotExpr(base=p[1], axes=p[3])
 
     def p_expression_atom(self, p: yacc.YaccProduction) -> None:
         """expression : atom"""
@@ -411,6 +415,18 @@ class TTGParser:
         ops.append(ChainOp(op="+", operand=p[3]))
         p[0] = (first, ops)
 
+    def p_inner_chain_dot(self, p: yacc.YaccProduction) -> None:
+        """inner_chain : inner_chain DOT axis_ref"""
+        first, ops = p[1]
+        ops.append(ChainOp(op="+", operand=SingleAxisOperand(axes=[p[3]])))
+        p[0] = (first, ops)
+
+    def p_inner_chain_slash(self, p: yacc.YaccProduction) -> None:
+        """inner_chain : inner_chain SLASH axis_ref"""
+        first, ops = p[1]
+        ops.append(ChainOp(op="/", operand=SingleAxisOperand(axes=[p[3]])))
+        p[0] = (first, ops)
+
     def p_compound_axis_list_single(self, p: yacc.YaccProduction) -> None:
         """compound_axis_list : DOT axis_ref"""
         p[0] = [p[2]]
@@ -466,6 +482,10 @@ class TTGParser:
     def p_predicate(self, p: yacc.YaccProduction) -> None:
         """predicate : IDENTIFIER EQUALS pred_value"""
         p[0] = {p[1]: p[3]}
+
+    def p_predicate_identity(self, p: yacc.YaccProduction) -> None:
+        """predicate : pred_value"""
+        p[0] = {"_identity": p[1]}
 
     # ---- Predicate values ----
 

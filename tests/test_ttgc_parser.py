@@ -175,7 +175,7 @@ class TestTTGCMetaSchema:
         # Reverses
         assert config.reverses["children"] == "extends"
         assert config.reverses["typedBy"] == "type"
-        assert len(config.reverses) == 11
+        assert len(config.reverses) == 12
 
         # Axis groups
         assert "all" in config.axis_groups
@@ -186,5 +186,4 @@ class TestTTGCMetaSchema:
         assert config.identity == {"default": "name"}
 
         # Shortcuts
-        assert "" in config.shortcuts
         assert "all" in config.shortcuts

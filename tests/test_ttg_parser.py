@@ -11,7 +11,6 @@ from typed_tables.ttg.types import (
     ChainOp,
     CompoundAxisOperand,
     ConfigStmt,
-    DotExpr,
     ExecuteStmt,
     ExprStmt,
     GroupedNameTerm,
@@ -241,33 +240,41 @@ class TestPredValues:
         assert pred.path.steps == ["fields", "name"]
 
 
-# ---- Dot expressions ----
+# ---- Dot expressions (dot = implicit +) ----
 
 
 class TestDotExpr:
     def test_single_dot(self, parser):
+        """composites.fields → ChainExpr with + op."""
         r = parser.parse("composites.fields")
         expr = r.expression
-        assert isinstance(expr, DotExpr)
+        assert isinstance(expr, ChainExpr)
         assert isinstance(expr.base, SelectorExpr)
         assert expr.base.name == "composites"
-        assert len(expr.axes) == 1
-        assert expr.axes[0].name == "fields"
+        assert len(expr.ops) == 1
+        assert expr.ops[0].op == "+"
+        assert isinstance(expr.ops[0].operand, SingleAxisOperand)
+        assert expr.ops[0].operand.axes[0].name == "fields"
 
     def test_multi_dot(self, parser):
+        """composites.fields.type → ChainExpr with two + ops."""
         r = parser.parse("composites.fields.type")
         expr = r.expression
-        assert isinstance(expr, DotExpr)
-        assert len(expr.axes) == 2
-        assert expr.axes[0].name == "fields"
-        assert expr.axes[1].name == "type"
+        assert isinstance(expr, ChainExpr)
+        assert len(expr.ops) == 2
+        assert expr.ops[0].op == "+"
+        assert expr.ops[0].operand.axes[0].name == "fields"
+        assert expr.ops[1].op == "+"
+        assert expr.ops[1].operand.axes[0].name == "type"
 
     def test_dot_with_pred(self, parser):
+        """composites.fields{name=age} → predicate on axis ref."""
         r = parser.parse("composites.fields{name=age}")
         expr = r.expression
-        assert isinstance(expr, DotExpr)
-        assert expr.axes[0].predicates is not None
-        assert "name" in expr.axes[0].predicates
+        assert isinstance(expr, ChainExpr)
+        axis = expr.ops[0].operand.axes[0]
+        assert axis.predicates is not None
+        assert "name" in axis.predicates
 
 
 # ---- Chain expressions ----
@@ -293,10 +300,14 @@ class TestChainExpr:
         assert expr.ops[1].op == "+"
 
     def test_chain_slash(self, parser):
-        r = parser.parse("composites / .fields")
+        """Slash as pipe: composites/fields."""
+        r = parser.parse("composites/fields")
         expr = r.expression
         assert isinstance(expr, ChainExpr)
+        assert len(expr.ops) == 1
         assert expr.ops[0].op == "/"
+        assert isinstance(expr.ops[0].operand, SingleAxisOperand)
+        assert expr.ops[0].operand.axes[0].name == "fields"
 
     def test_chain_minus_axis(self, parser):
         r = parser.parse("composites - .fields")
@@ -321,13 +332,16 @@ class TestChainExpr:
         assert "edge" in axis.predicates
         assert "result" in axis.predicates
 
-    def test_chain_plus_multi_axis(self, parser):
+    def test_chain_plus_dot_splits(self, parser):
+        """composites + .fields.type → two + ops (dot is accumulate)."""
         r = parser.parse("composites + .fields.type")
         expr = r.expression
         assert isinstance(expr, ChainExpr)
-        axis_op = expr.ops[0].operand
-        assert isinstance(axis_op, SingleAxisOperand)
-        assert len(axis_op.axes) == 2
+        assert len(expr.ops) == 2
+        assert expr.ops[0].op == "+"
+        assert expr.ops[0].operand.axes[0].name == "fields"
+        assert expr.ops[1].op == "+"
+        assert expr.ops[1].operand.axes[0].name == "type"
 
 
 # ---- Compound axis ----
@@ -486,3 +500,116 @@ class TestProgramParsing:
             "composites\n"
         )
         assert len(stmts) == 2
+
+
+# ---- Slash as pipe ----
+
+
+class TestSlashExpr:
+    def test_slash_single(self, parser):
+        """composites/fields → ChainExpr with / op."""
+        r = parser.parse("composites/fields")
+        expr = r.expression
+        assert isinstance(expr, ChainExpr)
+        assert len(expr.ops) == 1
+        assert expr.ops[0].op == "/"
+        assert expr.ops[0].operand.axes[0].name == "fields"
+
+    def test_slash_chain(self, parser):
+        """composites/fields/type → two / ops."""
+        r = parser.parse("composites/fields/type")
+        expr = r.expression
+        assert isinstance(expr, ChainExpr)
+        assert len(expr.ops) == 2
+        assert expr.ops[0].op == "/"
+        assert expr.ops[1].op == "/"
+
+    def test_mixed_dot_slash(self, parser):
+        """composites.fields/type → + then /."""
+        r = parser.parse("composites.fields/type")
+        expr = r.expression
+        assert isinstance(expr, ChainExpr)
+        assert len(expr.ops) == 2
+        assert expr.ops[0].op == "+"
+        assert expr.ops[0].operand.axes[0].name == "fields"
+        assert expr.ops[1].op == "/"
+        assert expr.ops[1].operand.axes[0].name == "type"
+
+    def test_slash_with_pred(self, parser):
+        """composites/fields{name=age} → slash with predicate."""
+        r = parser.parse("composites/fields{name=age}")
+        expr = r.expression
+        assert isinstance(expr, ChainExpr)
+        assert expr.ops[0].op == "/"
+        assert expr.ops[0].operand.axes[0].predicates is not None
+
+    def test_dot_slash_inside_parens(self, parser):
+        """(.fields.type) → inner_chain with dot."""
+        r = parser.parse("composites + (.fields.type)")
+        expr = r.expression
+        assert isinstance(expr, ChainExpr)
+        from typed_tables.ttg.types import RepeatedChainOperand
+        rc = expr.ops[0].operand
+        assert isinstance(rc, RepeatedChainOperand)
+        assert len(rc.chain_ops) == 1
+        assert rc.chain_ops[0].op == "+"
+
+    def test_slash_inside_parens(self, parser):
+        """(.fields/type) → inner_chain with slash."""
+        r = parser.parse("composites + (.fields/type)")
+        expr = r.expression
+        assert isinstance(expr, ChainExpr)
+        from typed_tables.ttg.types import RepeatedChainOperand
+        rc = expr.ops[0].operand
+        assert isinstance(rc, RepeatedChainOperand)
+        assert len(rc.chain_ops) == 1
+        assert rc.chain_ops[0].op == "/"
+
+
+# ---- Identity shorthand ----
+
+
+class TestIdentityShorthand:
+    def test_bare_identity(self, parser):
+        """composites{Person} → _identity predicate."""
+        r = parser.parse("composites{Person}")
+        sel = r.expression
+        assert isinstance(sel, SelectorExpr)
+        assert "_identity" in sel.predicates
+        pred = sel.predicates["_identity"]
+        assert isinstance(pred, NamePred)
+        assert len(pred.terms) == 1
+        assert pred.terms[0].name == "Person"
+
+    def test_identity_or(self, parser):
+        """composites{Person | Widget} → _identity with OR."""
+        r = parser.parse("composites{Person | Widget}")
+        sel = r.expression
+        pred = sel.predicates["_identity"]
+        assert isinstance(pred, NamePred)
+        assert len(pred.terms) == 2
+        assert pred.terms[0].name == "Person"
+        assert pred.terms[1].name == "Widget"
+
+    def test_identity_negated(self, parser):
+        """composites{!Person} → _identity with negation."""
+        r = parser.parse("composites{!Person}")
+        sel = r.expression
+        pred = sel.predicates["_identity"]
+        assert isinstance(pred, NamePred)
+        assert pred.terms[0].negated is True
+        assert pred.terms[0].name == "Person"
+
+    def test_identity_with_other_preds(self, parser):
+        """composites{Person, edge="x"} → _identity + edge."""
+        r = parser.parse('composites{Person, edge="x"}')
+        sel = r.expression
+        assert "_identity" in sel.predicates
+        assert "edge" in sel.predicates
+
+    def test_named_pred_not_identity(self, parser):
+        """composites{name=Person} → name predicate, not _identity."""
+        r = parser.parse("composites{name=Person}")
+        sel = r.expression
+        assert "name" in sel.predicates
+        assert "_identity" not in sel.predicates

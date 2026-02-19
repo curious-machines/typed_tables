@@ -97,5 +97,5 @@ identity {
 
 -- Shortcuts (contain TTGE expressions)
 shortcut {
-    "all": types + .fields{edge=.name, result=.type} + .extends + .interfaces
+    "all": types.fields{edge=.name, result=.type}.extends{edge="extends"}.interfaces{edge="implements"}
 }
