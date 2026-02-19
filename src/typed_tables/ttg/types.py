@@ -30,6 +30,7 @@ class GraphResult:
 class FileResult:
     """Result of a TTG expression with file output."""
     path: str
+    node_count: int
     edge_count: int
 
 

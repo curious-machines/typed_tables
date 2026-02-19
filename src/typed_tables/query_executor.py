@@ -925,7 +925,7 @@ class QueryExecutor:
         elif isinstance(result, ShowResult):
             return QueryResult(columns=result.columns, rows=result.rows, no_truncate=True)
         elif isinstance(result, FileResult):
-            return DumpResult(columns=[], rows=[], script=f"Wrote {result.edge_count} edges to {result.path}")
+            return DumpResult(columns=[], rows=[], script=f"Wrote {result.node_count} nodes, {result.edge_count} edges to {result.path}")
         elif isinstance(result, GraphResult):
             # Convert GraphResult to QueryResult table
             if not result.edges and not result.isolated_nodes:

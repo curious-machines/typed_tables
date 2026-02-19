@@ -147,7 +147,7 @@ class TestTTGCMetaSchema:
         import os
         meta_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
-            "scratch", "schemas", "meta-schema.ttgc"
+            "src", "typed_tables", "ttg", "meta_schema.ttgc"
         )
         with open(meta_path) as f:
             text = f.read()

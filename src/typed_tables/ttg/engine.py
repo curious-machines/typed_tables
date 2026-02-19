@@ -984,7 +984,9 @@ class TTGEngine:
 
         with open(resolved, "w") as f:
             f.write(content)
-        return FileResult(path=resolved, edge_count=len(result.edges))
+        edge_nodes = {e.source for e in result.edges} | {e.target for e in result.edges}
+        all_nodes = edge_nodes | set(result.isolated_nodes)
+        return FileResult(path=resolved, node_count=len(all_nodes), edge_count=len(result.edges))
 
     # ---- DOT output ----
 
