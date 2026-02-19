@@ -597,6 +597,13 @@ def run_repl(data_dir: Path | None) -> int:
                 print()
                 continue
 
+            # Handle help in graph mode before prefixing
+            if graph_mode and (line.lower() == "help" or line.lower().startswith("help ")):
+                parts = line.strip().split(None, 1)
+                graph_topic = parts[1].strip().rstrip(";") if len(parts) > 1 else None
+                print_graph_help(graph_topic)
+                continue
+
             # In graph mode, prefix input with "graph "
             if graph_mode:
                 line = "graph " + line
@@ -1466,74 +1473,27 @@ DUMP:
 
     "graph": """\
 GRAPH (schema exploration):
-  Explore the type reference graph. Output as a table, DOT file, or TTQ script.
-  Columns: kind, source, field, target. Arrow direction: referrer → referent.
+  The graph command uses TTG (Typed Tables Graph) expressions to explore
+  the type reference graph. Output as a table, DOT file, or TTQ script.
 
-  Basic:
-    graph                            All type edges as table
-    graph <type>                     Edges involving a specific type
-    graph [<t1>, <t2>]               Edges involving multiple types
-    graph all Interfaces             All interfaces expanded (focus by kind)
-    graph all Composites             All composites expanded
-    graph sort by source             Sort table output
+  Two contexts:
+    graph meta <expr>                Built-in meta-schema (no config needed)
+    graph <expr>                     User-defined config (load a .ttgc first)
 
-  File output (extension determines format):
-    graph > "file.dot"               Graphviz DOT format
-    graph > "file.ttq"               TTQ script format
-    graph > "file"                   No extension → assumes .ttq
-    graph <type> > "file.dot"        Focus type to file
-    In DOT: dashed = extends, dotted = implements, labeled = fields
+  Quick start with meta-schema:
+    graph meta all                   Full schema overview
+    graph meta composites.fields     Composites and their field nodes
+    graph meta composites{Person}.extends{depth=inf}
+                                     Person's full ancestor chain
+    graph meta enums + .variants     Enums and their variant nodes
+    graph meta all > "schema.dot"    Export as DOT file
 
-  View modes (control which edges appear):
-    graph <type> structure           Only extends/implements edges (no field→type)
-    graph <type> declared            Only fields the type itself defines
-    graph <type> stored              All fields on the record (inherited + own)
-    graph <type> stored origin       Annotate each field's defining type
+  Graph sub-shell (interactive mode):
+    graph                            Enter graph mode (graph> prompt)
+    help                             Full help system inside graph mode
+    exit                             Return to query mode
 
-  Depth control (number of edges to traverse from focus):
-    graph <type> depth 0             Focus node only (no edges)
-    graph <type> depth 1             Direct edges only (fields, extends, etc.)
-    graph <type> depth 2             Direct edges + 1 level of expansion
-    graph <type> structure depth 2   Structure view, 2 levels deep
-    graph <type> stored depth 1      Field edges only (aliases not expanded)
-    graph <type> stored depth 2      Field edges + 1 level of alias resolution
-
-  Filters (include or exclude by type, field, or kind):
-    graph showing type string                  Paths leading to string
-    graph showing field [name, age]            Paths to name/age field edges
-    graph showing kind Interface               Paths leading to any interface
-    graph showing kind Primitive               Paths leading to any primitive
-    graph excluding type [uint8, uint16]       Hide specific types
-    graph <type> showing type float32 excluding field speed
-
-  Focus by kind (valid: Composite, Interface, Enum, Alias, Array, Set,
-                 Dictionary, Primitive — singular or plural):
-    graph all Interfaces             All interfaces expanded
-    graph all Aliases                Alias→target forest
-    graph all Enums                  All enums expanded
-    graph all Primitives             All used primitives
-
-  Path-to queries (find inheritance paths):
-    graph <type> to <target>                   Path + target expansion
-    graph <type> to [<t1>, <t2>]               Paths to multiple targets
-    graph <type> to <target> depth 0           Linear path only (no expansion)
-    graph <type> to <target> depth 1           Expand one level from target
-    graph <type> to <target> > "p.dot"         Output path as DOT
-
-  Metadata dict (DOT output — inline properties and style files):
-    graph{"title": "My Schema"} > "f.dot"
-    graph{"style": "custom.ttgs"} > "f.dot"
-    graph{"title": "Schema", "direction": "TB"} > "f.dot"
-    graph{"style": "base.ttgs", "direction": "TB"} > "f.dot"
-
-  Style files use TTQ dictionary syntax:
-    { "direction": "LR",            Graph direction (LR, TB, etc.)
-      "composite.color": "#4A90D9", Node color for composites
-      "interface.color": "#7B68EE", Node color for interfaces
-      "focus.color": "#FFD700" }    Highlight color for focus type
-
-  TTQ output includes: enum NodeRole { focus, context, endpoint, leaf },
-  TypeNode with name/kind/role fields, and Edge with source/target/field_name.""",
+  For full documentation, enter graph mode and type "help".""",
 
     "archive": """\
 ARCHIVE, RESTORE & COMPACT:
@@ -1633,13 +1593,11 @@ _HELP_ALIASES: dict[str, str] = {
     "group": "queries",
     "limit": "queries",
     "offset": "queries",
-    "showing": "graph",
-    "excluding": "graph",
-    "depth": "graph",
-    "structure": "graph",
-    "declared": "graph",
-    "stored": "graph",
-    "path": "graph",
+    "selector": "graph",
+    "axis": "graph",
+    "axes": "graph",
+    "predicate": "graph",
+    "ttg": "graph",
     "yaml": "dump",
     "json": "dump",
     "xml": "dump",
@@ -1683,7 +1641,7 @@ TTQ - Typed Tables Query Language
   variables     $var bindings, usage in create/update/select
   collect       collect records into variables
   dump          dump database (TTQ, YAML, JSON, XML)
-  graph         schema exploration: view modes, filters, path-to
+  graph         TTG schema exploration (enter graph mode for full help)
   archive       archive, restore, compact
   cyclic        scope blocks, tags for cyclic references
   scripts       execute, import
@@ -1705,6 +1663,441 @@ Queries can span multiple lines. Semicolons are optional.
         print()
     else:
         print(f'\nUnknown help topic "{topic}". Type "help" for available topics.\n')
+
+
+_GRAPH_HELP_TOPICS: dict[str, str] = {
+    "selectors": """\
+SELECTORS (node categories):
+  Selectors choose sets of nodes from the graph. Selector names are
+  defined in config (.ttgc files) — each maps a name to a set of nodes.
+
+  Basic usage:
+    <selector>                       All nodes in that category
+    <selector>{Name}                 Only the node named "Name"
+    <selector>{A|B}                  Nodes named "A" or "B" (OR)
+    <selector>{!Name}               All except "Name"
+    <selector>{!(A|B)}              All except "A" and "B"
+
+  Groups are unions of selectors, also defined in config:
+    <group>                          Expands to the union of its member selectors
+
+  Identity shorthand:
+    {Name} is shorthand for {name=Name} by default.
+    The identity key is configurable in config via the [identity] section.
+
+  The meta-schema has built-in selectors (see: help meta). For user
+  databases, define selectors in a .ttgc file (see: help config).
+
+  Use "show selector" to list available selectors.
+  Use "show group" to list available groups.""",
+
+    "predicates": """\
+PREDICATES (node and axis filters):
+  Predicates filter nodes or modify axis behavior using {key=value} syntax.
+
+  Name matching:
+    {name=Person}                    Match by name
+    {Person}                         Shorthand (uses identity key from config)
+    {!Person}                        Exclude by name
+    {Person|Employee}                Match either name (OR)
+    {!(Person|Employee)}             Exclude multiple names
+
+  Depth control:
+    {depth=N}                        Traverse N levels (default: 1)
+    {depth=inf}                      Traverse to fixpoint (transitive closure)
+    {depth=0}                        No traversal (identity)
+
+  Edge label override (axes only):
+    {edge="label"}                   Static string label
+    {edge=.axis}                     Dynamic label from axis path
+    {edge=join(", ", .a, .b)}        Join values from multiple paths
+
+  Display override (axes only):
+    {display=.axis}                  Override node display text
+
+  Result projection (axes only):
+    {result=.axis}                   Project along path — the traversal target
+                                     becomes the node reached via .axis
+
+  Boolean predicates:
+    {true}                           Always match
+    {false}                          Never match
+
+  Combined predicates (comma-separated):
+    .axis{edge=.name, result=.type, depth=2}""",
+
+    "axes": """\
+AXES (edge traversal):
+  Axes traverse relationships in the graph. Axis names are defined in
+  config (.ttgc files) — each maps a name to traversable edges.
+
+  Basic usage:
+    .axis                            Traverse a named axis
+    .axis{depth=inf}                 Transitive closure
+    .axis{name=X}                    Only edges to nodes named "X"
+    .axis{edge=.prop}                Use a property as the edge label
+    .axis{result=.prop}              Project to the node reached via .prop
+
+  Reverse axes (also defined in config):
+    .reverse_name                    Traverse an axis in reverse direction
+
+  Axis groups (unions of axes, defined in config):
+    .group_name                      Traverse all axes in the group
+
+  Compound axes (inline, not from config):
+    {.axis1, .axis2}                 Traverse both, union results
+
+  Repeated chain with depth:
+    (.axis1 + .axis2){depth=N}       Apply the chain N times
+
+  The meta-schema has built-in axes like .fields, .extends, .type
+  (see: help meta). For user databases, define axes in a .ttgc file.
+
+  Use "show axis" to list available axes.
+  Use "show axis for <selector>" to see which axes apply to a selector.
+  Use "show reverse" to list reverse axis mappings.""",
+
+    "operators": """\
+OPERATORS (chain and set operations):
+  Operators combine selectors and axes into expressions.
+
+  Chain operators (left-to-right):
+    .axis                Dot: accumulate — add traversal results to current set
+    /axis                Slash: pipe — replace current set with traversal results
+    + .axis              Explicit accumulate (same as dot)
+    - .axis              Subtract — remove traversed nodes from current set
+
+  Dot (.) vs Slash (/):
+    A.B                  Accumulate: result = {A nodes} ∪ {B nodes}
+    A/B                  Pipe: result = {B nodes} only (A dropped)
+
+  Set operators (combine two expressions):
+    expr | expr          Union of two result sets
+    expr & expr          Intersection of two result sets
+
+  Compound axis:
+    {.axis1, .axis2}     Traverse both axes, union results
+
+  Repeated chain:
+    (.axis1 + .axis2){depth=N}
+                         Apply the chain N times from current set
+
+  Parentheses:
+    (A | B).axis         Group expressions before chaining
+
+  Examples (using meta-schema names):
+    composites + .fields + .type     Composites, their fields, and field types
+    composites/fields/type           Just the field types (pipe discards earlier)
+    composites - .extends            Composites minus their parents
+    (composites | interfaces).fields Fields of composites and interfaces""",
+
+    "config": """\
+CONFIG (data context configuration):
+  Config files (.ttgc) define the vocabulary for graph expressions:
+  which selectors, axes, groups, and shortcuts are available.
+
+  Without a config loaded, only the meta-schema context (see: help meta)
+  has selectors and axes. Load a config to explore your own schema.
+
+  Loading config:
+    config "file.ttgc"               Load a config file
+
+  Syntax: keyword { name: value, ... } blocks. Comments start with --.
+
+  Sections:
+
+    selector { name: SchemaType, ... }
+      Maps selector names to schema types (one type per selector).
+
+    group { name: [selector, ...], ... }
+      Named unions of selectors or other groups.
+
+    axis { name: selector.field, ... }
+      Named traversals. Value is selector.field (which field to follow)
+      or a list: [selector.field, selector.field, ...].
+
+    reverse { name: forward_axis, ... }
+      Defines reverse axes. Each maps a new name to a forward axis.
+
+    axis_group { name: [axis, ...], ... }
+      Named unions of axes.
+
+    identity { default: field_name }
+      Sets the identity predicate key (used by {Name} shorthand).
+
+    shortcut { "name": <TTG expression> }
+      Named expression macros. Keys are quoted strings.
+      Use "" for the default (when no expression is given).
+
+  Example .ttgc file:
+    -- Selectors map names to schema types
+    selector {
+        people: Person,
+        places: Address,
+        sensors: Sensor
+    }
+
+    -- Groups union selectors together
+    group {
+        all_types: [people, places, sensors]
+    }
+
+    -- Axes follow fields from one selector to another
+    axis {
+        address: people.address,
+        readings: sensors.readings
+    }
+
+    -- Reverse axes for backward traversal
+    reverse {
+        address: addressedBy
+    }
+
+    -- Shortcuts for common expressions
+    shortcut {
+        "all": all_types.address
+        "": all_types
+    }
+
+  Use "show" to inspect the loaded config (see: help show).""",
+
+    "style": """\
+STYLE (DOT output styling):
+  Style controls the visual appearance of DOT output.
+
+  Setting style:
+    style {"key": "value", ...}      Inline style
+    style "file.ttgs"                Load style file
+    style "file.ttgs" {"key": "v"}   File + inline overrides
+
+  Available style keys:
+    direction            Graph direction: LR, TB, RL, BT (default: LR)
+    title                Graph title (displayed as label)
+
+  Node color keys (<selector>.color):
+    <selector>.color     Color for nodes of that selector kind
+    focus.color          Highlight color for focus nodes
+
+  Style files (.ttgs) use TTQ dictionary syntax:
+    {
+        "direction": "LR",
+        "composite.color": "#4A90D9",
+        "interface.color": "#7B68EE",
+        "focus.color": "#FFD700"
+    }
+
+  DOT edge styles (automatic, based on axis names in meta-schema):
+    Solid               Default edges (labeled)
+    Dashed              Extends/ancestor edges
+    Dotted              Implements/interface edges""",
+
+    "show": """\
+SHOW (inspect configuration):
+  Show commands display current config entries. Use these to discover
+  what selectors, axes, and shortcuts are available.
+
+  List all entries in a category:
+    show selector                    All selectors
+    show group                       All groups
+    show axis                        All forward axes
+    show reverse                     All reverse axis mappings
+    show axis_group                  All axis groups
+    show identity                    Identity predicate key
+    show shortcut                    All shortcuts
+
+  Look up a specific entry:
+    show selector <name>             Details of a selector
+    show axis <name>                 Details of an axis
+    show shortcut <name>             Details of a shortcut
+
+  Show axes available for a selector:
+    show axis for <selector>         Axes traversable from that selector
+    show reverse for <selector>      Reverse axes for that selector
+
+  Meta-schema: prefix with "meta" to inspect the built-in config:
+    meta show selector               List meta-schema selectors
+    meta show axis                   List meta-schema axes
+    meta show axis for composites    Axes available for composites""",
+
+    "output": """\
+OUTPUT (file and table output):
+  Expressions produce a table by default (columns: source, label, target).
+
+  File output (redirect with >):
+    expr > "file.dot"                Graphviz DOT format
+    expr > "file.ttq"                TTQ script format
+    expr > "file"                    No extension → defaults to .dot
+
+  Sorting:
+    expr sort by source              Sort by source column
+    expr sort by source, label       Sort by multiple columns
+    expr sort by target              Sort by target column
+
+  DOT edge styles (automatic):
+    Solid lines          Default edges (labeled)
+    Dashed lines         Extends/ancestor edges
+    Dotted lines         Implements/interface edges
+
+  TTQ output format:
+    Includes enum NodeRole { focus, context, endpoint, leaf },
+    type TypeNode { name, kind, role }, and
+    type Edge { source, target, field_name }.
+
+  Examples (using meta-schema names):
+    composites.fields > "schema.dot"
+    all sort by source, label
+    composites.extends{depth=inf} > "inheritance.dot" """,
+
+    "shortcuts": """\
+SHORTCUTS (named expressions):
+  Shortcuts are named TTG expressions defined in config. They expand
+  inline when used as a bare selector name.
+
+  Usage:
+    <shortcut>                       Evaluate the shortcut's expression
+    <shortcut> > "file.dot"          Shortcut with file output
+    <shortcut> sort by source        Shortcut with sorting
+
+  The empty shortcut ("") applies when no expression is given:
+    > "output.dot"                   Uses the empty shortcut if defined
+
+  Shortcuts are defined in .ttgc config files:
+    [shortcut]
+    overview = types.fields{edge=.name, result=.type}
+    hierarchy = composites + .extends{edge="extends"}
+    "" = overview                     -- default expression
+
+  The meta-schema has a built-in "all" shortcut (see: help meta).
+
+  Use "show shortcut" to list all shortcuts.
+  Use "show shortcut <name>" to see a specific shortcut's expression.""",
+
+    "meta": """\
+META (built-in meta-schema):
+  The "meta" prefix evaluates expressions against TTG's built-in
+  meta-schema — a pre-configured context for exploring your database's
+  type structure. No .ttgc file is needed.
+
+  Usage:
+    meta <expression>                Evaluate against the meta-schema
+    meta all                         Full schema overview (built-in shortcut)
+    meta show selector               List meta-schema selectors
+    meta show axis                   List meta-schema axes
+    meta config "file.ttgc"          Override meta-schema config
+    meta style {"key": "value"}      Set meta-schema style
+
+  Built-in selectors:
+    composites, interfaces, enums, aliases, arrays, sets,
+    dictionaries, overflows, fields, variants
+    boolean, string, fraction, bigint, biguint
+    bit, character, uint8, int8, ..., float16, float32, float64
+
+  Built-in groups:
+    integers             All integer types (uint8..int128, bigint, biguint)
+    floats               float16, float32, float64
+    primitives           integers + floats + bit + character
+    types                All type selectors combined
+    all                  types + fields + variants
+
+  Built-in forward axes:
+    .fields              Composite/Interface/Variant → Field nodes
+    .extends             Composite/Interface → parent type
+    .interfaces          Composite → implemented interfaces
+    .variants            Enum → variant nodes
+    .backing             Enum → backing integer type
+    .type                Field → field type
+    .alias               Alias → base type
+    .base                Overflow → base type
+    .element             Array/Set → element type
+    .key                 Dict → key type
+    .value               Dict → value type
+    .entry               Dict → entry composite type
+
+  Built-in reverse axes:
+    .children (extends), .implementers (interfaces), .owner (fields),
+    .enum (variants), .typedBy (type), .aliasedBy (alias),
+    .backedBy (backing), .wrappedBy (base), .elementOf (element),
+    .keyOf (key), .valueOf (value), .entryOf (entry)
+
+  Built-in axis groups:
+    .all                 All forward axes
+    .allReverse          All reverse axes
+    .referencedBy        Reverse reference axes (typedBy, aliasedBy, ...)
+
+  Built-in shortcut:
+    all                  Comprehensive schema overview with labeled edges
+
+  Examples:
+    meta composites.fields           Composites and their fields
+    meta composites{Person}.extends{depth=inf}
+                                     Person's full ancestor chain
+    meta composites.fields{edge=.name, result=.type}
+                                     Fields with name labels, type targets
+    meta enums + .variants           Enums and their variants
+    meta all > "schema.dot"          Full schema as DOT file""",
+}
+
+_GRAPH_HELP_ALIASES: dict[str, str] = {
+    "selector": "selectors",
+    "predicate": "predicates",
+    "filter": "predicates",
+    "filters": "predicates",
+    "axis": "axes",
+    "operator": "operators",
+    "ops": "operators",
+    "chain": "operators",
+    "pipe": "operators",
+    "dot": "output",
+    "ttq": "output",
+    "file": "output",
+    "sort": "output",
+    "metadata": "meta",
+    "styles": "style",
+    "ttgs": "style",
+    "ttgc": "config",
+    "shortcut": "shortcuts",
+    "expression": "operators",
+    "expressions": "operators",
+}
+
+
+def print_graph_help(topic: str | None = None) -> None:
+    """Print graph help information, optionally for a specific topic."""
+    if topic is None:
+        print("""
+TTG - Typed Tables Graph Expression Language
+
+  Language concepts:
+    selectors     Named node sets (defined in config or meta-schema)
+    predicates    Filter nodes: {name=X}, {X}, {!X}, {depth=N}
+    axes          Named edge traversals (defined in config or meta-schema)
+    operators     Chain ops: . (accumulate), / (pipe), +, -, |, &
+
+  Session commands:
+    config        Load a .ttgc file to define selectors, axes, shortcuts
+    style         Set DOT styling: style {...}, style "file.ttgs"
+    show          Inspect loaded config: show axis, show selector, ...
+    output        File output: > "file.dot", sort by source
+    shortcuts     Named expressions (macros defined in config)
+
+  Built-in:
+    meta          Pre-configured context for exploring your schema
+                  (no .ttgc needed — has composites, fields, extends, ...)
+
+Type "help <topic>" for details. Example: help meta
+Type "exit" to return to query mode.
+""")
+        return
+
+    key = topic.lower().strip()
+    key = _GRAPH_HELP_ALIASES.get(key, key)
+
+    if key in _GRAPH_HELP_TOPICS:
+        print()
+        print(_GRAPH_HELP_TOPICS[key])
+        print()
+    else:
+        print(f'\nUnknown graph help topic "{topic}". Type "help" for available topics.\n')
 
 
 def run_file(file_path: Path, data_dir: Path | None, verbose: bool = False) -> tuple[int, Path | None]:
