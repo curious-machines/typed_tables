@@ -1,0 +1,4 @@
+-- Graph style for json_test database
+{
+    "direction": "LR"
+}
