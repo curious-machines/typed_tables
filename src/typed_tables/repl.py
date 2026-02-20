@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from typed_tables.dump import load_registry_from_metadata
-from typed_tables.parsing.query_parser import ArchiveQuery, DropDatabaseQuery, EvalQuery, ExecuteQuery, ImportQuery, QueryParser, RestoreQuery, UseQuery
-from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, ExecuteResult, ImportResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
+from typed_tables.parsing.query_parser import ArchiveQuery, DropDatabaseQuery, EvalQuery, ExecuteQuery, ImportQuery, QueryParser, RestoreQuery, SetQuery, UseQuery
+from typed_tables.query_executor import ArchiveResult, CollectResult, CompactResult, CreateResult, DeleteResult, DropResult, DumpResult, ExecuteResult, ImportResult, QueryExecutor, QueryResult, RestoreResult, ScopeResult, SetResult, UpdateResult, UseResult, VariableAssignmentResult, execute_restore
 from typed_tables.storage import StorageManager
 from fractions import Fraction
 
@@ -149,8 +149,13 @@ def format_value(value: Any, max_items: int = 10, max_width: int = 40) -> str:
         return s
 
 
-def print_result(result: QueryResult, max_width: int = 80) -> None:
-    """Print query results in a formatted table."""
+def print_result(result: QueryResult, max_width: int | None = 40) -> None:
+    """Print query results in a formatted table.
+
+    Args:
+        result: The query result to display.
+        max_width: Maximum column width for truncation. None means no limit.
+    """
     # Special handling for DumpResult - print script or write to file
     if isinstance(result, DumpResult):
         if result.output_file:
@@ -168,7 +173,7 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
         return
 
     # Special handling for UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, ScopeResult - show message as success, not error
-    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult, CompactResult, ArchiveResult, RestoreResult, ExecuteResult, ImportResult)):
+    if isinstance(result, (UseResult, CreateResult, DeleteResult, DropResult, VariableAssignmentResult, CollectResult, UpdateResult, ScopeResult, CompactResult, ArchiveResult, RestoreResult, ExecuteResult, ImportResult, SetResult)):
         if result.message:
             print(result.message)
         if not result.rows:
@@ -183,10 +188,13 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
 
     # Calculate column widths
     no_truncate = getattr(result, 'no_truncate', False)
+    effective_max_width = max_width if not no_truncate else None
     def _fmt(val: Any) -> str:
         if no_truncate:
             return str(val) if val is not None else "NULL"
-        return format_value(val)
+        if effective_max_width is not None:
+            return format_value(val, max_width=effective_max_width)
+        return format_value(val, max_width=10_000_000)
 
     col_widths = {}
     for col in result.columns:
@@ -197,25 +205,35 @@ def print_result(result: QueryResult, max_width: int = 80) -> None:
             val = _fmt(row.get(col))
             col_widths[col] = max(col_widths[col], len(val))
 
-    # Cap column widths (unless no_truncate is set, e.g. for show commands)
-    if not no_truncate:
-        max_col_width = 40
+    # Cap column widths (unless no_truncate is set or max_width is None)
+    if not no_truncate and effective_max_width is not None:
         for col in col_widths:
-            col_widths[col] = min(col_widths[col], max_col_width)
+            col_widths[col] = min(col_widths[col], effective_max_width)
 
-    # Print header
-    header = " | ".join(col.ljust(col_widths[col])[:col_widths[col]] for col in result.columns)
-    print(header)
-    print("-" * len(header))
+    # Print header — don't pad last column to avoid trailing whitespace
+    header_parts = []
+    for i, col in enumerate(result.columns):
+        if i < len(result.columns) - 1:
+            header_parts.append(col.ljust(col_widths[col])[:col_widths[col]])
+        else:
+            header_parts.append(col[:col_widths[col]])
+    print(" | ".join(header_parts))
+    # Separator uses full padded width so it visually spans all columns
+    header_full = " | ".join(col.ljust(col_widths[col])[:col_widths[col]] for col in result.columns)
+    print("-" * len(header_full))
 
     # Print rows
     for row in result.rows:
         values = []
-        for col in result.columns:
+        for i, col in enumerate(result.columns):
             val = _fmt(row.get(col))
             if len(val) > col_widths[col]:
                 val = val[: col_widths[col] - 3] + "..."
-            values.append(val.ljust(col_widths[col]))
+            # Don't pad the last column — avoids trailing whitespace that
+            # wraps into blank lines when columns are very wide.
+            if i < len(result.columns) - 1:
+                val = val.ljust(col_widths[col])
+            values.append(val)
         print(" | ".join(values))
 
     print(f"\n({len(result.rows)} row{'s' if len(result.rows) != 1 else ''})")
@@ -473,6 +491,7 @@ def run_repl(data_dir: Path | None) -> int:
     storage: StorageManager | None = None
     executor: QueryExecutor | None = None
     temp_databases: set[Path] = set()
+    max_width: int | None = 40  # Default column width; None = no limit
 
     def load_database(path: Path) -> tuple[TypeRegistry, StorageManager, QueryExecutor, bool]:
         """Load a database from the given path. Returns (registry, storage, executor, is_new)."""
@@ -735,7 +754,7 @@ def run_repl(data_dir: Path | None) -> int:
                 # Handle RESTORE query - doesn't need executor
                 if isinstance(query, RestoreQuery):
                     result = execute_restore(query)
-                    print_result(result)
+                    print_result(result, max_width=max_width)
                     # Auto-use the restored database
                     if result.output_path:
                         new_path = Path(result.output_path)
@@ -747,6 +766,30 @@ def run_repl(data_dir: Path | None) -> int:
                             print(f"Switched to database: {new_path}")
                         except Exception as e:
                             print(f"Error loading restored database: {e}")
+                    print()
+                    continue
+
+                # Handle SET query — session setting, doesn't need executor/database
+                if isinstance(query, SetQuery):
+                    try:
+                        setting = query.setting
+                        if setting != "max_width":
+                            print(f"Error: Unknown setting: {setting}")
+                        elif query.value is None:
+                            max_width = 40
+                            print(f"Reset {setting} to default (40)")
+                        elif query.value.lower() in ("inf", "infinity"):
+                            max_width = None
+                            print(f"Set {setting} to infinity (no truncation)")
+                        else:
+                            val = int(query.value)
+                            if val <= 0:
+                                print(f"Error: {setting} must be a positive integer, got {val}")
+                            else:
+                                max_width = val
+                                print(f"Set {setting} to {val}")
+                    except ValueError:
+                        print(f"Error: Invalid value for {query.setting}: {query.value}")
                     print()
                     continue
 
@@ -850,8 +893,12 @@ def run_repl(data_dir: Path | None) -> int:
                             print(f"Dropped database: {drop_path}")
                         except Exception as e:
                             print(f"Error dropping database: {e}")
+                elif isinstance(result, SetResult):
+                    if result.setting == "max_width":
+                        max_width = result.value
+                    print(result.message)
                 else:
-                    print_result(result)
+                    print_result(result, max_width=max_width)
 
             except SyntaxError as e:
                 print(f"Syntax error: {e}")
@@ -1573,6 +1620,15 @@ EXECUTE & IMPORT:
                            Dropping and recreating the database resets history
 
   Auto-extension: "setup" tries setup.ttq, setup.ttq.gz if not found""",
+
+    "settings": """\
+SETTINGS:
+  set max_width <n>      Set maximum column width to n characters
+  set max_width inf      No truncation (show full values)
+  set max_width infinity No truncation (show full values)
+  set max_width          Reset to default (40 characters)
+
+  Settings are per-session and do not persist across REPL sessions.""",
 }
 
 _HELP_ALIASES: dict[str, str] = {
@@ -1612,7 +1668,8 @@ _HELP_ALIASES: dict[str, str] = {
     "string": "strings",
     "bit": "types",
     "array": "arrays",
-    "set": "sets",
+    "set": "settings",
+    "max_width": "settings",
     "dict": "dictionaries",
     "dictionary": "dictionaries",
     "dicts": "dictionaries",
@@ -1651,6 +1708,7 @@ TTQ - Typed Tables Query Language
   archive       archive, restore, compact
   cyclic        scope blocks, tags for cyclic references
   scripts       execute, import
+  settings      set max_width
 
 Type "help <topic>" for details. Example: help dump
 

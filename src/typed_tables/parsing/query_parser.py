@@ -173,6 +173,14 @@ class ImportQuery:
 
 
 @dataclass
+class SetQuery:
+    """A SET command — configure session settings."""
+
+    setting: str  # e.g., "max_width"
+    value: str | None = None  # e.g., "80", "inf", "infinity", or None (reset)
+
+
+@dataclass
 class DescribeQuery:
     """A DESCRIBE query."""
 
@@ -515,7 +523,7 @@ class EmptyBraces:
     pass
 
 
-Query = SelectQuery | ShowTypesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | ImportQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock | TTGQuery
+Query = SelectQuery | ShowTypesQuery | DescribeQuery | UseQuery | CreateTypeQuery | CreateInterfaceQuery | CreateAliasQuery | CreateInstanceQuery | CreateEnumQuery | EvalQuery | DeleteQuery | DropDatabaseQuery | DumpQuery | CompactQuery | ArchiveQuery | RestoreQuery | ExecuteQuery | ImportQuery | VariableAssignmentQuery | CollectQuery | UpdateQuery | ScopeBlock | TTGQuery | SetQuery
 
 
 class QueryParser:
@@ -634,6 +642,18 @@ class QueryParser:
     def p_query_import(self, p: yacc.YaccProduction) -> None:
         """query : IMPORT STRING"""
         p[0] = ImportQuery(file_path=p[2])
+
+    def p_query_set_reset(self, p: yacc.YaccProduction) -> None:
+        """query : SET IDENTIFIER"""
+        p[0] = SetQuery(setting=p[2])
+
+    def p_query_set_integer(self, p: yacc.YaccProduction) -> None:
+        """query : SET IDENTIFIER INTEGER"""
+        p[0] = SetQuery(setting=p[2], value=str(p[3]))
+
+    def p_query_set_identifier(self, p: yacc.YaccProduction) -> None:
+        """query : SET IDENTIFIER IDENTIFIER"""
+        p[0] = SetQuery(setting=p[2], value=p[3])
 
     def p_query_describe(self, p: yacc.YaccProduction) -> None:
         """query : DESCRIBE IDENTIFIER sort_clause

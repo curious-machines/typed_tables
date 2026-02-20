@@ -60,6 +60,7 @@ from typed_tables.parsing.query_parser import (
     RestoreQuery,
     ScopeBlock,
     SelectField,
+    SetQuery,
     SortKeyExpr,
     SelectQuery,
     ShowTypesQuery,
@@ -283,6 +284,14 @@ class ScopeResult(QueryResult):
 
 
 @dataclass
+class SetResult(QueryResult):
+    """Result of a SET command."""
+
+    setting: str = ""
+    value: Any = None
+
+
+@dataclass
 class ScopeState:
     """State for a single scope level.
 
@@ -372,6 +381,8 @@ class QueryExecutor:
             return self._execute_execute(query)
         elif isinstance(query, ImportQuery):
             return self._execute_import(query)
+        elif isinstance(query, SetQuery):
+            return self._execute_set(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -8093,6 +8104,40 @@ class QueryExecutor:
             message=f"Imported {import_key} ({exec_result.statements_executed} statement{'s' if exec_result.statements_executed != 1 else ''})",
             file_path=import_key,
             skipped=False,
+        )
+
+    # --- Set ---
+
+    _VALID_SETTINGS = {"max_width"}
+    _SETTING_DEFAULTS = {"max_width": 40}
+
+    def _execute_set(self, query: SetQuery) -> SetResult:
+        """Execute a SET command — configure a session setting."""
+        setting = query.setting
+        if setting not in self._VALID_SETTINGS:
+            raise ValueError(f"Unknown setting: {setting}")
+
+        if query.value is None:
+            # Reset to default
+            resolved = self._SETTING_DEFAULTS[setting]
+            msg = f"Reset {setting} to default ({resolved})"
+        elif query.value.lower() in ("inf", "infinity"):
+            resolved = None  # None means no limit
+            msg = f"Set {setting} to infinity (no truncation)"
+        else:
+            try:
+                resolved = int(query.value)
+            except ValueError:
+                raise ValueError(f"Invalid value for {setting}: {query.value}")
+            if resolved <= 0:
+                raise ValueError(f"{setting} must be a positive integer, got {resolved}")
+            msg = f"Set {setting} to {resolved}"
+
+        return SetResult(
+            columns=[], rows=[],
+            message=msg,
+            setting=setting,
+            value=resolved,
         )
 
     # --- Compact ---
