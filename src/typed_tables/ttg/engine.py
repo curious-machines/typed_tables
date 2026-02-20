@@ -128,6 +128,31 @@ class TTGEngine:
         # Load built-in meta-schema config
         self._meta_config = self._load_builtin_meta_config()
 
+        # Auto-load database-sibling .ttgc and .ttgs files
+        self._auto_load_database_config()
+
+    def _auto_load_database_config(self) -> None:
+        """Auto-load <database>.ttgc and <database>.ttgs from the database's parent directory."""
+        if self.storage is None or not hasattr(self.storage, "data_dir"):
+            return
+        data_dir = Path(self.storage.data_dir)
+        db_name = data_dir.name
+        parent = data_dir.parent
+
+        ttgc_path = parent / f"{db_name}.ttgc"
+        if ttgc_path.exists():
+            try:
+                self._data_config = self._load_config_file(str(ttgc_path))
+            except (SyntaxError, FileNotFoundError):
+                pass  # Silently skip malformed config
+
+        ttgs_path = parent / f"{db_name}.ttgs"
+        if ttgs_path.exists():
+            try:
+                self._apply_style(str(ttgs_path), None, self._data_style, "data")
+            except (SyntaxError, FileNotFoundError):
+                pass  # Silently skip malformed style
+
     # ---- Public API ----
 
     def execute(self, raw_text: str) -> GraphResult | FileResult | str:
