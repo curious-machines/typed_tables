@@ -47,6 +47,24 @@ Source: CLAUDE.md ("To be determined" section)
 | Reverse reference lookup | Given a table and index, find all composites that reference it |
 | Storage size calculation | Calculate total bytes for a type instance (with/without metadata) |
 
+## REPL & Scripting
+
+| Topic | Summary | Notes |
+|-------|---------|-------|
+| Startup script | Script that runs automatically on REPL startup or database load. Open questions: (1) Should the script be per-database (e.g., `_startup.ttq` in data dir) or session-level (e.g., `~/.ttqrc`)? Could support both. (2) Should the script be pure TTQ, or should it also support REPL commands (like `set max_width`)? `set` is already valid TTQ syntax, but future REPL-only commands might not be. Example use case: `set max_width 120` to apply user preferences on startup. | |
+
+## JSON Import & Transformation
+
+Source: conversation 2026-02-19, scratch/json/json_schema.ttq
+
+| Topic | Summary | Notes |
+|-------|---------|-------|
+| JSON → generic schema import | Import any JSON file into the existing `JsonValue` enum schema (`json_schema.ttq`). Output is a `.ttq` script with `create JsonDocument(...)` statements. | First step — handles any JSON but no typed structure |
+| JSON → typed schema inference | Infer typed_tables types from JSON structure: objects → composites, arrays → typed arrays, numbers → int64/float64 heuristic. Schema deduplication for structurally identical nested objects. | More advanced — produces proper typed schemas |
+| Dynamic key detection | Heuristic to distinguish fixed-key objects (→ composite type) from dynamic-key objects (→ `{string: ValueType}` dictionary) | Part of typed inference |
+| Heterogeneous array handling | JSON arrays with mixed types → Swift-style enum or reject. Could reuse `JsonValue` for mixed arrays within an otherwise typed schema | Part of typed inference |
+| JSON transformation | Transform JSON-schema database into a typed database using user-defined mappings | Depends on typed inference and a mapping language |
+
 ## For Consideration (Exploratory)
 
 Source: dev-notes/features.md

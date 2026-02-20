@@ -309,14 +309,14 @@ class DatabaseProvider:
 
         # --- Dict field ---
         if isinstance(field_base, DictionaryTypeDefinition):
-            entries = self._read_dict_entries(field_def, ref_value, field_base)
-            if not entries:
+            indexed_entries = self._read_dict_entries(field_def, ref_value, field_base)
+            if not indexed_entries:
                 return []
             entry_base = field_base.entry_type
             if remaining:
                 # Next segment should be 'key' or 'value' (entry fields)
                 results = []
-                for entry_record in entries:
+                for _idx, entry_record in indexed_entries:
                     results.extend(self._walk_path(
                         entry_record, entry_base, remaining,
                         record_identities, identity_field,
@@ -327,7 +327,7 @@ class DatabaseProvider:
             else:
                 # No more segments — check if entry_type is a selector node
                 return self._resolve_composites_to_nodes(
-                    entries, entry_base,
+                    indexed_entries, entry_base,
                     record_identities, identity_field,
                     selector_info, qualified_selectors,
                     source_id,
@@ -519,8 +519,13 @@ class DatabaseProvider:
 
     # ---- Dict traversal helpers ----
 
-    def _read_dict_entries(self, field_def: Any, ref_value: Any, dict_base: Any) -> list[dict]:
-        """Read all entry records from a dict field."""
+    def _read_dict_entries(
+        self, field_def: Any, ref_value: Any, dict_base: Any
+    ) -> list[tuple[int, dict]]:
+        """Read all entry records from a dict field.
+
+        Returns list of (entry_table_index, record) tuples.
+        """
         if not (isinstance(ref_value, tuple) and len(ref_value) == 2):
             return []
         start, length = ref_value
@@ -533,7 +538,7 @@ class DatabaseProvider:
             return []
 
         entry_type_name = dict_base.entry_type.name
-        entries = []
+        entries: list[tuple[int, dict]] = []
         try:
             entry_table = self.storage.get_table(entry_type_name)
         except (ValueError, FileNotFoundError):
@@ -546,7 +551,7 @@ class DatabaseProvider:
             except Exception:
                 continue
             if entry_record is not None and not isinstance(entry_record, (bytes, bytearray)):
-                entries.append(entry_record)
+                entries.append((entry_idx, entry_record))
         return entries
 
     # ---- Array traversal helpers ----
@@ -676,7 +681,7 @@ class DatabaseProvider:
 
     def _resolve_composites_to_nodes(
         self,
-        records: list[dict],
+        indexed_records: list[tuple[int, dict]],
         composite_base: Any,
         record_identities: dict[tuple[str, int], str],
         identity_field: str,
@@ -695,23 +700,31 @@ class DatabaseProvider:
         if target_sel is not None:
             # These records are a known selector type
             id_field = self.config.identity.get(target_sel, identity_field)
+            is_qualified = target_sel in qualified_selectors
             target_ids = []
-            for rec in records:
-                identity = self._resolve_string_field(rec, id_field, composite_base)
-                if identity is None:
+            for rec_idx, rec in indexed_records:
+                base_identity = self._resolve_string_field(rec, id_field, composite_base)
+                if base_identity is None:
                     continue
+                if is_qualified:
+                    identity = f"{source_id}.{base_identity}"
+                else:
+                    identity = base_identity
                 if identity not in self._nodes:
                     props = self._read_properties(rec, composite_base, id_field)
-                    props["name"] = identity
+                    props["name"] = base_identity
+                    if is_qualified:
+                        props["owner"] = source_id
                     node = NodeInfo(identity=identity, selector=target_sel, properties=props)
                     self._nodes[identity] = node
                     self._selector_nodes.setdefault(target_sel, set()).add(identity)
+                record_identities[(type_name, rec_idx)] = identity
                 target_ids.append(identity)
             return target_ids
 
         # Not a direct selector — follow fields recursively to find selector nodes
         results = []
-        for rec in records:
+        for _rec_idx, rec in indexed_records:
             for f in composite_base.fields:
                 val = rec.get(f.name)
                 if val is None:

@@ -24,6 +24,7 @@ dev = [
 tt-dump = "typed_tables.dump:main"
 ttq = "typed_tables.repl:main"
 ttq-lsp = "typed_tables.lsp.server:main"
+ttq-json-import = "typed_tables.json_import:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
