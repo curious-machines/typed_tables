@@ -220,6 +220,7 @@ class ForwardTypeQuery:
     """A FORWARD TYPE query - declares a type name for forward references."""
 
     name: str
+    kind: str = "type"  # "type", "interface", or "enum"
 
 
 @dataclass
@@ -672,8 +673,16 @@ class QueryParser:
         p[0] = CreateTypeQuery(name=p[2], fields=p[3])
 
     def p_query_forward_type(self, p: yacc.YaccProduction) -> None:
-        """query : FORWARD IDENTIFIER"""
-        p[0] = ForwardTypeQuery(name=p[2])
+        """query : FORWARD TYPE IDENTIFIER"""
+        p[0] = ForwardTypeQuery(name=p[3], kind="type")
+
+    def p_query_forward_interface(self, p: yacc.YaccProduction) -> None:
+        """query : FORWARD INTERFACE IDENTIFIER"""
+        p[0] = ForwardTypeQuery(name=p[3], kind="interface")
+
+    def p_query_forward_enum(self, p: yacc.YaccProduction) -> None:
+        """query : FORWARD ENUM IDENTIFIER"""
+        p[0] = ForwardTypeQuery(name=p[3], kind="enum")
 
     def p_query_create_type_inherit(self, p: yacc.YaccProduction) -> None:
         """query : TYPE IDENTIFIER FROM parent_list type_field_list"""
@@ -1344,6 +1353,30 @@ class QueryParser:
     def p_array_element_tag_reference(self, p: yacc.YaccProduction) -> None:
         """array_element : IDENTIFIER"""
         p[0] = TagReference(name=p[1])
+
+    def p_array_element_enum_shorthand_bare(self, p: yacc.YaccProduction) -> None:
+        """array_element : DOT IDENTIFIER"""
+        p[0] = EnumValueExpr(enum_name=None, variant_name=p[2])
+
+    def p_array_element_enum_shorthand_with_args(self, p: yacc.YaccProduction) -> None:
+        """array_element : DOT IDENTIFIER LPAREN instance_field_list RPAREN"""
+        p[0] = EnumValueExpr(enum_name=None, variant_name=p[2], args=p[4])
+
+    def p_array_element_enum_shorthand_with_args_empty(self, p: yacc.YaccProduction) -> None:
+        """array_element : DOT IDENTIFIER LPAREN RPAREN"""
+        p[0] = EnumValueExpr(enum_name=None, variant_name=p[2], args=[])
+
+    def p_array_element_enum_qualified_bare(self, p: yacc.YaccProduction) -> None:
+        """array_element : IDENTIFIER DOT IDENTIFIER"""
+        p[0] = EnumValueExpr(enum_name=p[1], variant_name=p[3])
+
+    def p_array_element_enum_qualified_with_args(self, p: yacc.YaccProduction) -> None:
+        """array_element : IDENTIFIER DOT IDENTIFIER LPAREN instance_field_list RPAREN"""
+        p[0] = EnumValueExpr(enum_name=p[1], variant_name=p[3], args=p[5])
+
+    def p_array_element_enum_qualified_with_args_empty(self, p: yacc.YaccProduction) -> None:
+        """array_element : IDENTIFIER DOT IDENTIFIER LPAREN RPAREN"""
+        p[0] = EnumValueExpr(enum_name=p[1], variant_name=p[3], args=[])
 
     def p_array_element_null(self, p: yacc.YaccProduction) -> None:
         """array_element : NULL"""

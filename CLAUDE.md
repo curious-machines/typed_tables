@@ -199,14 +199,20 @@ create LinkedNode(value=2, next=LinkedNode(value=1, next=LinkedNode(0)))
 
 ### Forward Declarations (Mutual References)
 
-For mutually referential types, use forward declarations:
+For mutually referential types, use forward declarations. The kind (`type`, `interface`, or `enum`) must be specified:
 ```ttq
-forward B
+forward type B
 type A { value: uint8, b: B }
 type B { value: uint8, a: A }
 ```
 
-The `forward B` registers an empty stub. The third statement populates it with fields. This allows A and B to reference each other.
+```ttq
+forward enum JV
+type Doc { root: JV }
+enum JV { null_val, num(value: float64), arr(elements: JV[]) }
+```
+
+The `forward type B` registers an empty stub. The actual definition populates it with fields. This allows A and B to reference each other.
 
 ### NULL Values
 

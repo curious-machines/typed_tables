@@ -931,7 +931,9 @@ DEFINITIONS:
                            Inherit fields from another interface
   interface <Name> from <A>, <B> { ... }
                            Multiple interface parents (diamond merge allowed)
-  forward <Name>           Forward-declare a type (for mutual references)
+  forward type <Name>      Forward-declare a type (for mutual references)
+  forward interface <Name> Forward-declare an interface
+  forward enum <Name>      Forward-declare an enum
 
   Default values:
     type T { age: uint8 = 0, name: string = "unknown" }

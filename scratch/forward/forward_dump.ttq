@@ -1,5 +1,5 @@
 -- TTQ dump
-forward A
+forward type A
 type B { name: string, link: A }
 type A { name: string, link: B }
 

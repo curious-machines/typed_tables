@@ -52,10 +52,10 @@
     "body": "alias ${1:name} = ${2:base_type}",
     "description": "Define a type alias"
   },
-  "Forward Declaration": {
+  "Forward Type Declaration": {
     "prefix": "forward",
-    "body": "forward ${1:Name}",
-    "description": "Forward-declare a type for mutual references"
+    "body": "forward ${1|type,interface,enum|} ${2:Name}",
+    "description": "Forward-declare a type, interface, or enum for mutual references"
   },
   "Create Instance": {
     "prefix": "create",

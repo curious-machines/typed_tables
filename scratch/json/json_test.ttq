@@ -1,0 +1,60 @@
+-- JSON Schema test cases
+-- Run: ttq -f scratch/json/json_test.ttq -v
+
+use json_test as temporary
+import "json_schema.ttq"
+
+-- Test: null
+create JsonDocument(name="null_test", root=.null_val)
+
+-- Test: boolean true
+create JsonDocument(name="bool_test", root=.bool_val(value=true))
+
+-- Test: number 42
+create JsonDocument(name="number_test", root=.number(value=42.0))
+
+-- Test: string "hello"
+create JsonDocument(name="string_test", root=.str_val(value="hello"))
+
+-- Test: object {"name": "Alice", "age": 30}
+create JsonDocument(name="object_test", root=.object(entries={
+    "name": .str_val(value="Alice"),
+    "age": .number(value=30.0)
+}))
+
+-- Test: array [1, 2, 3]
+create JsonDocument(name="array_test", root=.array(elements=[
+    .number(value=1.0),
+    .number(value=2.0),
+    .number(value=3.0)
+]))
+
+-- Test: deeply nested object (3 levels)
+-- {
+--   "user": {
+--     "profile": {
+--       "name": "Bob",
+--       "active": true
+--     },
+--     "scores": [95, 87, 92]
+--   },
+--   "version": 2
+-- }
+create JsonDocument(name="deep_nested_test", root=.object(entries={
+    "user": .object(entries={
+        "profile": .object(entries={
+            "name": .str_val(value="Bob"),
+            "active": .bool_val(value=true)
+        }),
+        "scores": .array(elements=[
+            .number(value=95.0),
+            .number(value=87.0),
+            .number(value=92.0)
+        ])
+    }),
+    "version": .number(value=2.0)
+}))
+
+-- Show results
+from JsonDocument select *
+from JsonDocument select name, root

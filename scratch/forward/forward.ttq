@@ -1,4 +1,4 @@
-forward B
+forward type B
 type A { name: string, link: B }
 type B { name: string, link: A }
 

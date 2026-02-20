@@ -238,7 +238,7 @@ We can have a single scalar and then apply the math function to all elements in 
 
 ## Language Syntax Simplification
 
-Removed `create` keyword from type/alias/enum/interface definitions (kept for instance creation only). Removed `select` from eval expressions (bare expressions like `[1,2,3]` or `uuid()`). Added method calls on eval expression array literals (e.g., `[1,9,5,7,3].sort()`). Changed `forward type X` to `forward X`. Removed the Type DSL entirely (`type_parser.py`/`type_lexer.py` deleted); `Schema.parse()` now uses TTQ syntax via QueryParser.
+Removed `create` keyword from type/alias/enum/interface definitions (kept for instance creation only). Removed `select` from eval expressions (bare expressions like `[1,2,3]` or `uuid()`). Added method calls on eval expression array literals (e.g., `[1,9,5,7,3].sort()`). Changed `forward X` to `forward type/interface/enum X` (kind-specific forward declarations). Removed the Type DSL entirely (`type_parser.py`/`type_lexer.py` deleted); `Schema.parse()` now uses TTQ syntax via QueryParser.
 
 ---
 

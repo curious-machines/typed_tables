@@ -179,8 +179,8 @@ class TestSystemTypes:
         assert "reserved for system use" in result.message
 
     def test_forward_type_rejects_underscore_prefix(self, executor):
-        """forward _Foo -> error."""
-        result = _run(executor, 'forward _Foo')
+        """forward type _Foo -> error."""
+        result = _run(executor, 'forward type _Foo')
         assert isinstance(result, CreateResult)
         assert "reserved for system use" in result.message
 

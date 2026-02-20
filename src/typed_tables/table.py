@@ -186,6 +186,8 @@ class Table:
             # For array tables, value should be (start_index, length)
             start_index, length = value
             return struct.pack("<II", start_index, length)
+        elif isinstance(self.type_def, EnumTypeDefinition):
+            return self._serialize_enum_value(value, self.type_def)
         elif isinstance(self.type_def, CompositeTypeDefinition):
             return self._serialize_composite(value, self.type_def)
         else:
@@ -193,6 +195,8 @@ class Table:
             base = self.type_def.resolve_base_type()
             if isinstance(base, PrimitiveTypeDefinition):
                 return self._serialize_primitive(value, base.primitive)
+            if isinstance(base, EnumTypeDefinition):
+                return self._serialize_enum_value(value, base)
             raise TypeError(f"Cannot serialize type: {self.type_def.name}")
 
     def _serialize_primitive(self, value: Any, primitive: PrimitiveType) -> bytes:
@@ -337,12 +341,16 @@ class Table:
         elif isinstance(self.type_def, ArrayTypeDefinition):
             start_index, length = struct.unpack("<II", data)
             return (start_index, length)
+        elif isinstance(self.type_def, EnumTypeDefinition):
+            return self._deserialize_enum_value(data, self.type_def)
         elif isinstance(self.type_def, CompositeTypeDefinition):
             return self._deserialize_composite(data, self.type_def)
         else:
             base = self.type_def.resolve_base_type()
             if isinstance(base, PrimitiveTypeDefinition):
                 return self._deserialize_primitive(data, base.primitive)
+            if isinstance(base, EnumTypeDefinition):
+                return self._deserialize_enum_value(data, base)
             raise TypeError(f"Cannot deserialize type: {self.type_def.name}")
 
     def _deserialize_primitive(self, data: bytes, primitive: PrimitiveType) -> Any:

@@ -1,0 +1,18 @@
+-- JSON Schema for Typed Tables
+-- Models JSON values as a self-referential enum type
+-- Each JSON value type is a variant with associated values
+
+enum JsonValue {
+    null_val,
+    bool_val(value: boolean),
+    number(value: float64),
+    str_val(value: string),
+    array(elements: JsonValue[]),
+    object(entries: {string: JsonValue})
+}
+
+-- A top-level JSON document wrapper
+type JsonDocument {
+    name: string,
+    root: JsonValue
+}

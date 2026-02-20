@@ -158,8 +158,8 @@ class TestTypeDefinitions:
     def test_mutual_reference_composites(self):
         """Test parser handles mutually referential types A↔B."""
         registry = _parse_types("""
-        forward A
-        forward B
+        forward type A
+        forward type B
 
         type A {
             value: uint8,

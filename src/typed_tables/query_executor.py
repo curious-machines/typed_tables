@@ -1509,7 +1509,7 @@ class QueryExecutor:
         )
 
     def _execute_forward_type(self, query: ForwardTypeQuery) -> CreateResult:
-        """Execute FORWARD TYPE query - register a stub for forward references."""
+        """Execute FORWARD TYPE/INTERFACE/ENUM query - register a stub for forward references."""
         if query.name.startswith("_"):
             return CreateResult(
                 columns=[], rows=[],
@@ -1526,13 +1526,18 @@ class QueryExecutor:
                 type_name=query.name,
             )
 
-        self.registry.register_stub(query.name)
+        if query.kind == "interface":
+            self.registry.register_interface_stub(query.name)
+        elif query.kind == "enum":
+            self.registry.register_enum_stub(query.name)
+        else:
+            self.registry.register_stub(query.name)
         self.storage.save_metadata()
 
         return CreateResult(
             columns=["type", "fields"],
             rows=[{"type": query.name, "fields": 0}],
-            message=f"Forward declared type '{query.name}'",
+            message=f"Forward declared {query.kind} '{query.name}'",
             type_name=query.name,
         )
 
@@ -1546,12 +1551,20 @@ class QueryExecutor:
             )
         existing = self.registry.get(query.name)
         if existing is not None:
-            return CreateResult(
-                columns=[],
-                rows=[],
-                message=f"Type '{query.name}' already exists",
-                type_name=query.name,
-            )
+            # Allow populating an empty enum stub (self-reference or forward declaration)
+            if isinstance(existing, EnumTypeDefinition) and not existing.variants:
+                pass  # fall through to populate the stub
+            else:
+                return CreateResult(
+                    columns=[],
+                    rows=[],
+                    message=f"Type '{query.name}' already exists",
+                    type_name=query.name,
+                )
+
+        # Register enum stub for self-reference support (idempotent if already exists)
+        if existing is None:
+            self.registry.register_enum_stub(query.name)
 
         # Validate: no mixing of explicit values and associated values
         has_explicit = any(v.explicit_value is not None for v in query.variants)
@@ -1614,14 +1627,11 @@ class QueryExecutor:
                         type_name=query.name,
                     )
 
-        # Create and register the enum type
-        enum_def = EnumTypeDefinition(
-            name=query.name,
-            variants=variants,
-            has_explicit_values=has_explicit,
-            backing_type=backing_prim,
-        )
-        self.registry.register(enum_def)
+        # Mutate the stub in-place (Python object references propagate automatically)
+        stub = self.registry.get(query.name)
+        stub.variants = variants
+        stub.has_explicit_values = has_explicit
+        stub.backing_type = backing_prim
         self.storage.save_metadata()
 
         return CreateResult(
@@ -2007,6 +2017,18 @@ class QueryExecutor:
                         raw_record[fv.name] = array_table.insert([])
                     else:
                         elements = resolved_value.elements
+                        # Resolve EnumValueExpr elements in sets
+                        elem_base = field_base.element_type.resolve_base_type()
+                        if isinstance(elem_base, EnumTypeDefinition):
+                            resolved_elems = []
+                            for elem in elements:
+                                if isinstance(elem, EnumValueExpr):
+                                    enum_name = field_base.element_type.name if elem.enum_name is None else elem.enum_name
+                                    elem = self._resolve_enum_value_expr(elem, enum_name)
+                                elif isinstance(elem, EnumValue) and elem_base.has_associated_values:
+                                    elem = self._store_enum_value_to_variant_table(elem, elem_base)
+                                resolved_elems.append(elem)
+                            elements = resolved_elems
                         seen = []
                         for elem in elements:
                             if elem in seen:
@@ -2022,6 +2044,18 @@ class QueryExecutor:
                         raw_record[fv.name] = array_table.insert(elements)
                 elif isinstance(resolved_value, list):
                     # Plain list — treat as set elements
+                    # Resolve EnumValueExpr elements in sets
+                    elem_base = field_base.element_type.resolve_base_type()
+                    if isinstance(elem_base, EnumTypeDefinition):
+                        resolved_elems = []
+                        for elem in resolved_value:
+                            if isinstance(elem, EnumValueExpr):
+                                enum_name = field_base.element_type.name if elem.enum_name is None else elem.enum_name
+                                elem = self._resolve_enum_value_expr(elem, enum_name)
+                            elif isinstance(elem, EnumValue) and elem_base.has_associated_values:
+                                elem = self._store_enum_value_to_variant_table(elem, elem_base)
+                            resolved_elems.append(elem)
+                        resolved_value = resolved_elems
                     seen = []
                     for elem in resolved_value:
                         if elem in seen:
@@ -2075,9 +2109,19 @@ class QueryExecutor:
             elif isinstance(field_base, ArrayTypeDefinition):
                 if isinstance(resolved_value, str):
                     resolved_value = list(resolved_value)
-                # Handle composite array elements: int refs → read full records
+                # Handle enum/composite array elements
                 elem_base = field_base.element_type.resolve_base_type()
-                if isinstance(elem_base, CompositeTypeDefinition):
+                if isinstance(elem_base, EnumTypeDefinition):
+                    resolved = []
+                    for elem in resolved_value:
+                        if isinstance(elem, EnumValueExpr):
+                            enum_name = field_base.element_type.name if elem.enum_name is None else elem.enum_name
+                            elem = self._resolve_enum_value_expr(elem, enum_name)
+                        elif isinstance(elem, EnumValue) and elem_base.has_associated_values:
+                            elem = self._store_enum_value_to_variant_table(elem, elem_base)
+                        resolved.append(elem)
+                    resolved_value = resolved
+                elif isinstance(elem_base, CompositeTypeDefinition):
                     resolved = []
                     for elem in resolved_value:
                         if isinstance(elem, InlineInstance):
@@ -3071,7 +3115,7 @@ class QueryExecutor:
         if isinstance(value, TypedLiteral):
             return value.value  # Strip type info for storage
         if isinstance(value, list):
-            # Resolve TypedLiteral and VariableReference elements; leave InlineInstance/CompositeRef/etc.
+            # Resolve TypedLiteral, VariableReference elements; leave InlineInstance/CompositeRef/EnumValueExpr
             # for downstream handling in _create_instance.
             needs_resolution = any(isinstance(elem, (TypedLiteral, VariableReference)) for elem in value)
             if needs_resolution:
@@ -3275,16 +3319,65 @@ class QueryExecutor:
         if value.args:
             for fv in value.args:
                 fields_dict[fv.name] = self._resolve_instance_value(fv.value)
-        # For fields with array values, store them and convert to (start, length)
+        # Resolve variant field values to storage format
         for vf in variant.fields:
             if vf.name in fields_dict:
                 fval = fields_dict[vf.name]
                 vf_base = vf.type_def.resolve_base_type()
-                if isinstance(vf_base, ArrayTypeDefinition):
+                if isinstance(fval, EnumValueExpr) and isinstance(vf_base, EnumTypeDefinition):
+                    # Resolve shorthand enum values (.leaf) in variant fields
+                    resolved_enum_name = vf.type_def.name if fval.enum_name is None else fval.enum_name
+                    fields_dict[vf.name] = self._resolve_enum_value_expr(fval, resolved_enum_name)
+                elif isinstance(vf_base, ArrayTypeDefinition):
                     if isinstance(fval, str):
                         fval = list(fval)
+                    if isinstance(fval, list):
+                        # Resolve enum values inside array elements
+                        elem_base = vf_base.element_type.resolve_base_type()
+                        if isinstance(elem_base, EnumTypeDefinition):
+                            resolved_elems = []
+                            for elem in fval:
+                                if isinstance(elem, EnumValueExpr):
+                                    en = vf_base.element_type.name if elem.enum_name is None else elem.enum_name
+                                    resolved_elems.append(self._resolve_enum_value_expr(elem, en))
+                                else:
+                                    resolved_elems.append(elem)
+                            fval = resolved_elems
+                        elif isinstance(elem_base, CompositeTypeDefinition):
+                            resolved_elems = []
+                            for elem in fval:
+                                if isinstance(elem, InlineInstance):
+                                    inline_type = self.registry.get(elem.type_name)
+                                    inline_base = inline_type.resolve_base_type()
+                                    inline_values = {}
+                                    for ifv in elem.fields:
+                                        inline_values[ifv.name] = self._resolve_instance_value(ifv.value)
+                                    idx = self._create_instance(inline_type, inline_base, inline_values)
+                                    resolved_elems.append(idx)
+                                else:
+                                    resolved_elems.append(elem)
+                            fval = resolved_elems
+                        if is_string_type(vf_base.element_type):
+                            char_table = self.storage.get_array_table_for_type(vf_base.element_type)
+                            fval = [char_table.insert(list(e) if isinstance(e, str) else e) for e in fval]
                     array_table = self.storage.get_array_table_for_type(vf.type_def)
                     fields_dict[vf.name] = array_table.insert(fval)
+                elif isinstance(vf_base, DictionaryTypeDefinition):
+                    if isinstance(fval, (EmptyBraces, DictLiteral)):
+                        if isinstance(fval, EmptyBraces) or (isinstance(fval, DictLiteral) and not fval.entries):
+                            array_table = self.storage.get_array_table_for_type(vf.type_def)
+                            fields_dict[vf.name] = array_table.insert([])
+                        else:
+                            entries = fval.entries
+                            entry_indices = []
+                            entry_type = vf_base.entry_type
+                            entry_base = entry_type.resolve_base_type()
+                            for entry in entries:
+                                entry_values = {"key": entry.key, "value": self._resolve_instance_value(entry.value)}
+                                entry_index = self._create_instance(entry_type, entry_base, entry_values)
+                                entry_indices.append(entry_index)
+                            array_table = self.storage.get_array_table_for_type(vf.type_def)
+                            fields_dict[vf.name] = array_table.insert(entry_indices)
                 elif isinstance(vf_base, CompositeTypeDefinition):
                     if isinstance(fval, dict):
                         idx = self._create_instance(vf.type_def, vf_base, fval)
@@ -3324,7 +3417,37 @@ class QueryExecutor:
             if fval is None:
                 continue
             vf_base = vf.type_def.resolve_base_type()
-            if isinstance(vf_base, ArrayTypeDefinition) and isinstance(fval, tuple):
+            if isinstance(vf_base, EnumTypeDefinition):
+                # Direct enum field — resolve (disc, index) tuple or discriminant
+                if vf_base.has_associated_values and isinstance(fval, tuple):
+                    resolved_enum = self._resolve_swift_enum_ref(fval, vf_base)
+                    self._resolve_enum_associated_values(resolved_enum, vf_base)
+                    enum_val.fields[vf.name] = resolved_enum
+                elif not vf_base.has_associated_values and isinstance(fval, int):
+                    v = vf_base.get_variant_by_discriminant(fval)
+                    if v:
+                        enum_val.fields[vf.name] = EnumValue(variant_name=v.name, discriminant=fval)
+            elif isinstance(vf_base, DictionaryTypeDefinition) and isinstance(fval, tuple):
+                # Dict field — resolve (start_index, length) → list of resolved entries
+                start_index, length = fval
+                if length == 0:
+                    enum_val.fields[vf.name] = {}
+                else:
+                    arr_table = self.storage.get_array_table_for_type(vf.type_def)
+                    entry_type = vf_base.entry_type
+                    entry_base = entry_type.resolve_base_type()
+                    resolved_dict = {}
+                    for j in range(length):
+                        entry_idx = arr_table.element_table.get(start_index + j)
+                        entry_table = self.storage.get_table(entry_type.name)
+                        entry_record = entry_table.get(entry_idx)
+                        key_field = entry_base.get_field("key")
+                        val_field = entry_base.get_field("value")
+                        key = self._resolve_entry_field(entry_record.get("key"), key_field)
+                        val = self._resolve_entry_field(entry_record.get("value"), val_field)
+                        resolved_dict[key] = val
+                    enum_val.fields[vf.name] = resolved_dict
+            elif isinstance(vf_base, ArrayTypeDefinition) and isinstance(fval, tuple):
                 start_index, length = fval
                 if length == 0:
                     enum_val.fields[vf.name] = [] if not is_string_type(vf.type_def) else ""
@@ -3337,6 +3460,32 @@ class QueryExecutor:
                     if is_string_type(vf.type_def):
                         enum_val.fields[vf.name] = "".join(elements)
                     else:
+                        # Resolve enum elements within arrays
+                        elem_base = vf_base.element_type.resolve_base_type()
+                        if isinstance(elem_base, EnumTypeDefinition):
+                            resolved_elems = []
+                            for el in elements:
+                                if elem_base.has_associated_values and isinstance(el, tuple):
+                                    resolved_el = self._resolve_swift_enum_ref(el, elem_base)
+                                    self._resolve_enum_associated_values(resolved_el, elem_base)
+                                    resolved_elems.append(resolved_el)
+                                elif not elem_base.has_associated_values and isinstance(el, int):
+                                    v = elem_base.get_variant_by_discriminant(el)
+                                    if v:
+                                        resolved_elems.append(EnumValue(variant_name=v.name, discriminant=el))
+                                    else:
+                                        resolved_elems.append(el)
+                                else:
+                                    resolved_elems.append(el)
+                            elements = resolved_elems
+                        elif is_string_type(vf_base.element_type):
+                            char_table = self.storage.get_array_table_for_type(vf_base.element_type)
+                            str_elements = []
+                            for elem in elements:
+                                cs, cl = elem
+                                chars = [char_table.element_table.get(cs + k) for k in range(cl)]
+                                str_elements.append("".join(chars))
+                            elements = str_elements
                         enum_val.fields[vf.name] = elements
 
     def _resolve_swift_enum_ref(
@@ -3456,6 +3605,18 @@ class QueryExecutor:
                     elements = list(field_value)
                 else:
                     raise ValueError(f"Expected set literal for field '{field.name}', got {type(field_value).__name__}")
+                # Resolve EnumValueExpr elements in sets
+                elem_base = field_base.element_type.resolve_base_type()
+                if isinstance(elem_base, EnumTypeDefinition):
+                    resolved = []
+                    for elem in elements:
+                        if isinstance(elem, EnumValueExpr):
+                            enum_name = field_base.element_type.name if elem.enum_name is None else elem.enum_name
+                            elem = self._resolve_enum_value_expr(elem, enum_name)
+                        elif isinstance(elem, EnumValue) and elem_base.has_associated_values:
+                            elem = self._store_enum_value_to_variant_table(elem, elem_base)
+                        resolved.append(elem)
+                    elements = resolved
                 # Enforce uniqueness
                 seen = []
                 for elem in elements:
@@ -3505,7 +3666,17 @@ class QueryExecutor:
                     field_value = []
                 # Handle composite array elements (InlineInstance or int refs)
                 elem_base = field_base.element_type.resolve_base_type()
-                if isinstance(elem_base, CompositeTypeDefinition):
+                if isinstance(elem_base, EnumTypeDefinition):
+                    resolved = []
+                    for elem in field_value:
+                        if isinstance(elem, EnumValueExpr):
+                            enum_name = field_base.element_type.name if elem.enum_name is None else elem.enum_name
+                            elem = self._resolve_enum_value_expr(elem, enum_name)
+                        elif isinstance(elem, EnumValue) and elem_base.has_associated_values:
+                            elem = self._store_enum_value_to_variant_table(elem, elem_base)
+                        resolved.append(elem)
+                    field_value = resolved
+                elif isinstance(elem_base, CompositeTypeDefinition):
                     resolved = []
                     for elem in field_value:
                         if isinstance(elem, InlineInstance):
@@ -4398,6 +4569,27 @@ class QueryExecutor:
                                     str_elements.append("".join(chars))
                                 resolved[field.name] = SetValue(str_elements)
                             else:
+                                # Resolve enum elements in sets
+                                elem_base = field_base.element_type.resolve_base_type()
+                                if isinstance(elem_base, EnumTypeDefinition):
+                                    resolved_elems = []
+                                    for el in elements:
+                                        if elem_base.has_associated_values and isinstance(el, tuple):
+                                            ev = self._resolve_swift_enum_ref(el, elem_base)
+                                            self._resolve_enum_associated_values(ev, elem_base)
+                                            resolved_elems.append(ev)
+                                        elif not elem_base.has_associated_values:
+                                            if isinstance(el, EnumValue):
+                                                resolved_elems.append(el)
+                                            else:
+                                                v = elem_base.get_variant_by_discriminant(el)
+                                                if v:
+                                                    resolved_elems.append(EnumValue(variant_name=v.name, discriminant=el))
+                                                else:
+                                                    resolved_elems.append(el)
+                                        else:
+                                            resolved_elems.append(el)
+                                    elements = resolved_elems
                                 resolved[field.name] = SetValue(elements)
                     elif isinstance(field_base, FractionTypeDefinition):
                         resolved[field.name] = _fraction_decode(self.storage, ref[0], ref[1], ref[2], ref[3])
@@ -4438,6 +4630,27 @@ class QueryExecutor:
                                     str_elements.append("".join(chars))
                                 resolved[field.name] = str_elements
                             else:
+                                # Resolve enum elements in arrays
+                                elem_base = field_base.element_type.resolve_base_type()
+                                if isinstance(elem_base, EnumTypeDefinition):
+                                    resolved_elems = []
+                                    for el in elements:
+                                        if elem_base.has_associated_values and isinstance(el, tuple):
+                                            ev = self._resolve_swift_enum_ref(el, elem_base)
+                                            self._resolve_enum_associated_values(ev, elem_base)
+                                            resolved_elems.append(ev)
+                                        elif not elem_base.has_associated_values:
+                                            if isinstance(el, EnumValue):
+                                                resolved_elems.append(el)
+                                            else:
+                                                v = elem_base.get_variant_by_discriminant(el)
+                                                if v:
+                                                    resolved_elems.append(EnumValue(variant_name=v.name, discriminant=el))
+                                                else:
+                                                    resolved_elems.append(el)
+                                        else:
+                                            resolved_elems.append(el)
+                                    elements = resolved_elems
                                 resolved[field.name] = elements
                     elif isinstance(field_base, InterfaceTypeDefinition):
                         # ref is (type_id, index) tuple
@@ -4498,6 +4711,21 @@ class QueryExecutor:
                     str_elements.append("".join(chars))
                 return str_elements
             return elements
+        if isinstance(field_base, EnumTypeDefinition):
+            if field_base.has_associated_values:
+                if isinstance(ref, tuple):
+                    enum_val = self._resolve_swift_enum_ref(ref, field_base)
+                    self._resolve_enum_associated_values(enum_val, field_base)
+                    return enum_val
+                return ref
+            else:
+                # C-style enum — resolve discriminant to EnumValue
+                if isinstance(ref, EnumValue):
+                    return ref
+                variant = field_base.get_variant_by_discriminant(ref)
+                if variant:
+                    return EnumValue(variant_name=variant.name, discriminant=ref)
+                return ref
         if isinstance(field_base, CompositeTypeDefinition):
             return f"<{field_def.type_def.name}[{ref}]>"
         if is_boolean_type(field_def.type_def):
@@ -6110,7 +6338,7 @@ class QueryExecutor:
 
         # Emit only the necessary forward declarations
         for name in sorted(needs_forward):
-            lines.append(f"forward {name}")
+            lines.append(f"forward type {name}")
 
         # Helper to emit a type definition
         def emit_type_def(name: str, comp_def: CompositeTypeDefinition) -> None:
@@ -7334,6 +7562,22 @@ class QueryExecutor:
                     cs, cl = elem
                     chars = [char_table.element_table.get(cs + k) for k in range(cl)]
                     elem_strs.append(self._format_ttq_string("".join(chars)))
+            elif isinstance(elem_base, EnumTypeDefinition):
+                elem_strs = []
+                for elem in elements:
+                    if elem_base.has_associated_values and isinstance(elem, tuple):
+                        ev = self._resolve_swift_enum_ref(elem, elem_base)
+                        self._resolve_enum_associated_values(ev, elem_base)
+                        elem_strs.append(self._format_enum_value_ttq(ev, elem_base))
+                    elif isinstance(elem, EnumValue):
+                        elem_strs.append(self._format_enum_value_ttq(elem, elem_base))
+                    else:
+                        v = elem_base.get_variant_by_discriminant(elem)
+                        if v:
+                            ev = EnumValue(variant_name=v.name, discriminant=elem)
+                            elem_strs.append(self._format_enum_value_ttq(ev, elem_base))
+                        else:
+                            elem_strs.append(str(elem))
             else:
                 elem_strs = [self._format_ttq_value(e, elem_base) for e in elements]
             return "{" + ", ".join(elem_strs) + "}"
@@ -7381,7 +7625,31 @@ class QueryExecutor:
                     elem_strs.append(self._format_ttq_string(s))
                 return f"[{', '.join(elem_strs)}]"
 
-            if isinstance(elem_base, CompositeTypeDefinition):
+            if isinstance(elem_base, EnumTypeDefinition):
+                # Array of enums — resolve and format each
+                elem_strs = []
+                for elem in elements:
+                    if elem_base.has_associated_values and isinstance(elem, tuple):
+                        ev = self._resolve_swift_enum_ref(elem, elem_base)
+                        self._resolve_enum_associated_values(ev, elem_base)
+                        elem_strs.append(self._format_enum_value_ttq(ev, elem_base))
+                    elif isinstance(elem, EnumValue):
+                        elem_strs.append(self._format_enum_value_ttq(elem, elem_base))
+                    else:
+                        # C-style: raw discriminant
+                        v = elem_base.get_variant_by_discriminant(elem)
+                        if v:
+                            ev = EnumValue(variant_name=v.name, discriminant=elem)
+                            elem_strs.append(self._format_enum_value_ttq(ev, elem_base))
+                        else:
+                            elem_strs.append(str(elem))
+                if pretty:
+                    inner_indent = " " * (indent + 4)
+                    close_indent = " " * indent
+                    elems_joined = (",\n" + inner_indent).join(elem_strs)
+                    return f"[\n{inner_indent}{elems_joined}\n{close_indent}]"
+                return f"[{', '.join(elem_strs)}]"
+            elif isinstance(elem_base, CompositeTypeDefinition):
                 # Array of composites — format each as inline instance
                 elem_strs = []
                 for elem in elements:
@@ -7510,12 +7778,51 @@ class QueryExecutor:
                             if is_string_type(vf.type_def):
                                 field_strs.append(f"{vf.name}={self._format_ttq_string(''.join(elements))}")
                             else:
-                                elem_strs = [self._format_ttq_value(e, vf_base.element_type.resolve_base_type()) for e in elements]
+                                elem_type_base = vf_base.element_type.resolve_base_type()
+                                if isinstance(elem_type_base, EnumTypeDefinition):
+                                    elem_strs = []
+                                    for e in elements:
+                                        if isinstance(e, tuple) and elem_type_base.has_associated_values:
+                                            e = self._resolve_swift_enum_ref(e, elem_type_base)
+                                        if isinstance(e, EnumValue):
+                                            elem_strs.append(self._format_enum_value_ttq(e, elem_type_base))
+                                        else:
+                                            elem_strs.append(str(e))
+                                else:
+                                    elem_strs = [self._format_ttq_value(e, elem_type_base) for e in elements]
                                 field_strs.append(f"{vf.name}=[{', '.join(elem_strs)}]")
                     else:
                         field_strs.append(f"{vf.name}={fval}")
-                elif isinstance(vf_base, EnumTypeDefinition) and isinstance(fval, EnumValue):
-                    field_strs.append(f"{vf.name}={self._format_enum_value_ttq(fval, vf_base)}")
+                elif isinstance(vf_base, DictionaryTypeDefinition):
+                    if isinstance(fval, tuple):
+                        start_index, length = fval
+                        if length == 0:
+                            field_strs.append(f"{vf.name}={{:}}")
+                        else:
+                            arr_table = self.storage.get_array_table_for_type(vf.type_def)
+                            entry_type = vf_base.entry_type
+                            entry_base = entry_type.resolve_base_type()
+                            key_field = entry_base.get_field("key")
+                            val_field = entry_base.get_field("value")
+                            entry_strs = []
+                            for j in range(length):
+                                entry_idx = arr_table.element_table.get(start_index + j)
+                                entry_table = self.storage.get_table(entry_type.name)
+                                entry_record = entry_table.get(entry_idx)
+                                k_str = self._format_field_value(key_field, entry_record["key"])
+                                v_str = self._format_field_value(val_field, entry_record["value"])
+                                entry_strs.append(f"{k_str}: {v_str}")
+                            field_strs.append(f"{vf.name}={{{', '.join(entry_strs)}}}")
+                    else:
+                        field_strs.append(f"{vf.name}={fval}")
+                elif isinstance(vf_base, EnumTypeDefinition):
+                    if isinstance(fval, tuple) and vf_base.has_associated_values:
+                        # Raw (disc, index) tuple — resolve to EnumValue first
+                        fval = self._resolve_swift_enum_ref(fval, vf_base)
+                    if isinstance(fval, EnumValue):
+                        field_strs.append(f"{vf.name}={self._format_enum_value_ttq(fval, vf_base)}")
+                    else:
+                        field_strs.append(f"{vf.name}={fval}")
                 else:
                     field_strs.append(f"{vf.name}={self._format_ttq_value(fval, vf_base)}")
         return f"{enum_def.name}.{ev.variant_name}({', '.join(field_strs)})"

@@ -711,7 +711,7 @@ from LinkedNode select *;
 
         script.write_text(f"""
 use "{db_path}";
-forward B;
+forward type B;
 type A {{ value: uint8, b: B }}
 type B {{ value: uint8, a: A }}
 describe A;
@@ -728,7 +728,7 @@ describe B;
         script = tmp_path / "test.ttq"
         script.write_text(f"""
 use "{db_path}";
-forward B;
+forward type B;
 type A {{ value: uint8, b: B }}
 type B {{ value: uint8, a: A }}
 $a = create A(value=1, b=B(value=2, a=A(0)));
@@ -795,7 +795,7 @@ create Node(value=0, children=[Node(value=2, children=[]), Node(value=3, childre
         script = tmp_path / "setup.ttq"
         script.write_text(f"""
 use "{db_path}";
-forward B;
+forward type B;
 type A {{ value: uint8, b: B }}
 type B {{ value: uint8, a: A }}
 create A(value=1, b=B(value=2, a=A(0)));
@@ -816,7 +816,7 @@ create A(value=1, b=B(value=2, a=A(0)));
         dump_result = executor.execute(DumpQuery())
         assert isinstance(dump_result, DumpResult)
         # Should contain forward declarations
-        assert "forward A" in dump_result.script or "forward B" in dump_result.script
+        assert "forward type A" in dump_result.script or "forward type B" in dump_result.script
         storage.close()
 
         # Execute dump into fresh db
