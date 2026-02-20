@@ -40,14 +40,9 @@ class Table:
         self._count = 0
         self._capacity = 0  # Number of records that fit in current file
 
-        self._open_or_create()
-
-    def _open_or_create(self) -> None:
-        """Open existing file or create new one."""
         if self.file_path.exists():
             self._open_existing()
-        else:
-            self._create_new()
+        # Otherwise stay lazy — file created on first insert()
 
     def _create_new(self) -> None:
         """Create a new table file."""
@@ -112,6 +107,8 @@ class Table:
 
     def insert(self, value: Any) -> int:
         """Insert a value and return its index."""
+        if self._mmap is None:
+            self._create_new()
         if self._count >= self._capacity:
             self._grow_file()
 
