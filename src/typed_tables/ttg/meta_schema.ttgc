@@ -95,7 +95,7 @@ identity {
 -- cannot be expressed yet. Needs language support for expressions
 -- that reference the traversal context (the owning type).
 
--- Shortcuts (contain TTGE expressions)
+-- Shortcuts (contain TTG expressions)
 shortcut {
     "all": types.fields{edge=.name, result=.type}.extends{edge="extends"}.interfaces{edge="implements"}
 }

@@ -128,8 +128,12 @@ class TTGCParser:
         """axis_entry : IDENTIFIER COLON LBRACKET dotted_name_list RBRACKET opt_comma"""
         self._config.axes[p[1]] = p[4]
 
-    def p_dotted_name(self, p: yacc.YaccProduction) -> None:
+    def p_dotted_name_base(self, p: yacc.YaccProduction) -> None:
         """dotted_name : IDENTIFIER DOT IDENTIFIER"""
+        p[0] = f"{p[1]}.{p[3]}"
+
+    def p_dotted_name_extend(self, p: yacc.YaccProduction) -> None:
+        """dotted_name : dotted_name DOT IDENTIFIER"""
         p[0] = f"{p[1]}.{p[3]}"
 
     def p_dotted_name_list_single(self, p: yacc.YaccProduction) -> None:

@@ -1,0 +1,26 @@
+-- TTG config for json_test database
+-- Maps JSON document types to graph selectors and axes
+
+selector {
+    documents: JsonDocument,
+    entries: Dict_string_JsonValue
+}
+
+group {
+    all: [documents, entries]
+}
+
+-- Forward axes: relationships between records
+-- Multi-segment paths traverse through enums and dicts
+axis {
+    object_entries: documents.root.object.entries,
+    array_elements: documents.root.array.elements,
+    nested_objects: entries.value.object.entries,
+    nested_arrays: entries.value.array.elements
+}
+
+-- Node identity
+identity {
+    default: name,
+    entries: key
+}
